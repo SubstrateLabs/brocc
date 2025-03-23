@@ -1,19 +1,13 @@
 /**
  * https://arcticjs.dev/providers/notion
  */
-import {
-  CreateOAuthUrlFn,
-  ValidateOAuthCodeFn,
-  TestOAuthConnectionFn,
-  RevokeOAuthConnectionFn,
-} from "../provider-interface";
+import { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { Notion, generateState } from "arctic";
 import type { TokenStore } from "../token-store";
 import { oauthRedirectUri } from "../oauth-urls";
 import { Client } from "@notionhq/client";
 import { type OauthProvider } from "@/lib/oauth/types";
 import { getEnvVar } from "../../get-env-var";
-import { withRetry } from "../../with-retry";
 
 const DOMAIN: OauthProvider = "notion";
 const CLIENT_ID = getEnvVar("NOTION_OAUTH_CLIENT_ID");
@@ -109,45 +103,4 @@ export const validateOAuthCode: ValidateOAuthCodeFn = async ({ code, cookieStore
       userId,
     },
   };
-};
-
-/**
- * Using a simple me() query to test the connection
- * https://developers.notion.com/reference/get-self
- */
-export const testNotionConnection: TestOAuthConnectionFn = async ({ store, userId, account }) => {
-  const client = await authorizedClient({ store, userId, account });
-  if (!client) {
-    return { success: false };
-  }
-  try {
-    await withRetry(async () => {
-      await client.users.me({});
-    });
-    return { success: true };
-  } catch (error) {
-    console.warn(`Failed test: ${error}`);
-    return { success: false };
-  }
-};
-
-/**
- * NOTE: Notion doesn't support revoking oauth tokens
- * but we can delete from our token store
- */
-export const revokeNotionConnection: RevokeOAuthConnectionFn = async ({ store, account, userId }) => {
-  const client = await authorizedClient({
-    store,
-    userId,
-    account: account as string,
-  });
-  if (!client) {
-    return false;
-  }
-  await store.removeTokenAccount({
-    domain: DOMAIN,
-    account,
-    workosUserId: userId,
-  });
-  return true;
 };

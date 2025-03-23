@@ -28,3 +28,27 @@ export async function fetchConnections(userId: string) {
 
   return connections;
 }
+
+export async function getAccountLabel(userId: string, domain: OauthProvider, accountId: string) {
+  const accounts = await store.getTokenAccounts({
+    domain,
+    workosUserId: userId,
+  });
+
+  const account = accounts.find((a) => a.account === accountId);
+  if (!account) {
+    return accountId;
+  }
+
+  if (domain === "notion") {
+    console.log("account", JSON.stringify(account, null, 2));
+    if (!account.providerMetadata) {
+      return account.account;
+    }
+    return account.providerMetadata?.workspaceName;
+  } else if (domain === "slack") {
+    return account.providerMetadata?.team;
+  }
+
+  return account.account;
+}

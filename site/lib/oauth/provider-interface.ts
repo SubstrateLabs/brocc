@@ -21,10 +21,7 @@ export type CreateOAuthUrlFn = (params: {
 }) => Promise<URL>;
 
 /** Validate an OAuth code */
-export type ValidateOAuthCodeFn = (params: {
-  code: string;
-  cookieStore: CookieStore;
-}) => Promise<ValidateOAuthCodeRes>;
+export type ValidateOAuthCodeFn = (params: { code: string; cookieStore: CookieStore }) => Promise<ValidateOAuthCodeRes>;
 
 /**
  * @field account: provider-specific account/workspace identifier (e.g. email, team_id)
@@ -32,24 +29,3 @@ export type ValidateOAuthCodeFn = (params: {
 export interface ValidateOAuthCodeRes extends TokenData {
   account: string;
 }
-
-/** Test an OAuth connection */
-export type TestOAuthConnectionFn = (params: {
-  store: TokenStore;
-  account: string;
-  userId: string;
-}) => Promise<TestConnectionRes>;
-
-export interface TestConnectionRes {
-  success: boolean;
-  // Provider metadata can be returned from TestOAuthConnectionFn (stored in token data)
-  // or ValidateOAuthCodeFn (not stored)
-  providerMetadata?: Record<string, unknown> | null;
-}
-
-/** Revoke an OAuth connection, for a specific account */
-export type RevokeOAuthConnectionFn = (params: {
-  store: TokenStore;
-  account: string;
-  userId: string;
-}) => Promise<boolean>;

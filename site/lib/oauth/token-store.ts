@@ -165,6 +165,7 @@ export abstract class TokenStore {
       account,
       workosUserId,
       scope,
+      providerMetadata: data.providerMetadata,
     });
     const key = this.dataKey(domain, account, workosUserId);
     await this.setData(key, data);
@@ -188,11 +189,13 @@ export abstract class TokenStore {
     account,
     workosUserId,
     scope,
+    providerMetadata,
   }: {
     domain: OauthProvider;
     account: string;
     workosUserId: string;
-    scope: string;
+    scope?: string | null;
+    providerMetadata?: Record<string, unknown> | null;
   }) {
     const key = this.accountsKey(domain, workosUserId);
     const accounts = await this.getAccounts(key);
@@ -203,11 +206,11 @@ export abstract class TokenStore {
         existingAccount.scope = scope;
         await this.setAccounts(key, accounts);
       } else {
-        accounts.push({ account, scope });
+        accounts.push({ account, scope, providerMetadata });
         await this.setAccounts(key, accounts);
       }
     } else {
-      await this.setAccounts(key, [{ account, scope }]);
+      await this.setAccounts(key, [{ account, scope, providerMetadata }]);
     }
   }
 

@@ -11,9 +11,10 @@ import { cn } from "@/lib/utils";
 import { getProviderIcon } from "@/components/oauth/provider-icon";
 import { ScopeList } from "@/components/oauth/scope-list";
 import { oauthCreatePath } from "@/lib/oauth/oauth-urls";
-import { accountLabelForConnection } from "@/components/oauth/account-label";
 import { type OauthProvider } from "@/lib/oauth/types";
 import { formatDistanceToNow } from "date-fns";
+import { getAccountLabel } from "@/app/dashboard/actions";
+import { useEffect, useState } from "react";
 
 export function ProviderPanel({
   connections,
@@ -39,6 +40,25 @@ export function ProviderPanel({
       .replace(" day", "d");
     return res + " ago";
   };
+
+  const [accountLabels, setAccountLabels] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Load all account labels
+    Object.entries(connections).forEach(([domain, accounts]) => {
+      accounts.forEach(async (conn) => {
+        const label = await getAccountLabel(userId, domain as OauthProvider, conn.account);
+        if (typeof label === 'string') {
+          const key = `${domain}:${conn.account}`;
+          setAccountLabels((prev) => {
+            const next = {...prev};
+            next[key] = label;
+            return next;
+          });
+        }
+      });
+    });
+  }, [connections, userId]);
 
   return (
     <>
@@ -78,11 +98,7 @@ export function ProviderPanel({
                             className="text-muted-foreground group-open:text-foreground transition-transform group-open:rotate-90"
                           />
                           <span className="text-sm">
-                            {accountLabelForConnection(domain, {
-                              domain,
-                              account: conn.account,
-                              providerMetadata: conn.providerMetadata,
-                            })}
+                            {accountLabels[`${domain}:${conn.account}`] || conn.account}
                           </span>
                         </div>
                         <div className="text-muted-foreground group-open:hidden text-xs">
