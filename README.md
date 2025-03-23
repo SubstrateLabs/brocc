@@ -1,9 +1,14 @@
 # brocc
 
-# oclif cli
+# site
 
-login
+- login
+- workos setup
+- minor oauth rework
+  - testconnection: remove (get provider metadata for notion on connect)
 
-# next app
+# cli
 
-workos
+- textualize
+- publish cli
+- login
