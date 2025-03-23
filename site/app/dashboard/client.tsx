@@ -31,7 +31,7 @@ export function DashboardPageClient({ user }: DashboardClientProps) {
   const { connections, isLoading: isLoadingConnections, refresh: refreshData } = useConnections(user.id);
 
   return (
-    <div className="flex flex-col gap-2 h-full flex-grow">
+    <div className="flex flex-col gap-2 p-2 h-full flex-grow">
       {isLoadingConnections ? (
         <ProviderPanelSkeleton />
       ) : (
