@@ -1,14 +1,27 @@
 # brocc
 
-# site
+- cli login flow
 
-- login
-- workos setup
-- minor oauth rework
-  - testconnection: remove (get provider metadata for notion on connect)
+# install
 
-# cli
+```sh
+% pipx install brocc-li
+... installed package brocc-li 0.0.X, installed using Python 3.Y.Z
+...  These apps are now globally available
+...    - brocc
+% brocc
+```
 
-- textualize
-- publish cli
-- login
+# developing
+
+```sh
+uv run brocc
+```
+
+# publishing the cli
+
+```sh
+# update  __about__.py
+hatch build
+hatch publish -u __token__ -a $PYPI_TOKEN
+```

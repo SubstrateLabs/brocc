@@ -9,7 +9,7 @@ export function oauthCreatePath({ domain, account }: { domain: OauthProvider; ac
 
 function getBaseUrl(): string {
   if (process.env.VERCEL_ENV === "production") {
-    return process.env.NEXT_PUBLIC_SITE_URL ?? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+    return "https://brocc.li";
   }
   return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
 }
