@@ -3,9 +3,7 @@
  */
 import { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { Notion, generateState } from "arctic";
-import type { TokenStore } from "../token-store";
 import { oauthRedirectUri } from "../oauth-urls";
-import { Client } from "@notionhq/client";
 import { type OauthProvider } from "@/lib/oauth/types";
 import { getEnvVar } from "../../get-env-var";
 
@@ -17,30 +15,6 @@ const VERIFY_COOKIE = `oauth.${DOMAIN}.state`;
 function authClient(): Notion {
   const redirectUri = oauthRedirectUri({ domain: DOMAIN });
   return new Notion(CLIENT_ID, CLIENT_SECRET, redirectUri);
-}
-
-export async function authorizedClient({
-  store,
-  account,
-  userId,
-}: {
-  store: TokenStore;
-  account: string;
-  userId: string;
-}): Promise<Client | null> {
-  const data = await store.getTokenData({
-    domain: DOMAIN,
-    account: account,
-    workosUserId: userId,
-  });
-  if (!data || !data.accessToken) {
-    console.warn(`No token data for user: ${userId}`);
-    return null;
-  }
-  const client = new Client({
-    auth: data.accessToken,
-  });
-  return client;
 }
 
 /**

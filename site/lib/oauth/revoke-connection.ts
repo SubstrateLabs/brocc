@@ -1,8 +1,8 @@
 "use server";
 
-import { RedisTokenStore } from "../redis-token-store";
+import { RedisTokenStore } from "./redis-token-store";
 import { revalidatePath } from "next/cache";
-import { type OauthProvider } from "../types";
+import { type OauthProvider } from "./types";
 
 export async function revokeConnection(formData: FormData) {
   const domain = formData.get("domain") as string;

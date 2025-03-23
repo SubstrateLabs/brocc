@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { revokeConnection } from "@/lib/oauth/actions/revoke-connection";
+import { revokeConnection } from "@/lib/oauth/revoke-connection";
 import { X } from "lucide-react";
 import { type OauthProvider } from "@/lib/oauth/types";
 

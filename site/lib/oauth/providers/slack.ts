@@ -1,16 +1,9 @@
 /**
  * https://arcticjs.dev/providers/slack
  */
-import {
-  CreateOAuthUrlFn,
-  ValidateOAuthCodeFn,
-  TestOAuthConnectionFn,
-  RevokeOAuthConnectionFn,
-} from "../provider-interface";
+import { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { Slack, generateState, decodeIdToken } from "arctic";
-import { WebClient } from "@slack/web-api";
 import { incrementalAuthScopes } from "../incremental-auth";
-import type { TokenStore } from "../token-store";
 import { oauthRedirectUri } from "@/lib/oauth/oauth-urls";
 import { type OauthProvider } from "@/lib/oauth/types";
 import { getEnvVar } from "@/lib/get-env-var";
@@ -23,28 +16,6 @@ const VERIFY_COOKIE = `oauth.${DOMAIN}.state`;
 function authClient(): Slack {
   const redirectUri = oauthRedirectUri({ domain: DOMAIN });
   return new Slack(CLIENT_ID, CLIENT_SECRET, redirectUri);
-}
-
-async function authorizedClient({
-  store,
-  userId,
-  account,
-}: {
-  store: TokenStore;
-  userId: string;
-  account: string;
-}): Promise<WebClient | null> {
-  const data = await store.getTokenData({
-    domain: DOMAIN,
-    account: account,
-    workosUserId: userId,
-  });
-  if (!data || !data.accessToken) {
-    console.warn(`No token data for account: ${account}`);
-    return null;
-  }
-  const client = new WebClient(data.accessToken);
-  return client;
 }
 
 /**
@@ -109,61 +80,4 @@ export const validateOAuthCode: ValidateOAuthCodeFn = async ({ code, cookieStore
     // @ts-expect-error – see docs
     account: claims["https://slack.com/team_id"],
   };
-};
-
-/**
- * https://api.slack.com/methods/auth.test
- */
-export const testSlackConnection: TestOAuthConnectionFn = async ({ store, userId, account }) => {
-  const client = await authorizedClient({
-    store,
-    userId,
-    account: account as string,
-  });
-  if (!client) {
-    return { success: false };
-  }
-  try {
-    const res = await client.auth.test();
-    return {
-      success: true,
-      providerMetadata: {
-        url: res.url,
-        team: res.team,
-        user: res.user,
-        team_id: res.team_id,
-        user_id: res.user_id,
-      },
-    };
-  } catch (error) {
-    console.warn(`Failed test, revoking connection: ${error}`);
-    await revokeSlackConnection({ store, account, userId });
-    return { success: false };
-  }
-};
-
-/**
- * https://api.slack.com/methods/auth.revoke
- */
-export const revokeSlackConnection: RevokeOAuthConnectionFn = async ({ store, account, userId }) => {
-  const client = await authorizedClient({
-    store,
-    userId,
-    account: account as string,
-  });
-  if (!client) {
-    return false;
-  }
-  try {
-    await client.auth.revoke();
-  } catch (error) {
-    console.error(`error revoking credentials: ${error}`);
-    return false;
-  }
-  await store.removeTokenAccount({
-    domain: DOMAIN,
-    account,
-    workosUserId: userId,
-  });
-  return true;
 };
