@@ -27,3 +27,8 @@ uv run brocc
 hatch build
 hatch publish -u __token__ -a $PYPI_TOKEN
 ```
+
+# browser-use
+
+- sending email example: https://github.com/browser-use/browser-use/blob/main/examples/custom-functions/notification.py
+- controller = Controller(exclude_actions=['open_tab', 'search_google'])
