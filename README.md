@@ -1,6 +1,8 @@
 # brocc
 
+- browser-use
 - cli login flow
+- proxy endpoint for browser-use
 
 # install
 
@@ -21,7 +23,7 @@ uv run brocc
 # publishing the cli
 
 ```sh
-# update  __about__.py
+# update version in __about__.py
 hatch build
 hatch publish -u __token__ -a $PYPI_TOKEN
 ```

@@ -7,25 +7,31 @@ name = "brocc-li"
 dynamic = ["version"]
 description = ''
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = []
 authors = [{ name = "Ben Guo", email = "ben@substrate.run" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = ["textual>=0.73.0"]
+dependencies = [
+    "browser-use>=0.1.40",
+    "playwright>=1.48.0",
+    "textual>=0.73.0",
+]
 
 [project.scripts]
 brocc = "brocc_li.entry_points:run"
+
+[tool.hatch.envs.default]
+post-install-commands = [
+    "playwright install chromium"
+]
 
 [project.urls]
 Documentation = "https://brocc.li"
