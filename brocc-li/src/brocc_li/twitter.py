@@ -1,11 +1,28 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
+from rich.table import Table
 from typing import List, Dict, Any, ClassVar
 from pydantic import BaseModel, ConfigDict
 from .chrome import connect_to_chrome, open_new_tab
 from .extract import SchemaField, scroll_and_extract
 
 console = Console()
+
+
+def convert_metric(text: str) -> str:
+    """Convert metric strings like '1.2K' or '3.4M' to full numbers."""
+    if not text:
+        return "0"
+
+    text = text.replace(",", "")
+
+    if "K" in text:
+        num = float(text.replace("K", ""))
+        return str(int(num * 1000))
+    elif "M" in text:
+        num = float(text.replace("M", ""))
+        return str(int(num * 1000000))
+    return text
 
 
 class TwitterFeedSchema(BaseModel):
@@ -100,26 +117,22 @@ class TwitterFeedSchema(BaseModel):
     replies: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="reply"]',
         extract=lambda element, field: (
-            element.query_selector(field.selector)
-            .query_selector("span")
-            .inner_text()
-            .replace(",", "")
-            .replace("K", "000")
-            .replace("M", "000000")
-            or "0"
+            convert_metric(
+                element.query_selector(field.selector)
+                .query_selector("span")
+                .inner_text()
+            )
         ),
     )
 
     retweets: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="retweet"]',
         extract=lambda element, field: (
-            element.query_selector(field.selector)
-            .query_selector("span")
-            .inner_text()
-            .replace(",", "")
-            .replace("K", "000")
-            .replace("M", "000000")
-            or "0"
+            convert_metric(
+                element.query_selector(field.selector)
+                .query_selector("span")
+                .inner_text()
+            )
         ),
     )
 
@@ -130,9 +143,7 @@ class TwitterFeedSchema(BaseModel):
                 like_element := element.query_selector(field.selector),
                 span := like_element.query_selector("span") if like_element else None,
                 text := span.inner_text() if span else "",
-                text.replace(",", "").replace("K", "000").replace("M", "000000")
-                if text
-                else "0",
+                convert_metric(text),
             )[-1]
         )(),
     )
@@ -148,87 +159,58 @@ class TwitterFeedSchema(BaseModel):
 
 
 def display_tweets(posts: List[Dict[str, Any]]) -> None:
-    console.print("\n[bold magenta]All Tweets[/bold magenta]")
-
-    # Split tweets into those with and without links
-    tweets_with_links = []
-    tweets_without_links = []
-
-    for post in posts:
-        text_data = post.get("text", {})
-        links = text_data.get("links", [])
-        if links:
-            tweets_with_links.append(post)
-        else:
-            tweets_without_links.append(post)
-
-    # Display tweets without links first
-    for i, post in enumerate(tweets_without_links, 1):
-        display_single_tweet(post, i)
-
-    # Display tweets with links at the bottom
-    if tweets_with_links:
-        console.print("\n[bold magenta]Tweets with Links[/bold magenta]")
-        for i, post in enumerate(tweets_with_links, len(tweets_without_links) + 1):
-            display_single_tweet(post, i)
-
-    console.print(
-        f"\n[green]Found {len(tweets_with_links)} tweets with links out of {len(posts)} total tweets[/green]"
+    """Display tweets using rich Table with better formatting."""
+    table = Table(
+        title="Tweets",
+        show_header=True,
+        header_style="bold magenta",
+        show_lines=True,
+        width=console.width,
     )
 
+    # Add columns with appropriate width ratios
+    table.add_column("Author", style="cyan", width=20, no_wrap=True)
+    table.add_column("Content", style="white", ratio=3)
+    table.add_column("Links", style="blue", ratio=1)
+    table.add_column("Time", style="green", width=20)
+    table.add_column("Metrics", style="yellow", width=15)
 
-def display_single_tweet(post: Dict[str, Any], index: int) -> None:
-    """Display a single tweet in a hierarchical format."""
-    console.print(f"\n[bold white]Tweet {index}[/bold white]")
+    for post in posts:
+        # Author info
+        author = post.get("author", {})
+        display_name = author.get("display_name", "Unknown")
+        handle = author.get("handle", "")
+        author_str = f"{display_name}\n@{handle}" if handle else display_name
 
-    # Author
-    if post.get("author"):
-        display_name = post["author"].get("display_name", "Unknown")
-        handle = post["author"].get("handle", "")
-        author = f"{display_name} (@{handle})" if handle else display_name
-    else:
-        author = "Unknown"
-    console.print(f"  [green]Author:[/green] {author}")
+        # Text and links
+        text_data = post.get("text", {})
+        content = text_data.get("content", "No text")
+        links = text_data.get("links", [])
+        links_str = (
+            "\n".join(f"{link['text']}\n→ {link['url']}" for link in links)
+            or "No links"
+        )
 
-    # Text and Links
-    text_data = post.get("text", {})
-    content = text_data.get("content", "No text")
-    console.print(f"  [white]Text:[/white] {content}")
+        # Metrics and timestamp
+        replies = post.get("replies", "0")
+        retweets = post.get("retweets", "0")
+        likes = post.get("likes", "0")
+        metrics = f"💬 {replies}\n🔄 {retweets}\n❤️ {likes}"
 
-    # Links (if any)
-    links = text_data.get("links", [])
-    if links:
-        console.print("  [blue]Links:[/blue]")
-        for link in links:
-            text = link.get("text", "")
-            url = link.get("url", "")
-            if text and url:
-                console.print(f"    {text} -> {url}")
+        timestamp = post.get("timestamp", "No timestamp").split("T")[
+            0
+        ]  # Just show date for compactness
 
-    # Timestamp
-    timestamp = post.get("timestamp", "No timestamp")
-    console.print(f"  [magenta]Time:[/magenta] {timestamp}")
+        # Images (add as part of content if present)
+        images = [img["url"] for img in post.get("images", []) if img is not None]
+        if images:
+            content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
+                f"📸 {url}" for url in images
+            )
 
-    # URL
-    url = post.get("url", "N/A")
-    console.print(f"  [blue]URL:[/blue] {url}")
+        table.add_row(author_str, content, links_str, timestamp, metrics)
 
-    # Metrics
-    replies = post.get("replies", "0")
-    retweets = post.get("retweets", "0")
-    likes = post.get("likes", "0")
-    console.print(f"  [yellow]Metrics:[/yellow] 💬{replies} 🔄{retweets} ❤️{likes}")
-
-    # Images
-    images = [img["url"] for img in post.get("images", []) if img is not None]
-    if images:
-        console.print("  [blue]Images:[/blue]")
-        for url in images:
-            console.print(f"    {url}")
-    else:
-        console.print("  [blue]Images:[/blue] No images")
-
-    console.print("  [dim]―――――――――――――――――――――――――[/dim]")
+    console.print(table)
 
 
 def run() -> bool:
