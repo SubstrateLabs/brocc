@@ -4,7 +4,7 @@ from rich.table import Table
 from typing import List, Dict, Any, ClassVar
 from pydantic import BaseModel, ConfigDict
 from .chrome import connect_to_chrome, open_new_tab
-from .extract import SchemaField, scroll_and_extract
+from .extract import SchemaField, scroll_and_extract, DeepScrapeOptions
 import time
 from datetime import datetime
 import re
@@ -85,6 +85,9 @@ class SubstackFeedSchema(BaseModel):
         transform=lambda x: x if x and "placeholder" not in x else None,
     )
 
+    # This field will be populated during deep scraping
+    content: ClassVar[SchemaField] = SchemaField(selector="", transform=lambda x: x)
+
 
 def display_posts(posts: List[Dict[str, Any]]) -> None:
     """Display Substack posts using rich Table with nice formatting."""
@@ -105,6 +108,9 @@ def display_posts(posts: List[Dict[str, Any]]) -> None:
     table.add_column("Length", style="magenta", width=10)
     table.add_column("Paid", style="green", width=5)
     table.add_column("URL", style="blue", width=30)
+    table.add_column(
+        "Markdown", style="dim", ratio=2
+    )  # New column for markdown preview
 
     for post in posts:
         # Publication info
@@ -126,7 +132,18 @@ def display_posts(posts: List[Dict[str, Any]]) -> None:
         # URL
         url = post.get("url", "")
 
-        # Add to table with dedicated is_paid column
+        # Markdown preview
+        markdown_preview = ""
+        if "content" in post and post["content"]:
+            # Get first 100 characters as preview
+            content_text = post["content"].replace("\n", " ").strip()
+            markdown_preview = (
+                (content_text[:100] + "...")
+                if len(content_text) > 100
+                else content_text
+            )
+
+        # Add to table with dedicated is_paid column and markdown preview
         table.add_row(
             pub_name,
             title,
@@ -136,6 +153,7 @@ def display_posts(posts: List[Dict[str, Any]]) -> None:
             length_display,
             is_paid,
             url,
+            markdown_preview,
         )
 
     console.print(table)
@@ -171,60 +189,43 @@ def run() -> bool:
         # Start timing right before extraction
         start_time = time.time()
 
-        # Scroll and extract posts
+        # Configure deep scraping options with rate limiting
+        deep_scrape_options = DeepScrapeOptions(
+            enabled=True,
+            # Optimized selector list based on debug results from test runs
+            # 'article' had the most content (133607 chars), followed by '.available-content' (57692 chars)
+            content_selector="article, .available-content, .body, .postContent, .post-content, .prose, div[data-component=post-body], .post-content-container",
+            markdown_field_name="content",
+            wait_networkidle=True,
+            timeout_ms=10000,  # initial load timeout
+            restore_scroll=True,
+            # Rate limiting settings to avoid throttling
+            min_delay_ms=1000,  # Minimum delay
+            max_delay_ms=2000,  # Maximum delay
+            jitter_factor=0.3,  # 30% randomness in timing
+            # Enable markdown saving
+            save_markdown=True,
+            markdown_folder="debug",
+            include_frontmatter=True,
+        )
+
+        # Set the maximum number of posts to extract
+        max_posts = 4
+
+        console.print(f"[cyan]Starting extraction of up to {max_posts} posts...[/cyan]")
+
+        # Scroll and extract posts with deep scraping enabled
         posts = scroll_and_extract(
             page=page,
             schema=SubstackFeedSchema,
             container_selector=".reader2-post-container",
-            max_items=20,
+            max_items=max_posts,  # Using the variable for clarity
             url_field="url",
             progress_label="posts",
+            deep_scrape_options=deep_scrape_options,
         )
 
         if posts:
-            # Debug: Print HTML structure of first post
-            first_element = page.query_selector(".reader2-post-container")
-            if first_element:
-                console.print(
-                    "\n[bold yellow]DEBUG: First post HTML structure[/bold yellow]"
-                )
-                console.print(
-                    f"[dim]{first_element.inner_html()[:2000]}...[/dim]"
-                )  # Limit to 2000 chars
-
-                # Also print the meta element specifically
-                meta_element = first_element.query_selector(".reader2-item-meta")
-                if meta_element:
-                    console.print(
-                        "\n[bold yellow]DEBUG: Meta element content[/bold yellow]"
-                    )
-                    console.print(f"[dim]{meta_element.inner_html()}[/dim]")
-                    console.print(
-                        f"[dim]Text content: {meta_element.inner_text()}[/dim]"
-                    )
-
-                # Try to find date elements
-                date_element = first_element.query_selector(".inbox-item-timestamp")
-                if date_element:
-                    console.print(
-                        "\n[bold yellow]DEBUG: Date element found[/bold yellow]"
-                    )
-                    console.print(f"[dim]Content: {date_element.inner_text()}[/dim]")
-                else:
-                    console.print(
-                        "\n[bold red]DEBUG: No date element found with .inbox-item-timestamp[/bold red]"
-                    )
-
-                    # Search for other potential date elements
-                    console.print(
-                        "\n[bold yellow]DEBUG: Searching for other date elements[/bold yellow]"
-                    )
-                    all_text = first_element.inner_text()
-                    date_pattern = r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2})(?:,\s+(\d{4}))?"
-                    matches = re.findall(date_pattern, all_text, re.IGNORECASE)
-                    if matches:
-                        console.print(f"[dim]Found date patterns: {matches}[/dim]")
-
             display_posts(posts)
             elapsed_time = time.time() - start_time
             posts_per_minute = (len(posts) / elapsed_time) * 60
@@ -261,6 +262,7 @@ def parse_date(meta_text):
             "FEB": "FEBRUARY",
             "MAR": "MARCH",
             "APR": "APRIL",
+            "MAY": "MAY",
             "JUN": "JUNE",
             "JUL": "JULY",
             "AUG": "AUGUST",
