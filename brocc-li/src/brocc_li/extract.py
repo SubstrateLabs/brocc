@@ -1,6 +1,8 @@
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Set
 from pydantic import BaseModel
 from rich.console import Console
+import random
+import time
 
 console = Console()
 
@@ -104,13 +106,8 @@ def scrape_schema(
         # Get all container elements
         containers = page.query_selector_all(container_selector)
 
-        # Print first container's HTML for debugging
-        # console.print("\n[bold cyan]Sample Container HTML:[/bold cyan]")
-        # console.print(containers[0].inner_html())
-        # console.print("\n")
-
         # Extract data from each container
-        posts = []
+        items = []
         for container in containers:
             try:
                 # Extract all fields except container
@@ -118,12 +115,163 @@ def scrape_schema(
                 for field_name, field in schema.__dict__.items():
                     if field_name != "container" and isinstance(field, SchemaField):
                         data[field_name] = extract_field(container, field, field_name)
-                posts.append(data)
+                items.append(data)
             except Exception as e:
                 console.print(f"[yellow]Failed to process container: {str(e)}[/yellow]")
                 continue
 
-        return posts
+        return items
     except Exception as e:
         console.print(f"[red]Failed to scrape data: {str(e)}[/red]")
         return []
+
+
+def random_delay(base_delay: float, variation: float = 0.2) -> None:
+    """Add random variation to delays."""
+    time.sleep(base_delay * random.uniform(1 - variation, 1 + variation))
+
+
+def human_scroll(page: Any, scroll_type: str = "normal") -> None:
+    """Simulate human-like scrolling behavior."""
+    if scroll_type == "normal":
+        # Random scroll amount between 80-120% of viewport height
+        scroll_amount = int(
+            page.evaluate("window.innerHeight") * random.uniform(0.8, 1.2)
+        )
+        page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+    elif scroll_type == "fast":
+        # Faster scroll with more variation
+        scroll_amount = int(
+            page.evaluate("window.innerHeight") * random.uniform(1.5, 2.5)
+        )
+        page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+    elif scroll_type == "slow":
+        # Slower, more precise scroll
+        scroll_amount = int(
+            page.evaluate("window.innerHeight") * random.uniform(0.5, 0.8)
+        )
+        page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+    elif scroll_type == "bounce":
+        # Scroll down and up slightly like a human might do
+        down_amount = int(
+            page.evaluate("window.innerHeight") * random.uniform(1.2, 1.5)
+        )
+        up_amount = int(down_amount * random.uniform(0.3, 0.5))
+        page.evaluate(f"window.scrollBy(0, {down_amount})")
+        time.sleep(random.uniform(0.2, 0.4))
+        page.evaluate(f"window.scrollBy(0, -{up_amount})")
+
+
+def scroll_and_extract(
+    page: Any,
+    schema: type[BaseModel],
+    container_selector: str,
+    max_items: int = 5,
+    click_selector: str | None = None,
+    url_field: str = "url",
+    progress_label: str = "items",
+) -> List[Dict[str, Any]]:
+    """Scroll through the page and extract items, handling deduplication and rate limiting.
+
+    Args:
+        page: Playwright page object
+        schema: Pydantic model defining the extraction schema
+        container_selector: CSS selector for the container elements to extract
+        max_items: Maximum number of items to extract
+        click_selector: Optional CSS selector for elements to click before each extraction (e.g. "Show more" or "Load more" buttons)
+        url_field: Field name in the schema that contains unique URLs for deduplication
+        progress_label: Label to use in progress messages (e.g. "tweets", "posts", "items")
+    """
+    seen_urls: Set[str] = set()
+    all_items: List[Dict[str, Any]] = []
+    last_height = 0
+    no_new_items_count = 0
+    max_no_new_items = 3
+    consecutive_same_height = 0
+    max_consecutive_same_height = 3
+    scroll_patterns = ["normal", "slow", "fast", "bounce"]
+
+    while len(all_items) < max_items and no_new_items_count < max_no_new_items:
+        # Click any matching elements before extracting (e.g. "Show more" or "Load more" buttons)
+        if click_selector:
+            elements = page.query_selector_all(click_selector)
+            for element in elements:
+                try:
+                    element.click()
+                    console.print(
+                        f"[cyan]Clicked element matching '{click_selector}'[/cyan]"
+                    )
+                    page.wait_for_timeout(500)  # Small delay after click
+                except Exception:
+                    pass  # Element might have disappeared or become stale
+
+        # Extract current visible items
+        current_items = scrape_schema(page, schema, container_selector)
+
+        # Process new items
+        new_items = 0
+        for item in current_items:
+            url = item.get(url_field)
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_items.append(item)
+                new_items += 1
+
+        # Update no_new_items counter
+        if new_items == 0:
+            no_new_items_count += 1
+        else:
+            no_new_items_count = 0
+
+        # Smart scrolling logic with randomization
+        current_height = page.evaluate("document.documentElement.scrollHeight")
+
+        if current_height == last_height:
+            consecutive_same_height += 1
+            if consecutive_same_height >= max_consecutive_same_height:
+                # Try different scroll strategies when stuck
+                if consecutive_same_height % 2 == 0:
+                    # Try scrolling to bottom and back up with random delays
+                    page.evaluate(
+                        "window.scrollTo(0, document.documentElement.scrollHeight)"
+                    )
+                    random_delay(0.5, 0.3)
+                    page.evaluate("window.scrollTo(0, 0)")
+                    random_delay(0.5, 0.3)
+                else:
+                    # Try a larger scroll with random amount
+                    human_scroll(page, "fast")
+                consecutive_same_height = 0
+            else:
+                # Random scroll pattern
+                human_scroll(page, random.choice(scroll_patterns))
+        else:
+            consecutive_same_height = 0
+            # Random scroll pattern
+            human_scroll(page, random.choice(scroll_patterns))
+
+        last_height = current_height
+
+        # Adaptive delay with randomization
+        if new_items > 0:
+            random_delay(0.3, 0.2)  # Fast when finding items
+        elif consecutive_same_height > 0:
+            random_delay(1.0, 0.3)  # Slower when stuck
+        else:
+            random_delay(0.5, 0.2)  # Normal speed
+
+        # Update progress
+        console.print(
+            f"[cyan]Found {len(all_items)} unique {progress_label}... (stuck: {consecutive_same_height}/{max_consecutive_same_height})[/cyan]"
+        )
+
+        # Random pause every 15-25 items
+        if len(all_items) % random.randint(15, 25) == 0:
+            random_delay(2.0, 0.5)  # Longer random pause
+
+    if no_new_items_count >= max_no_new_items:
+        console.print(
+            f"[yellow]No new {progress_label} found after multiple attempts. Reached end of feed.[/yellow]"
+        )
+
+    return all_items
