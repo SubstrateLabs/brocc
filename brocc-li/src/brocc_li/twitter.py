@@ -107,6 +107,7 @@ class TwitterSchema(BaseModel):
             .inner_text()
             .replace(",", "")
             .replace("K", "000")
+            .replace("M", "000000")
             or "0"
         ),
     )
@@ -119,6 +120,7 @@ class TwitterSchema(BaseModel):
             .inner_text()
             .replace(",", "")
             .replace("K", "000")
+            .replace("M", "000000")
             or "0"
         ),
     )
@@ -126,13 +128,15 @@ class TwitterSchema(BaseModel):
     likes: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="like"]',
         extract=lambda element, field: (
-            element.query_selector(field.selector)
-            .query_selector("span")
-            .inner_text()
-            .replace(",", "")
-            .replace("K", "000")
-            or "0"
-        ),
+            lambda: (
+                like_element := element.query_selector(field.selector),
+                span := like_element.query_selector("span") if like_element else None,
+                text := span.inner_text() if span else "",
+                text.replace(",", "").replace("K", "000").replace("M", "000000")
+                if text
+                else "0",
+            )[-1]
+        )(),
     )
 
     images: ClassVar[SchemaField] = SchemaField(
@@ -236,15 +240,15 @@ def run() -> bool:
         if not browser:
             return False
 
-        # page = open_new_tab(browser, "https://x.com")
-        # page = open_new_tab(browser, "https://x.com/i/bookmarks")
         page = open_new_tab(browser, "https://x.com/0thernet/likes")
         if not page:
             return False
 
         # Wait for tweets to load with proper timeout
         try:
+            console.print("[cyan]Waiting for tweets to load...[/cyan]")
             page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
+            console.print("[green]Found initial tweets[/green]")
         except Exception as e:
             console.print(f"[red]Timeout waiting for tweets to load: {str(e)}[/red]")
             page.close()
@@ -252,6 +256,18 @@ def run() -> bool:
 
         # Additional small delay to ensure dynamic content is fully loaded
         page.wait_for_timeout(2000)
+
+        # Debug: Check initial state
+        console.print("[cyan]Checking initial page state...[/cyan]")
+        tweets = page.query_selector_all('article[data-testid="tweet"]')
+        console.print(f"[yellow]Initial tweet count: {len(tweets)}[/yellow]")
+
+        # Debug: Check if we're on the likes page
+        is_likes_page = (
+            page.query_selector('[data-testid="primaryColumn"]:has-text("Likes")')
+            is not None
+        )
+        console.print(f"[yellow]Is likes page: {is_likes_page}[/yellow]")
 
         # Scroll and extract tweets with Twitter-specific parameters
         posts = scroll_and_extract(

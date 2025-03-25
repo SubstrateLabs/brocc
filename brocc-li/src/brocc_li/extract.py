@@ -104,20 +104,41 @@ def scrape_schema(
     """Scrape data using a schema definition."""
     try:
         # Get all container elements
+        console.print(
+            f"[cyan]Looking for containers with selector: {container_selector}[/cyan]"
+        )
         containers = page.query_selector_all(container_selector)
+        console.print(f"[yellow]Found {len(containers)} containers[/yellow]")
 
         # Extract data from each container
         items = []
-        for container in containers:
+        for i, container in enumerate(containers):
             try:
+                # Debug: Check if container is still valid
+                if not container.is_visible():
+                    console.print(
+                        f"[yellow]Container {i} is not visible, skipping[/yellow]"
+                    )
+                    continue
+
                 # Extract all fields except container
                 data = {}
                 for field_name, field in schema.__dict__.items():
                     if field_name != "container" and isinstance(field, SchemaField):
-                        data[field_name] = extract_field(container, field, field_name)
+                        try:
+                            data[field_name] = extract_field(
+                                container, field, field_name
+                            )
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Failed to extract field {field_name}: {str(e)}[/yellow]"
+                            )
+                            data[field_name] = None
                 items.append(data)
             except Exception as e:
-                console.print(f"[yellow]Failed to process container: {str(e)}[/yellow]")
+                console.print(
+                    f"[yellow]Failed to process container {i}: {str(e)}[/yellow]"
+                )
                 continue
 
         return items
@@ -171,17 +192,7 @@ def scroll_and_extract(
     url_field: str = "url",
     progress_label: str = "items",
 ) -> List[Dict[str, Any]]:
-    """Scroll through the page and extract items, handling deduplication and rate limiting.
-
-    Args:
-        page: Playwright page object
-        schema: Pydantic model defining the extraction schema
-        container_selector: CSS selector for the container elements to extract
-        max_items: Maximum number of items to extract
-        click_selector: Optional CSS selector for elements to click before each extraction (e.g. "Show more" or "Load more" buttons)
-        url_field: Field name in the schema that contains unique URLs for deduplication
-        progress_label: Label to use in progress messages (e.g. "tweets", "posts", "items")
-    """
+    """Scroll through the page and extract items, handling deduplication and rate limiting."""
     seen_urls: Set[str] = set()
     all_items: List[Dict[str, Any]] = []
     last_height = 0
@@ -192,21 +203,34 @@ def scroll_and_extract(
     scroll_patterns = ["normal", "slow", "fast", "bounce"]
 
     while len(all_items) < max_items and no_new_items_count < max_no_new_items:
-        # Click any matching elements before extracting (e.g. "Show more" or "Load more" buttons)
+        # Click any matching elements before extracting
         if click_selector:
+            console.print(
+                f"[cyan]Looking for elements to click with selector: {click_selector}[/cyan]"
+            )
             elements = page.query_selector_all(click_selector)
-            for element in elements:
+            console.print(f"[yellow]Found {len(elements)} elements to click[/yellow]")
+            for i, element in enumerate(elements):
                 try:
+                    if not element.is_visible():
+                        console.print(
+                            f"[yellow]Click element {i} is not visible, skipping[/yellow]"
+                        )
+                        continue
                     element.click()
                     console.print(
-                        f"[cyan]Clicked element matching '{click_selector}'[/cyan]"
+                        f"[cyan]Clicked element {i} matching '{click_selector}'[/cyan]"
                     )
                     page.wait_for_timeout(500)  # Small delay after click
-                except Exception:
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Failed to click element {i}: {str(e)}[/yellow]"
+                    )
                     pass  # Element might have disappeared or become stale
 
         # Extract current visible items
         current_items = scrape_schema(page, schema, container_selector)
+        console.print(f"[yellow]Extracted {len(current_items)} current items[/yellow]")
 
         # Process new items
         new_items = 0
@@ -216,22 +240,30 @@ def scroll_and_extract(
                 seen_urls.add(url)
                 all_items.append(item)
                 new_items += 1
+                console.print(f"[green]Found new item with URL: {url}[/green]")
 
         # Update no_new_items counter
         if new_items == 0:
             no_new_items_count += 1
+            console.print(
+                f"[yellow]No new items found (attempt {no_new_items_count}/{max_no_new_items})[/yellow]"
+            )
         else:
             no_new_items_count = 0
+            console.print(f"[green]Found {new_items} new items[/green]")
 
         # Smart scrolling logic with randomization
         current_height = page.evaluate("document.documentElement.scrollHeight")
+        console.print(f"[cyan]Current page height: {current_height}[/cyan]")
 
         if current_height == last_height:
             consecutive_same_height += 1
             if consecutive_same_height >= max_consecutive_same_height:
                 # Try different scroll strategies when stuck
                 if consecutive_same_height % 2 == 0:
-                    # Try scrolling to bottom and back up with random delays
+                    console.print(
+                        "[yellow]Trying scroll to bottom and back up[/yellow]"
+                    )
                     page.evaluate(
                         "window.scrollTo(0, document.documentElement.scrollHeight)"
                     )
@@ -239,16 +271,20 @@ def scroll_and_extract(
                     page.evaluate("window.scrollTo(0, 0)")
                     random_delay(0.5, 0.3)
                 else:
-                    # Try a larger scroll with random amount
+                    console.print("[yellow]Trying fast scroll[/yellow]")
                     human_scroll(page, "fast")
                 consecutive_same_height = 0
             else:
                 # Random scroll pattern
-                human_scroll(page, random.choice(scroll_patterns))
+                pattern = random.choice(scroll_patterns)
+                console.print(f"[cyan]Using scroll pattern: {pattern}[/cyan]")
+                human_scroll(page, pattern)
         else:
             consecutive_same_height = 0
             # Random scroll pattern
-            human_scroll(page, random.choice(scroll_patterns))
+            pattern = random.choice(scroll_patterns)
+            console.print(f"[cyan]Using scroll pattern: {pattern}[/cyan]")
+            human_scroll(page, pattern)
 
         last_height = current_height
 
