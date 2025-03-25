@@ -25,61 +25,41 @@ class TwitterSchema(BaseModel):
         extract=lambda element, field: {
             "raw_html": element.inner_html(),
             "content": " ".join(
-                part.strip()
-                for part in [
-                    # Get text from spans that contain tweet content
+                text
+                for text in [
+                    # Process all tweet text elements (main + quoted)
                     " ".join(
-                        span.inner_text().strip()
-                        for span in element.query_selector_all("span")
-                        if span.inner_text().strip()
-                        and not span.query_selector(
-                            "a[href*='http']"
-                        )  # Exclude http links
-                        and not span.query_selector(
-                            "a[href*='https']"
-                        )  # Exclude https links
-                        and not span.query_selector(
-                            '[data-testid="app-text-transition-container"]'
+                        # Add separator before quoted tweet content
+                        ("↱ " if i > 0 else "")
+                        + node.evaluate(
+                            "node => node.tagName === 'IMG' ? node.getAttribute('alt') : node.textContent.trim()"
                         )
-                        and not span.query_selector('[data-testid="User-Name"]')
-                        and not span.query_selector('[data-testid="User-Name"] span')
-                        and not span.query_selector(
-                            '[data-testid="app-text-transition-container"] span'
+                        for i, tweetText in enumerate(
+                            element.query_selector_all('[data-testid="tweetText"]')
                         )
-                        and not span.query_selector('[data-testid="reply"]')
-                        and not span.query_selector('[data-testid="retweet"]')
-                        and not span.query_selector('[data-testid="like"]')
-                        and not span.query_selector('[data-testid="bookmark"]')
-                        and not span.query_selector('[data-testid="share"]')
-                        and not span.query_selector('[data-testid="analytics"]')
-                        and not span.query_selector('[data-testid="tweetPhoto"]')
-                        and not span.query_selector('[data-testid="tweetPhoto"] span')
-                        and not any(
-                            span.query_selector(f'[data-testid="{metric}"]')
-                            for metric in [
-                                "reply",
-                                "retweet",
-                                "like",
-                                "bookmark",
-                                "share",
-                                "analytics",
-                            ]
+                        for node in tweetText.query_selector_all("span, img[alt]")
+                        if (
+                            node.evaluate("""node => {
+                            if (node.tagName === 'SPAN') {
+                                return node.textContent.trim() &&
+                                    !node.querySelector("a[href*='http']") &&
+                                    !node.querySelector("a[href*='https']") &&
+                                    !node.querySelector('[data-testid="app-text-transition-container"]') &&
+                                    !node.querySelector('[data-testid="User-Name"]') &&
+                                    !node.querySelector('[data-testid="User-Name"] span') &&
+                                    !['reply', 'retweet', 'like', 'bookmark', 'share', 'analytics']
+                                        .some(metric => node.querySelector(`[data-testid="${metric}"]`));
+                            } else if (node.tagName === 'IMG') {
+                                return node.getAttribute('alt') &&
+                                    !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/profile_images') &&
+                                    !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/media');
+                            }
+                            return false;
+                        }""")
                         )
-                    ),
-                    # Then add emojis
-                    " ".join(
-                        img.get_attribute("alt")
-                        for img in element.query_selector_all("img[alt]")
-                        if img.get_attribute("alt")
-                        and not (img.get_attribute("src") or "").startswith(
-                            "https://pbs.twimg.com/profile_images"
-                        )
-                        and not (img.get_attribute("src") or "").startswith(
-                            "https://pbs.twimg.com/media"
-                        )
-                    ),
+                    )
                 ]
-                if part.strip()
+                if text.strip()
             )
             .split("·")[-1]
             .strip()
@@ -214,10 +194,7 @@ def display_single_tweet(post: Dict[str, Any], index: int) -> None:
     # Text and Links
     text_data = post.get("text", {})
     content = text_data.get("content", "No text")
-    raw_html = text_data.get("raw_html", "")
-
     console.print(f"  [white]Text:[/white] {content}")
-    console.print(f"  [dim]Raw HTML:[/dim] {raw_html}")
 
     # Links (if any)
     links = text_data.get("links", [])
@@ -305,6 +282,18 @@ def scroll_and_extract(
     scroll_patterns = ["normal", "slow", "fast", "bounce"]
 
     while len(all_tweets) < max_tweets and no_new_tweets_count < max_no_new_tweets:
+        # Click any "Show more" buttons before extracting
+        show_more_buttons = page.query_selector_all(
+            '[role="button"]:has-text("Show more")'
+        )
+        for button in show_more_buttons:
+            try:
+                button.click()
+                console.print("[cyan]Clicked 'Show more' button[/cyan]")
+                page.wait_for_timeout(500)  # Small delay after click
+            except Exception:
+                pass  # Button might have disappeared or become stale
+
         # Extract current visible tweets
         current_tweets = scrape_schema(page, schema, schema.container.selector)
 
