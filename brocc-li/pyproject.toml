@@ -21,16 +21,20 @@ classifiers = [
 ]
 dependencies = [
     "playwright>=1.51.0",
+    "psutil>=7.0.0",
+    "pydantic>=2.10.6",
+    "requests>=2.32.3",
+    "rich>=13.9.4",
     "textual>=0.73.0",
 ]
 
 [project.scripts]
 brocc = "brocc_li.entry_points:run"
+chrome = "brocc_li.chrome:run"
+twitter = "brocc_li.twitter:run"
 
 [tool.hatch.envs.default]
-post-install-commands = [
-    "playwright install chromium"
-]
+post-install-commands = ["playwright install chromium"]
 
 [project.urls]
 Documentation = "https://brocc.li"
