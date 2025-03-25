@@ -58,7 +58,7 @@ def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any
         )
         if not container:
             console.print(
-                f"[yellow]Warning: No container found for {parent_key} with selector {field.selector}[/yellow]"
+                f"[dim]No container found for {parent_key} with selector {field.selector}[/dim]"
             )
             return {}
         result = {}
@@ -83,7 +83,7 @@ def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any
     element = element.query_selector(field.selector) if field.selector else element
     if not element:
         console.print(
-            f"[yellow]Warning: No element found for {parent_key} with selector {field.selector}[/yellow]"
+            f"[dim]No element found for {parent_key} with selector {field.selector}[/dim]"
         )
         return None
 
@@ -104,11 +104,8 @@ def scrape_schema(
     """Scrape data using a schema definition."""
     try:
         # Get all container elements
-        console.print(
-            f"[cyan]Looking for containers with selector: {container_selector}[/cyan]"
-        )
         containers = page.query_selector_all(container_selector)
-        console.print(f"[yellow]Found {len(containers)} containers[/yellow]")
+        console.print(f"[dim]Found {len(containers)} containers[/dim]")
 
         # Extract data from each container
         items = []
@@ -116,9 +113,7 @@ def scrape_schema(
             try:
                 # Debug: Check if container is still valid
                 if not container.is_visible():
-                    console.print(
-                        f"[yellow]Container {i} is not visible, skipping[/yellow]"
-                    )
+                    console.print(f"[dim]Container {i} is not visible, skipping[/dim]")
                     continue
 
                 # Extract all fields except container
@@ -131,14 +126,12 @@ def scrape_schema(
                             )
                         except Exception as e:
                             console.print(
-                                f"[yellow]Failed to extract field {field_name}: {str(e)}[/yellow]"
+                                f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
                             )
                             data[field_name] = None
                 items.append(data)
             except Exception as e:
-                console.print(
-                    f"[yellow]Failed to process container {i}: {str(e)}[/yellow]"
-                )
+                console.print(f"[red]Failed to process container {i}: {str(e)}[/red]")
                 continue
 
         return items
@@ -205,32 +198,27 @@ def scroll_and_extract(
     while len(all_items) < max_items and no_new_items_count < max_no_new_items:
         # Click any matching elements before extracting
         if click_selector:
-            console.print(
-                f"[cyan]Looking for elements to click with selector: {click_selector}[/cyan]"
-            )
             elements = page.query_selector_all(click_selector)
-            console.print(f"[yellow]Found {len(elements)} elements to click[/yellow]")
+            console.print(f"[dim]Found {len(elements)} elements to click[/dim]")
             for i, element in enumerate(elements):
                 try:
                     if not element.is_visible():
                         console.print(
-                            f"[yellow]Click element {i} is not visible, skipping[/yellow]"
+                            f"[dim]Click element {i} is not visible, skipping[/dim]"
                         )
                         continue
                     element.click()
                     console.print(
-                        f"[cyan]Clicked element {i} matching '{click_selector}'[/cyan]"
+                        f"[dim]Clicked element {i} matching '{click_selector}'[/dim]"
                     )
                     page.wait_for_timeout(500)  # Small delay after click
                 except Exception as e:
-                    console.print(
-                        f"[yellow]Failed to click element {i}: {str(e)}[/yellow]"
-                    )
+                    console.print(f"[red]Failed to click element {i}: {str(e)}[/red]")
                     pass  # Element might have disappeared or become stale
 
         # Extract current visible items
         current_items = scrape_schema(page, schema, container_selector)
-        console.print(f"[yellow]Extracted {len(current_items)} current items[/yellow]")
+        console.print(f"[dim]Extracted {len(current_items)} current items[/dim]")
 
         # Process new items
         new_items = 0
@@ -240,30 +228,28 @@ def scroll_and_extract(
                 seen_urls.add(url)
                 all_items.append(item)
                 new_items += 1
-                console.print(f"[green]Found new item with URL: {url}[/green]")
+                console.print(f"[dim]Found new item with URL: {url}[/dim]")
 
         # Update no_new_items counter
         if new_items == 0:
             no_new_items_count += 1
             console.print(
-                f"[yellow]No new items found (attempt {no_new_items_count}/{max_no_new_items})[/yellow]"
+                f"[dim]No new items found (attempt {no_new_items_count}/{max_no_new_items})[/dim]"
             )
         else:
             no_new_items_count = 0
-            console.print(f"[green]Found {new_items} new items[/green]")
+            console.print(f"[dim]Found {new_items} new items[/dim]")
 
         # Smart scrolling logic with randomization
         current_height = page.evaluate("document.documentElement.scrollHeight")
-        console.print(f"[cyan]Current page height: {current_height}[/cyan]")
+        console.print(f"[dim]Current page height: {current_height}[/dim]")
 
         if current_height == last_height:
             consecutive_same_height += 1
             if consecutive_same_height >= max_consecutive_same_height:
                 # Try different scroll strategies when stuck
                 if consecutive_same_height % 2 == 0:
-                    console.print(
-                        "[yellow]Trying scroll to bottom and back up[/yellow]"
-                    )
+                    console.print("[dim]Trying scroll to bottom and back up[/dim]")
                     page.evaluate(
                         "window.scrollTo(0, document.documentElement.scrollHeight)"
                     )
@@ -271,19 +257,19 @@ def scroll_and_extract(
                     page.evaluate("window.scrollTo(0, 0)")
                     random_delay(0.5, 0.3)
                 else:
-                    console.print("[yellow]Trying fast scroll[/yellow]")
+                    console.print("[dim]Trying fast scroll[/dim]")
                     human_scroll(page, "fast")
                 consecutive_same_height = 0
             else:
                 # Random scroll pattern
                 pattern = random.choice(scroll_patterns)
-                console.print(f"[cyan]Using scroll pattern: {pattern}[/cyan]")
+                console.print(f"[dim]Using scroll pattern: {pattern}[/dim]")
                 human_scroll(page, pattern)
         else:
             consecutive_same_height = 0
             # Random scroll pattern
             pattern = random.choice(scroll_patterns)
-            console.print(f"[cyan]Using scroll pattern: {pattern}[/cyan]")
+            console.print(f"[dim]Using scroll pattern: {pattern}[/dim]")
             human_scroll(page, pattern)
 
         last_height = current_height
@@ -298,7 +284,7 @@ def scroll_and_extract(
 
         # Update progress
         console.print(
-            f"[cyan]Found {len(all_items)} unique {progress_label}... (stuck: {consecutive_same_height}/{max_consecutive_same_height})[/cyan]"
+            f"[dim]Found {len(all_items)} unique {progress_label}... (stuck: {consecutive_same_height}/{max_consecutive_same_height})[/dim]"
         )
 
         # Random pause every 15-25 items
@@ -307,7 +293,7 @@ def scroll_and_extract(
 
     if no_new_items_count >= max_no_new_items:
         console.print(
-            f"[yellow]No new {progress_label} found after multiple attempts. Reached end of feed.[/yellow]"
+            f"[dim]No new {progress_label} found after multiple attempts. Reached end of feed.[/dim]"
         )
 
     return all_items

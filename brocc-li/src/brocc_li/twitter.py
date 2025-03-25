@@ -8,9 +8,7 @@ from .extract import SchemaField, scroll_and_extract
 console = Console()
 
 
-class TwitterSchema(BaseModel):
-    """Unified schema for Twitter data structure and selectors."""
-
+class TwitterFeedSchema(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Schema definition with selectors
@@ -150,7 +148,6 @@ class TwitterSchema(BaseModel):
 
 
 def display_tweets(posts: List[Dict[str, Any]]) -> None:
-    """Display tweets in a hierarchical format, with tweets containing links at the bottom."""
     console.print("\n[bold magenta]All Tweets[/bold magenta]")
 
     # Split tweets into those with and without links
@@ -240,7 +237,9 @@ def run() -> bool:
         if not browser:
             return False
 
-        page = open_new_tab(browser, "https://x.com/0thernet/likes")
+        # page = open_new_tab(browser, "https://x.com/0thernet/likes")
+        page = open_new_tab(browser, "https://x.com/home")
+        # page = open_new_tab(browser, "https://x.com/i/bookmarks")
         if not page:
             return False
 
@@ -258,21 +257,13 @@ def run() -> bool:
         page.wait_for_timeout(2000)
 
         # Debug: Check initial state
-        console.print("[cyan]Checking initial page state...[/cyan]")
         tweets = page.query_selector_all('article[data-testid="tweet"]')
-        console.print(f"[yellow]Initial tweet count: {len(tweets)}[/yellow]")
-
-        # Debug: Check if we're on the likes page
-        is_likes_page = (
-            page.query_selector('[data-testid="primaryColumn"]:has-text("Likes")')
-            is not None
-        )
-        console.print(f"[yellow]Is likes page: {is_likes_page}[/yellow]")
+        console.print(f"[dim]Initial tweet count: {len(tweets)}[/dim]")
 
         # Scroll and extract tweets with Twitter-specific parameters
         posts = scroll_and_extract(
             page=page,
-            schema=TwitterSchema,
+            schema=TwitterFeedSchema,
             container_selector='article[data-testid="tweet"]',
             max_items=12,
             click_selector='[role="button"]:has-text("Show more")',
