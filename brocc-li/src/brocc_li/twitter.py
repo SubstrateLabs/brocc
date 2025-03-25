@@ -16,7 +16,8 @@ def extract_tweet_text(element) -> Dict[str, Any]:
     """Extract tweet text content, handling both main and quoted tweets."""
 
     def should_include_node(node):
-        if node.tag_name == "SPAN":
+        tag_name = node.evaluate("node => node.tagName.toLowerCase()")
+        if tag_name == "span":
             return node.evaluate("""node => {
                     return node.textContent.trim() &&
                         !node.querySelector("a[href*='http']") &&
@@ -27,7 +28,7 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                         !['reply', 'retweet', 'like', 'bookmark', 'share', 'analytics']
                             .some(metric => node.querySelector(`[data-testid="${metric}"]`));
                 }""")
-        elif node.tag_name == "IMG":
+        elif tag_name == "img":
             return node.evaluate("""node => {
                     return node.getAttribute('alt') &&
                         !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/profile_images') &&
@@ -44,7 +45,7 @@ def extract_tweet_text(element) -> Dict[str, Any]:
         text_parts = [
             prefix
             + node.evaluate(
-                "node => node.tagName === 'IMG' ? node.getAttribute('alt') : node.textContent.trim()"
+                "node => node.tagName.toLowerCase() === 'img' ? node.getAttribute('alt') : node.textContent.trim()"
             )
             for node in nodes
             if should_include_node(node)
@@ -169,16 +170,12 @@ def display_tweets(posts: List[Dict[str, Any]]) -> None:
         width=console.width,
     )
 
-    columns = [
-        ("Author", "cyan", 20, True),
-        ("Content", "white", 3, False),
-        ("Links", "blue", 1, False),
-        ("Time", "green", 20, False),
-        ("Metrics", "yellow", 15, False),
-    ]
-
-    for name, style, ratio, no_wrap in columns:
-        table.add_column(name, style=style, ratio=ratio, no_wrap=no_wrap)
+    # Add columns with fixed widths to prevent layout issues
+    table.add_column("Author", style="cyan", width=20, no_wrap=True)
+    table.add_column("Content", style="white", width=60, no_wrap=False)
+    table.add_column("Links", style="blue", width=20, no_wrap=False)
+    table.add_column("Time", style="green", width=12, no_wrap=True)
+    table.add_column("Metrics", style="yellow", width=12, no_wrap=True)
 
     for post in posts:
         author = post.get("author", {})
@@ -186,7 +183,7 @@ def display_tweets(posts: List[Dict[str, Any]]) -> None:
         handle = author.get("handle", "")
         author_str = f"{display_name}\n@{handle}" if handle else display_name
 
-        text_data = post.get("text", {})
+        text_data = post.get("text", {}) or {}
         content = text_data.get("content", "No text")
         links = text_data.get("links", [])
         links_str = (
