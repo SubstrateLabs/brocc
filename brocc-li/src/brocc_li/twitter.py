@@ -2,97 +2,92 @@ from playwright.sync_api import sync_playwright
 from rich.console import Console
 from rich.table import Table
 from typing import List, Dict, Any, ClassVar
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from .chrome import connect_to_chrome, open_new_tab
 from .extract import SchemaField, scroll_and_extract
 import time
 
 console = Console()
 
+TWEET_CONTAINER = 'article[data-testid="tweet"]'
 
-def convert_metric(text: str) -> str:
-    """Convert metric strings like '1.2K' or '3.4M' to full numbers."""
-    if not text:
+
+def extract_tweet_text(element) -> Dict[str, Any]:
+    """Extract tweet text content, handling both main and quoted tweets."""
+
+    def should_include_node(node):
+        if node.tag_name == "SPAN":
+            return node.evaluate("""node => {
+                    return node.textContent.trim() &&
+                        !node.querySelector("a[href*='http']") &&
+                        !node.querySelector("a[href*='https']") &&
+                        !node.querySelector('[data-testid="app-text-transition-container"]') &&
+                        !node.querySelector('[data-testid="User-Name"]') &&
+                        !node.querySelector('[data-testid="User-Name"] span') &&
+                        !['reply', 'retweet', 'like', 'bookmark', 'share', 'analytics']
+                            .some(metric => node.querySelector(`[data-testid="${metric}"]`));
+                }""")
+        elif node.tag_name == "IMG":
+            return node.evaluate("""node => {
+                    return node.getAttribute('alt') &&
+                        !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/profile_images') &&
+                        !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/media');
+                }""")
+        return False
+
+    tweet_texts = element.query_selector_all('[data-testid="tweetText"]')
+    content_parts = []
+
+    for i, tweet_text in enumerate(tweet_texts):
+        prefix = "↱ " if i > 0 else ""
+        nodes = tweet_text.query_selector_all("span, img[alt]")
+        text_parts = [
+            prefix
+            + node.evaluate(
+                "node => node.tagName === 'IMG' ? node.getAttribute('alt') : node.textContent.trim()"
+            )
+            for node in nodes
+            if should_include_node(node)
+        ]
+        if text_parts:
+            content_parts.append(" ".join(text_parts))
+
+    content = " ".join(content_parts)
+    content = content.split("·")[-1].strip().split("Show more")[0].strip()
+
+    links = [
+        {"text": link.inner_text().strip(), "url": link.get_attribute("href")}
+        for link in element.query_selector_all("a[href]")
+        if (link.get_attribute("href") or "").startswith(("http://", "https://"))
+        and not link.query_selector('[data-testid="User-Name"]')
+    ]
+
+    return {
+        "raw_html": element.inner_html(),
+        "content": content,
+        "links": links,
+    }
+
+
+def extract_metric(element, selector: str) -> str:
+    """Extract and convert metric value from tweet element."""
+    metric_element = element.query_selector(selector)
+    if not metric_element:
         return "0"
 
-    text = text.replace(",", "")
+    span = metric_element.query_selector("span")
+    if not span:
+        return "0"
 
-    if "K" in text:
-        num = float(text.replace("K", ""))
-        return str(int(num * 1000))
-    elif "M" in text:
-        num = float(text.replace("M", ""))
-        return str(int(num * 1000000))
-    return text
+    return convert_metric(span.inner_text())
 
 
 class TwitterFeedSchema(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    # Schema definition with selectors
-    container: ClassVar[SchemaField] = SchemaField(
-        selector='article[data-testid="tweet"]'
-    )
-
+    container: ClassVar[SchemaField] = SchemaField(selector=TWEET_CONTAINER)
     text: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="tweetText"]',
-        extract=lambda element, field: {
-            "raw_html": element.inner_html(),
-            "content": " ".join(
-                text
-                for text in [
-                    # Process all tweet text elements (main + quoted)
-                    " ".join(
-                        # Add separator before quoted tweet content
-                        ("↱ " if i > 0 else "")
-                        + node.evaluate(
-                            "node => node.tagName === 'IMG' ? node.getAttribute('alt') : node.textContent.trim()"
-                        )
-                        for i, tweetText in enumerate(
-                            element.query_selector_all('[data-testid="tweetText"]')
-                        )
-                        for node in tweetText.query_selector_all("span, img[alt]")
-                        if (
-                            node.evaluate("""node => {
-                            if (node.tagName === 'SPAN') {
-                                return node.textContent.trim() &&
-                                    !node.querySelector("a[href*='http']") &&
-                                    !node.querySelector("a[href*='https']") &&
-                                    !node.querySelector('[data-testid="app-text-transition-container"]') &&
-                                    !node.querySelector('[data-testid="User-Name"]') &&
-                                    !node.querySelector('[data-testid="User-Name"] span') &&
-                                    !['reply', 'retweet', 'like', 'bookmark', 'share', 'analytics']
-                                        .some(metric => node.querySelector(`[data-testid="${metric}"]`));
-                            } else if (node.tagName === 'IMG') {
-                                return node.getAttribute('alt') &&
-                                    !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/profile_images') &&
-                                    !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/media');
-                            }
-                            return false;
-                        }""")
-                        )
-                    )
-                ]
-                if text.strip()
-            )
-            .split("·")[-1]
-            .strip()
-            .split("Show more")[0]
-            .strip(),
-            "links": [
-                {
-                    "text": link.inner_text().strip(),
-                    "url": link.get_attribute("href"),
-                }
-                for link in element.query_selector_all("a[href]")
-                if (link.get_attribute("href") or "").startswith(
-                    ("http://", "https://")
-                )
-                and not link.query_selector('[data-testid="User-Name"]')
-            ],
-        },
+        extract=lambda element, field: extract_tweet_text(element),
     )
-
     author: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="User-Name"]',
         children={
@@ -104,51 +99,26 @@ class TwitterFeedSchema(BaseModel):
             ),
         },
     )
-
     timestamp: ClassVar[SchemaField] = SchemaField(
         selector="time", attribute="datetime"
     )
-
     url: ClassVar[SchemaField] = SchemaField(
         selector='a[href*="/status/"]',
         attribute="href",
         transform=lambda x: f"https://x.com{x}" if x else None,
     )
-
     replies: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="reply"]',
-        extract=lambda element, field: (
-            convert_metric(
-                element.query_selector(field.selector)
-                .query_selector("span")
-                .inner_text()
-            )
-        ),
+        extract=lambda element, field: extract_metric(element, field.selector),
     )
-
     retweets: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="retweet"]',
-        extract=lambda element, field: (
-            convert_metric(
-                element.query_selector(field.selector)
-                .query_selector("span")
-                .inner_text()
-            )
-        ),
+        extract=lambda element, field: extract_metric(element, field.selector),
     )
-
     likes: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="like"]',
-        extract=lambda element, field: (
-            lambda: (
-                like_element := element.query_selector(field.selector),
-                span := like_element.query_selector("span") if like_element else None,
-                text := span.inner_text() if span else "",
-                convert_metric(text),
-            )[-1]
-        )(),
+        extract=lambda element, field: extract_metric(element, field.selector),
     )
-
     images: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="tweetPhoto"] img[draggable="true"]',
         attribute="src",
@@ -156,6 +126,36 @@ class TwitterFeedSchema(BaseModel):
         transform=lambda src: {"type": "image", "url": src}
         if src and "profile_images" not in src
         else None,
+    )
+
+
+def convert_metric(text: str) -> str:
+    """Convert metric strings like '1.2K' or '3.4M' to full numbers."""
+    if not text:
+        return "0"
+
+    text = text.replace(",", "")
+    multipliers = {"K": 1000, "M": 1000000}
+
+    for suffix, multiplier in multipliers.items():
+        if suffix in text:
+            num = float(text.replace(suffix, ""))
+            return str(int(num * multiplier))
+
+    return text
+
+
+METRIC_ICONS = {
+    "replies": "💬",
+    "retweets": "🔄",
+    "likes": "❤️",
+}
+
+
+def format_metrics(post: Dict[str, Any]) -> str:
+    """Format tweet metrics with icons."""
+    return "\n".join(
+        f"{icon} {post.get(metric, '0')}" for metric, icon in METRIC_ICONS.items()
     )
 
 
@@ -169,21 +169,23 @@ def display_tweets(posts: List[Dict[str, Any]]) -> None:
         width=console.width,
     )
 
-    # Add columns with appropriate width ratios
-    table.add_column("Author", style="cyan", width=20, no_wrap=True)
-    table.add_column("Content", style="white", ratio=3)
-    table.add_column("Links", style="blue", ratio=1)
-    table.add_column("Time", style="green", width=20)
-    table.add_column("Metrics", style="yellow", width=15)
+    columns = [
+        ("Author", "cyan", 20, True),
+        ("Content", "white", 3, False),
+        ("Links", "blue", 1, False),
+        ("Time", "green", 20, False),
+        ("Metrics", "yellow", 15, False),
+    ]
+
+    for name, style, ratio, no_wrap in columns:
+        table.add_column(name, style=style, ratio=ratio, no_wrap=no_wrap)
 
     for post in posts:
-        # Author info
         author = post.get("author", {})
         display_name = author.get("display_name", "Unknown")
         handle = author.get("handle", "")
         author_str = f"{display_name}\n@{handle}" if handle else display_name
 
-        # Text and links
         text_data = post.get("text", {})
         content = text_data.get("content", "No text")
         links = text_data.get("links", [])
@@ -192,17 +194,9 @@ def display_tweets(posts: List[Dict[str, Any]]) -> None:
             or "No links"
         )
 
-        # Metrics and timestamp
-        replies = post.get("replies", "0")
-        retweets = post.get("retweets", "0")
-        likes = post.get("likes", "0")
-        metrics = f"💬 {replies}\n🔄 {retweets}\n❤️ {likes}"
+        timestamp = post.get("timestamp", "No timestamp").split("T")[0]
+        metrics = format_metrics(post)
 
-        timestamp = post.get("timestamp", "No timestamp").split("T")[
-            0
-        ]  # Just show date for compactness
-
-        # Images (add as part of content if present)
         images = [img["url"] for img in post.get("images", []) if img is not None]
         if images:
             content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
@@ -220,37 +214,16 @@ def run() -> bool:
         if not browser:
             return False
 
-        # page = open_new_tab(browser, "https://x.com/0thernet/likes")
         page = open_new_tab(browser, "https://x.com/home")
-        # page = open_new_tab(browser, "https://x.com/i/bookmarks")
         if not page:
             return False
 
-        # Wait for tweets to load with proper timeout
-        try:
-            console.print("[cyan]Waiting for tweets to load...[/cyan]")
-            page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
-            console.print("[green]Found initial tweets[/green]")
-        except Exception as e:
-            console.print(f"[red]Timeout waiting for tweets to load: {str(e)}[/red]")
-            page.close()
-            return False
-
-        # Additional small delay to ensure dynamic content is fully loaded
-        page.wait_for_timeout(2000)
-
-        # Debug: Check initial state
-        tweets = page.query_selector_all('article[data-testid="tweet"]')
-        console.print(f"[dim]Initial tweet count: {len(tweets)}[/dim]")
-
-        # Start timing right before extraction
         start_time = time.time()
 
-        # Scroll and extract tweets with Twitter-specific parameters
         posts = scroll_and_extract(
             page=page,
             schema=TwitterFeedSchema,
-            container_selector='article[data-testid="tweet"]',
+            container_selector=TWEET_CONTAINER,
             max_items=12,
             click_selector='[role="button"]:has-text("Show more")',
             url_field="url",
