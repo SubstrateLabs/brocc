@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
+    "html-to-markdown>=1.2.0",
     "playwright>=1.51.0",
     "psutil>=7.0.0",
     "pydantic>=2.10.6",
@@ -32,6 +33,7 @@ dependencies = [
 brocc = "brocc_li.entry_points:run"
 chrome = "brocc_li.chrome:run"
 twitter = "brocc_li.twitter:run"
+substack = "brocc_li.substack:run"
 
 [tool.hatch.envs.default]
 post-install-commands = ["playwright install chromium"]

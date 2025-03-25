@@ -5,6 +5,7 @@ from typing import List, Dict, Any, ClassVar
 from pydantic import BaseModel, ConfigDict
 from .chrome import connect_to_chrome, open_new_tab
 from .extract import SchemaField, scroll_and_extract
+import time
 
 console = Console()
 
@@ -242,6 +243,9 @@ def run() -> bool:
         tweets = page.query_selector_all('article[data-testid="tweet"]')
         console.print(f"[dim]Initial tweet count: {len(tweets)}[/dim]")
 
+        # Start timing right before extraction
+        start_time = time.time()
+
         # Scroll and extract tweets with Twitter-specific parameters
         posts = scroll_and_extract(
             page=page,
@@ -255,8 +259,12 @@ def run() -> bool:
 
         if posts:
             display_tweets(posts)
+            elapsed_time = time.time() - start_time
+            tweets_per_minute = (len(posts) / elapsed_time) * 60
             console.print(
                 f"\n[green]Successfully extracted {len(posts)} unique tweets[/green]"
+                f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
+                f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
             )
         else:
             console.print("[yellow]No tweets found[/yellow]")

@@ -185,7 +185,37 @@ def scroll_and_extract(
     url_field: str = "url",
     progress_label: str = "items",
 ) -> List[Dict[str, Any]]:
-    """Scroll through the page and extract items, handling deduplication and rate limiting."""
+    """Scroll through a page and extract items based on the provided schema.
+
+    This function implements a smart scrolling algorithm that handles page navigation,
+    deduplication of items, and extraction based on a defined schema. It simulates
+    human-like scrolling behavior with randomized patterns and delays.
+
+    Parameters:
+        page: The Playwright page object to perform actions on.
+
+        schema: A Pydantic BaseModel class that defines the structure and selectors
+               for extracting data. This should have SchemaField attributes that
+               specify how to extract each piece of data.
+
+        container_selector: CSS selector string that identifies each container element
+                           (e.g., a post, tweet, or card) to extract data from.
+
+        max_items: Maximum number of items to extract before stopping. Default is 5.
+
+        click_selector: Optional CSS selector for elements to click while scrolling,
+                       such as "Load more" buttons. If None, no clicking is performed.
+
+        url_field: Name of the field in the schema that contains the URL or unique ID
+                  used for deduplication. Default is "url".
+
+        progress_label: Label to use in progress messages for better readability,
+                       e.g., "tweets", "posts", etc. Default is "items".
+
+    Returns:
+        A list of dictionaries where each dictionary contains the extracted data
+        for one item according to the provided schema.
+    """
     seen_urls: Set[str] = set()
     all_items: List[Dict[str, Any]] = []
     last_height = 0
