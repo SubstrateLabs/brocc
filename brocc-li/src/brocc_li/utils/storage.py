@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
 from appdirs import user_data_dir
 from pathlib import Path
+from brocc_li.types.document import Document
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -95,15 +96,28 @@ class DocumentStorage:
         if not document.get("url"):
             return False
 
-        document["last_updated"] = datetime.now().isoformat()
+        # Validate document structure using Pydantic model
+        try:
+            # Convert dict to Document model to validate
+            doc = Document(**document)
+            # Convert back to dict for storage
+            document = doc.model_dump()
+        except Exception as e:
+            raise ValueError(f"Invalid document structure: {str(e)}")
 
-        # Convert metadata to JSON string if it's a dict
-        if isinstance(document.get("metadata"), dict):
+        # Format timestamps consistently
+        document["last_updated"] = Document.format_date(datetime.now())
+        if not document.get("ingested_at"):
+            document["ingested_at"] = Document.format_date(datetime.now())
+
+        # Convert metadata to JSON string (it's always a dict)
+        if document.get("metadata"):
             document["metadata"] = json.dumps(document["metadata"])
 
-        # Convert content to JSON string if it's a dict
-        if isinstance(document.get("content"), dict):
-            document["content"] = json.dumps(document["content"])
+        # Convert enum values to strings
+        for key, value in document.items():
+            if hasattr(value, "value"):  # Check if it's an enum
+                document[key] = value.value
 
         with duckdb.connect(self.db_path) as conn:
             # Check if the document already exists
@@ -159,12 +173,6 @@ class DocumentStorage:
                 except json.JSONDecodeError:
                     pass
 
-            if document.get("content"):
-                try:
-                    document["content"] = json.loads(document["content"])
-                except json.JSONDecodeError:
-                    pass
-
             return document
 
     def get_documents(
@@ -209,12 +217,54 @@ class DocumentStorage:
                     except json.JSONDecodeError:
                         pass
 
-                if document.get("content"):
-                    try:
-                        document["content"] = json.loads(document["content"])
-                    except json.JSONDecodeError:
-                        pass
-
                 documents.append(document)
 
             return documents
+
+    def launch_ui(self) -> None:
+        """
+        Launch the DuckDB UI for the documents database.
+        https://duckdb.org/docs/stable/extensions/ui.html
+        """
+        import duckdb
+        import webbrowser
+        import time
+
+        conn = duckdb.connect(self.db_path)
+        conn.execute("INSTALL ui;")
+        conn.execute("LOAD ui;")
+        # Start the server first
+        conn.execute("CALL start_ui_server();")
+        # Give the server a moment to start
+        time.sleep(1)
+        # Open browser
+        webbrowser.open("http://localhost:4213")
+        # Keep the connection alive
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            conn.execute("CALL stop_ui_server();")
+            conn.close()
+
+
+def launch_ui() -> None:
+    """Launch the DuckDB UI for the documents database."""
+    storage = DocumentStorage()
+    storage.launch_ui()
+
+
+def delete_db(db_path: Optional[str] = None) -> bool:
+    """Delete the database file at the given path or the default path."""
+    path = db_path or get_default_db_path()
+    print(f"Attempting to delete database at: {path}")
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            print("Successfully deleted database")
+            return True
+        except Exception as e:
+            print(f"Failed to delete database: {e}")
+            return False
+    print("Database file not found")
+    return False

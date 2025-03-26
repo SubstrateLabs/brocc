@@ -10,7 +10,7 @@ def test_document_from_twitter_data():
         "author_name": "Test Author",
         "author_identifier": "username",
         "created_at": "2023-05-01T12:34:56Z",
-        "content": {"content": "This is a test tweet", "raw_html": "<div>HTML</div>"},
+        "content": "This is a test tweet",
         "metadata": {
             "replies": "10",
             "retweets": "20",

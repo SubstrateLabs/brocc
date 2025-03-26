@@ -12,7 +12,7 @@ from brocc_li.utils.storage import DocumentStorage
 console = Console()
 
 # Configuration flags
-MAX_ITEMS = 8
+MAX_ITEMS = None  # Set to None to get all items, or a number to limit
 TEST_URL = "https://x.com/i/bookmarks"
 DEBUG = False  # Set to True to enable debug logging
 
@@ -88,12 +88,10 @@ def extract_media(element) -> Optional[Dict[str, Any]]:
     return None
 
 
-def extract_tweet_text(element) -> Dict[str, Any]:
+def extract_tweet_text(element) -> str:
     """Extract tweet text content, handling both main and quoted tweets."""
     tweet_texts = element.query_selector_all('[data-testid="tweetText"]')
     content_parts = []
-
-    raw_html = element.inner_html()
 
     for i, tweet_text in enumerate(tweet_texts):
         prefix = "\n↱ " if i > 0 else ""
@@ -225,10 +223,7 @@ def extract_tweet_text(element) -> Dict[str, Any]:
             else:
                 final_content += f"[media]({item['url']})\n"
 
-    return {
-        "raw_html": raw_html,
-        "content": final_content,
-    }
+    return final_content
 
 
 def extract_metric(element, selector: str) -> str:
@@ -291,7 +286,9 @@ def main() -> None:
         formatted_posts = []
         extraction_generator = scroll_and_extract(page=page, config=config)
 
-        console.print(f"\n[cyan]Extracting tweets (max {MAX_ITEMS})...[/cyan]")
+        console.print(f"\n[cyan]Extracting tweets...[/cyan]")
+        if MAX_ITEMS:
+            console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
 
         for item in extraction_generator:
             # Convert to Document object
@@ -303,9 +300,7 @@ def main() -> None:
             # Format for display as we get each tweet
             author_name = doc.author_name or "Unknown"
             author_identifier = doc.author_identifier or ""
-            content = (
-                doc.content.get("content", "No text") if doc.content else "No text"
-            )
+            content = doc.content or "No text"
 
             # Get metadata and format it with emojis
             metadata = doc.metadata or {}
@@ -328,9 +323,11 @@ def main() -> None:
             )
 
             # Show progress
-            console.print(
-                f"[green]Extracted tweet {len(docs)}/{MAX_ITEMS} from @{author_identifier}[/green]"
-            )
+            progress_text = f"[green]Extracted tweet {len(docs)}"
+            if MAX_ITEMS:
+                progress_text += f"/{MAX_ITEMS}"
+            progress_text += f" from @{author_identifier}[/green]"
+            console.print(progress_text)
 
         if docs:
             # Display the posts

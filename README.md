@@ -1,7 +1,7 @@
 # brocc
 
-- pandas schema for storage
-- store in duckdb schema with idempotency
+- duckdb cli explorer
+- clear db util
 - markdown chunking
 - store in lancedb with chunking approach
 - cli login flow

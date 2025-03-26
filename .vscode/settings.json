@@ -20,5 +20,8 @@
   },
   "python.analysis.typeCheckingMode": "basic",
   "python.analysis.useLibraryCodeForTypes": true,
-  "prettier.configPath": "./next/.prettierrc.json"
+  "prettier.configPath": "./next/.prettierrc.json",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.extraPaths": ["${workspaceFolder}/.venv/lib/python3.12/site-packages"]
 }

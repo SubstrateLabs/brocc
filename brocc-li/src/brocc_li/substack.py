@@ -18,7 +18,7 @@ from brocc_li.utils.storage import DocumentStorage
 console = Console()
 
 # Config flags for development (running main)
-MAX_ITEMS = 4
+MAX_ITEMS = None  # Set to None to get all items, or a number to limit
 DEBUG = True  # write results to debug dir
 TEST_URL = "https://substack.com/inbox"
 
@@ -146,7 +146,9 @@ def main() -> None:
             debug=DEBUG,
         )
 
-        console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")
+        console.print(f"[cyan]Starting extraction of posts...[/cyan]")
+        if MAX_ITEMS:
+            console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
 
         # Process items as they're streamed back
         docs = []
@@ -186,9 +188,11 @@ def main() -> None:
             )
 
             # Show progress
-            console.print(
-                f"[green]Extracted post {len(docs)}/{MAX_ITEMS}: {doc.title or 'Untitled'}[/green]"
-            )
+            progress_text = f"[green]Extracted post {len(docs)}"
+            if MAX_ITEMS:
+                progress_text += f"/{MAX_ITEMS}"
+            progress_text += f": {doc.title or 'Untitled'}[/green]"
+            console.print(progress_text)
 
         if docs:
             display_items(

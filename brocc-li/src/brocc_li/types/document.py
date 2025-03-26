@@ -4,7 +4,7 @@ import hashlib
 import uuid
 from enum import Enum
 from datetime import datetime
-from brocc_li.utils.timestamp import READABLE_DATETIME_FORMAT
+from brocc_li.utils.timestamp import format_datetime
 from brocc_li.types.extract_field import ExtractField
 
 
@@ -53,7 +53,7 @@ class Document(BaseModel):
     url: str
     title: Optional[str] = None
     description: Optional[str] = None
-    content: Any = None
+    content: Optional[str] = None
     author_name: Optional[str] = None
     author_identifier: Optional[str] = None
     created_at: Optional[str] = None
@@ -74,7 +74,7 @@ class Document(BaseModel):
     @staticmethod
     def format_date(dt: datetime) -> str:
         """Format a datetime consistently for all document dates."""
-        return dt.strftime(READABLE_DATETIME_FORMAT)
+        return format_datetime(dt)
 
     @classmethod
     def from_extracted_data(

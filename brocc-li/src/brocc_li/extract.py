@@ -91,7 +91,7 @@ class FeedConfig(BaseModel):
     deep_scrape: Optional["DeepScrapeOptions"] = None
 
     # Runtime behavior
-    max_items: int = 5
+    max_items: Optional[int] = None
     expand_item_selector: Optional[str] = None
     container_selector: Optional[str] = None
 
@@ -569,7 +569,14 @@ def handle_scrolling(
 def scroll_and_extract(
     page: Page, config: FeedConfig
 ) -> Generator[Dict[str, Any], None, None]:
-    """Generator function to scroll through a page and yield items as they're found."""
+    """Generator function to scroll through a page and yield items as they're found.
+
+    Return type explanation:
+    - Generator[Dict[str, Any], None, None] means:
+      - Yields: Dict[str, Any] (each item is a dictionary with string keys and any values)
+      - Receives: None (generator doesn't accept any values via .send())
+      - Returns: None (generator doesn't return a final value)
+    """
     try:
         if config.container_selector is None:
             for field_name, field in config.feed_schema.__dict__.items():
@@ -627,9 +634,8 @@ def scroll_and_extract(
     total_skipped = 0
 
     while (
-        items_yielded < config.max_items
-        and no_new_items_count < config.scroll_config.max_no_new_items
-    ):
+        config.max_items is None or items_yielded < config.max_items
+    ) and no_new_items_count < config.scroll_config.max_no_new_items:
         if config.expand_item_selector:
             for element in page.query_selector_all(config.expand_item_selector):
                 try:
@@ -646,7 +652,7 @@ def scroll_and_extract(
         skipped_items = 0
 
         for item in current_items:
-            if items_yielded >= config.max_items:
+            if config.max_items is not None and items_yielded >= config.max_items:
                 break
 
             url = item.get(URL_FIELD)

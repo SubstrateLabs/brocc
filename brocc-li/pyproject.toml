@@ -42,6 +42,8 @@ brocc = "brocc_li.entry_points:main"
 chrome = "brocc_li.chrome:main"
 twitter = "brocc_li.twitter:main"
 substack = "brocc_li.substack:main"
+dbui = "brocc_li.utils.storage:launch_ui"
+dbdelete = "brocc_li.utils.storage:delete_db"
 
 [tool.hatch.envs.default]
 post-install-commands = ["playwright install chromium"]

@@ -2,7 +2,7 @@ import os
 import pytest
 import tempfile
 from datetime import datetime
-
+from brocc_li.types.document import Source, Document
 from brocc_li.utils.storage import DocumentStorage
 
 
@@ -32,6 +32,7 @@ def storage(temp_db_path):
 @pytest.fixture
 def sample_document():
     """Create a sample document for testing."""
+    now = datetime.now()
     return {
         "id": "test123",
         "url": "https://example.com/test",
@@ -40,11 +41,11 @@ def sample_document():
         "content": "This is the content of the test document.",
         "author_name": "Test Author",
         "author_identifier": "author123",
-        "created_at": datetime.now().isoformat(),
+        "created_at": Document.format_date(now),
         "metadata": {"key": "value"},
-        "source": "test_source",
-        "source_location": "test_location",
-        "ingested_at": datetime.now().isoformat(),
+        "source": Source.TWITTER,
+        "source_location": "https://example.com/test",
+        "ingested_at": Document.format_date(now),
     }
 
 
@@ -53,7 +54,12 @@ def test_initialize_db(storage, temp_db_path):
     assert os.path.exists(temp_db_path)
 
     # Store and retrieve a document to verify the table exists
-    doc = {"id": "test_init", "url": "https://example.com/init"}
+    doc = {
+        "id": "test_init",
+        "url": "https://example.com/init",
+        "source": Source.TWITTER,
+        "source_location": "https://example.com/init",
+    }
     storage.store_document(doc)
     assert storage.url_exists("https://example.com/init")
 
@@ -111,19 +117,19 @@ def test_get_seen_urls(storage):
         {
             "id": "doc1",
             "url": "https://example.com/1",
-            "source": "source1",
+            "source": Source.TWITTER,
             "source_location": "location1",
         },
         {
             "id": "doc2",
             "url": "https://example.com/2",
-            "source": "source1",
+            "source": Source.TWITTER,
             "source_location": "location2",
         },
         {
             "id": "doc3",
             "url": "https://example.com/3",
-            "source": "source2",
+            "source": Source.SUBSTACK,
             "source_location": "location1",
         },
     ]
@@ -139,7 +145,7 @@ def test_get_seen_urls(storage):
     assert "https://example.com/3" in all_urls
 
     # Filter by source
-    source1_urls = storage.get_seen_urls(source="source1")
+    source1_urls = storage.get_seen_urls(source="twitter")
     assert len(source1_urls) == 2
     assert "https://example.com/1" in source1_urls
     assert "https://example.com/2" in source1_urls
@@ -153,7 +159,7 @@ def test_get_seen_urls(storage):
     assert "https://example.com/3" in location1_urls
 
     # Filter by both source and location
-    filtered_urls = storage.get_seen_urls(source="source1", source_location="location1")
+    filtered_urls = storage.get_seen_urls(source="twitter", source_location="location1")
     assert len(filtered_urls) == 1
     assert "https://example.com/1" in filtered_urls
 
@@ -165,23 +171,23 @@ def test_get_documents(storage):
         {
             "id": "doc1",
             "url": "https://example.com/1",
-            "source": "source1",
+            "source": Source.TWITTER,
             "source_location": "location1",
-            "ingested_at": "2024-01-01T00:00:01",  # Oldest
+            "ingested_at": "2024-01-01T00:00:01+00:00",  # Oldest
         },
         {
             "id": "doc2",
             "url": "https://example.com/2",
-            "source": "source1",
+            "source": Source.TWITTER,
             "source_location": "location2",
-            "ingested_at": "2024-01-01T00:00:02",  # Middle
+            "ingested_at": "2024-01-01T00:00:02+00:00",  # Middle
         },
         {
             "id": "doc3",
             "url": "https://example.com/3",
-            "source": "source2",
+            "source": Source.SUBSTACK,
             "source_location": "location1",
-            "ingested_at": "2024-01-01T00:00:03",  # Newest
+            "ingested_at": "2024-01-01T00:00:03+00:00",  # Newest
         },
     ]
 
@@ -193,7 +199,7 @@ def test_get_documents(storage):
     assert len(all_docs) == 3
 
     # Filter by source
-    source1_docs = storage.get_documents(source="source1")
+    source1_docs = storage.get_documents(source="twitter")
     assert len(source1_docs) == 2
     assert any(doc["id"] == "doc1" for doc in source1_docs)
     assert any(doc["id"] == "doc2" for doc in source1_docs)
@@ -220,12 +226,14 @@ def test_get_documents(storage):
 
 def test_json_conversion(storage):
     """Test JSON conversion for metadata and content."""
-    # Test with dict metadata
+    # Test with nested dict metadata
     doc_with_dict = {
         "id": "json_test1",
         "url": "https://example.com/json1",
         "metadata": {"key": "value", "nested": {"inner": "data"}},
         "content": "plain text",
+        "source": Source.TWITTER,
+        "source_location": "https://example.com/json1",
     }
     storage.store_document(doc_with_dict)
     retrieved = storage.get_document_by_url(doc_with_dict["url"])
@@ -233,14 +241,16 @@ def test_json_conversion(storage):
     assert retrieved["metadata"]["key"] == "value"
     assert retrieved["metadata"]["nested"]["inner"] == "data"
 
-    # Test with dict content
-    doc_with_dict_content = {
+    # Test with simple dict metadata
+    doc_with_simple_dict = {
         "id": "json_test2",
         "url": "https://example.com/json2",
-        "metadata": "plain text",
-        "content": {"blocks": [{"text": "content"}]},
+        "metadata": {"key": "value"},
+        "content": "plain text",
+        "source": Source.TWITTER,
+        "source_location": "https://example.com/json2",
     }
-    storage.store_document(doc_with_dict_content)
-    retrieved = storage.get_document_by_url(doc_with_dict_content["url"])
-    assert isinstance(retrieved["content"], dict)
-    assert retrieved["content"]["blocks"][0]["text"] == "content"
+    storage.store_document(doc_with_simple_dict)
+    retrieved = storage.get_document_by_url(doc_with_simple_dict["url"])
+    assert isinstance(retrieved["metadata"], dict)
+    assert retrieved["metadata"]["key"] == "value"

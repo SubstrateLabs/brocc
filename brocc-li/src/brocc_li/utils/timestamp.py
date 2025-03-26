@@ -2,6 +2,13 @@ from datetime import datetime
 import re
 from typing import Optional, Any
 
+
+# Use ISO format for all timestamps
+def format_datetime(dt: datetime) -> str:
+    """Format datetime in ISO format with timezone."""
+    return dt.isoformat()
+
+
 # Human-readable format with time precision
 READABLE_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -58,21 +65,18 @@ def _parse_text_date(text: str) -> Optional[datetime]:
         return None
 
 
-def parse_and_format_date(
-    date_input: Any, format_str: str = READABLE_DATETIME_FORMAT
-) -> str:
-    """Parse a date from various formats and return it formatted consistently.
+def parse_and_format_date(date_input: Any) -> str:
+    """Parse a date from various formats and return it formatted consistently in ISO format.
 
     Args:
         date_input: The input date (string, datetime, etc)
-        format_str: The desired output format (defaults to READABLE_DATETIME_FORMAT)
 
     Returns:
         A formatted date string or empty string if parsing fails
     """
     # If it's already a datetime
     if isinstance(date_input, datetime):
-        return date_input.strftime(format_str)
+        return format_datetime(date_input)
 
     # If it's not a string, try to convert it
     if not isinstance(date_input, str):
@@ -88,12 +92,12 @@ def parse_and_format_date(
     # Try ISO format first (Twitter)
     dt = _parse_iso_date(date_string)
     if dt:
-        return dt.strftime(format_str)
+        return format_datetime(dt)
 
     # Try text format (Substack)
     dt = _parse_text_date(date_string)
     if dt:
-        return dt.strftime(format_str)
+        return format_datetime(dt)
 
     # Return empty string for unparseable inputs
     return ""
@@ -111,4 +115,4 @@ def parse_timestamp(raw_timestamp: Any) -> str:
     Returns:
         A formatted date string or empty string if parsing fails
     """
-    return parse_and_format_date(raw_timestamp, READABLE_DATETIME_FORMAT)
+    return parse_and_format_date(raw_timestamp)
