@@ -77,57 +77,97 @@ def extract_tweet_text(element) -> Dict[str, Any]:
 
         # Much simpler direct approach to get visible link text and emojis
         processed_content = tweet_text.evaluate("""node => {
-            // Extremely simple version - extract domains directly from links
-            const originalText = node.innerText;
+            // Super simple approach - directly select visible domains and emojis
             
-            // Get all link elements
+            // Get all links with t.co URLs - these are Twitter links
             const links = Array.from(node.querySelectorAll('a[href*="t.co/"]'));
+            const emojis = Array.from(node.querySelectorAll('img[alt]'));
             
-            // Extract domains and their URLs
-            const extractedLinks = links.map(link => {
-                // Get only the visible text directly - explicitly avoid the hidden http:// prefix
-                let domainName = "";
+            // Extract raw text to process line by line
+            const lines = node.innerText.split('\\n');
+            const processedLines = [];
+            
+            // Build a map of links with their text and position
+            const linkData = links.map(link => {
+                // Get the visible domain text - ONLY the domain, no http:// or hidden elements
+                const visibleText = Array.from(link.childNodes)
+                    // Skip the hidden http:// prefix span
+                    .filter(n => !n.classList || !n.classList.contains('r-qlhcfr'))
+                    .map(n => n.textContent)
+                    .join('')
+                    .trim();
                 
-                // Manually extract text nodes, skipping the hidden prefix span
-                for (const child of link.childNodes) {
-                    // Include only text nodes and non-hidden elements
-                    if (child.nodeType === 3) { // Text node
-                        domainName += child.textContent;
-                    } else if (child.nodeType === 1 && 
-                              !child.classList.contains('r-qlhcfr') &&
-                              getComputedStyle(child).display !== 'none') {
-                        domainName += child.textContent;
-                    }
-                }
-                
-                domainName = domainName.trim();
+                const rect = link.getBoundingClientRect();
                 
                 return {
-                    domain: domainName,
-                    url: link.href
+                    element: link,
+                    domain: visibleText,
+                    url: link.href,
+                    top: rect.top,
+                    left: rect.left
                 };
             });
             
-            // Start with the complete original text
-            let result = originalText;
+            // Build a map of emojis with their text and position
+            const emojiData = emojis.map(emoji => {
+                const rect = emoji.getBoundingClientRect();
+                
+                return {
+                    element: emoji,
+                    alt: emoji.alt,
+                    top: rect.top,
+                    left: rect.left
+                };
+            });
             
-            // Build the markdown links, replacing original URLs
-            for (const link of extractedLinks) {
-                // Skip if no domain text was found
-                if (!link.domain) continue;
+            // Process each line to find and replace domains with markdown links
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                let processed = line;
                 
-                // Create the markdown link and replace in the text
-                const markdownLink = `[${link.domain}](${link.url})`;
+                // Get links and emojis that likely appear on this line
+                // based on the vertical position
+                const linksOnLine = linkData.filter(link => {
+                    // Check if this link's domain appears in the line text
+                    return link.domain && line.includes(link.domain);
+                });
                 
-                // Replace the domain text with the markdown link
-                // Only replace exact domain text to avoid partial matches
-                result = result.replace(
-                    new RegExp(`\\b${link.domain}\\b`, 'g'),
-                    markdownLink
-                );
+                // Process each link on this line
+                for (const link of linksOnLine) {
+                    // Find emoji that might belong to this link
+                    // It should be on the same line and appear before the link
+                    const matchingEmoji = emojiData.find(emoji => {
+                        // Same vertical position (roughly)
+                        const sameLine = Math.abs(emoji.top - link.top) < 10;
+                        // Emoji appears before link
+                        const beforeLink = emoji.left < link.left;
+                        // Emoji appears in this line
+                        const inLine = line.includes(emoji.alt);
+                        
+                        return sameLine && beforeLink && inLine;
+                    });
+                    
+                    // Create markdown format with or without emoji
+                    if (matchingEmoji && line.includes(matchingEmoji.alt + ' ' + link.domain)) {
+                        // Replace "emoji domain" with "emoji[domain](url)"
+                        processed = processed.replace(
+                            `${matchingEmoji.alt} ${link.domain}`,
+                            `${matchingEmoji.alt} [${link.domain}](${link.url})`
+                        );
+                    } else {
+                        // Just replace domain with [domain](url)
+                        const domainRegex = new RegExp('\\b' + link.domain + '\\b', 'g');
+                        processed = processed.replace(
+                            domainRegex,
+                            `[${link.domain}](${link.url})`
+                        );
+                    }
+                }
+                
+                processedLines.push(processed);
             }
             
-            return result;
+            return processedLines.join('\\n');
         }""")
 
         # Remove any Twitter UI artifacts like "·" and "Show more"

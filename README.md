@@ -1,6 +1,6 @@
 # brocc
 
-- fix link parsing for tweets, no sep links field
+- fix emoji parsing in tweet content (this is like an AGI-level problem)
 - normalize tweet + substack under shared type (maybe?)
 - contacts sync (twitter followers)
 - duckdb vs sqlite
