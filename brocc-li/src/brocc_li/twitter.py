@@ -3,7 +3,7 @@ from rich.console import Console
 from typing import Dict, Any, ClassVar
 from pydantic import BaseModel
 from .chrome import connect_to_chrome, open_new_tab
-from .extract import SchemaField, scroll_and_extract
+from .extract import SchemaField, scroll_and_extract, FeedConfig
 from .display_result import display_items
 import time
 
@@ -148,90 +148,80 @@ def convert_metric(text: str) -> str:
     return text
 
 
-## DEVELOPMENT
-
-
-def format_tweet_metrics(item: Dict[str, Any]) -> str:
-    """Format tweet metrics with icons."""
-    metrics = {
-        "replies": "💬",
-        "retweets": "🔄",
-        "likes": "❤️",
-    }
-    return "\n".join(
-        f"{icon} {item.get(metric, '0')}" for metric, icon in metrics.items()
-    )
-
-
-def format_tweet_author(item: Dict[str, Any]) -> str:
-    """Format tweet author with display name and handle."""
-    author = item.get("author", {})
-    display_name = author.get("display_name", "Unknown")
-    handle = author.get("handle", "")
-    return f"{display_name}\n@{handle}" if handle else display_name
-
-
-def format_tweet_links(item: Dict[str, Any]) -> str:
-    """Format tweet links."""
-    text_data = item.get("text", {}) or {}
-    links = text_data.get("links", [])
-    return "\n".join(f"{link['text']}\n→ {link['url']}" for link in links) or "No links"
-
-
-def format_tweet_content(item: Dict[str, Any]) -> str:
-    """Format tweet content with images."""
-    text_data = item.get("text", {}) or {}
-    content = text_data.get("content", "No text")
-
-    images = [img["url"] for img in item.get("images", []) if img is not None]
-    if images:
-        content += "\n\n[dim]Images:[/dim]\n" + "\n".join(f"📸 {url}" for url in images)
-
-    return content
-
-
-def run() -> bool:
+def main() -> None:
     with sync_playwright() as p:
         browser = connect_to_chrome(p)
         if not browser:
-            return False
+            return
 
         page = open_new_tab(browser, "https://x.com/home")
         if not page:
-            return False
+            return
 
         start_time = time.time()
 
-        posts = scroll_and_extract(
-            page=page,
-            schema=TwitterFeedSchema,
+        config = FeedConfig(
+            feed_schema=TwitterFeedSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
         )
 
-        if posts:
-            columns = [
-                "Author",
-                "Content",
-                "Links",
-                "Time",
-                "Metrics",
-            ]
+        posts = scroll_and_extract(page=page, config=config)
 
-            formatters = {
-                "Author": format_tweet_author,
-                "Content": format_tweet_content,
-                "Links": format_tweet_links,
-                "Time": lambda item: item.get("timestamp", "No timestamp").split("T")[
-                    0
-                ],
-                "Metrics": format_tweet_metrics,
-            }
+        if posts:
+            # Format tweet data for display
+            formatted_posts = []
+            for post in posts:
+                # Format author
+                author = post.get("author", {})
+                display_name = author.get("display_name", "Unknown")
+                handle = author.get("handle", "")
+                author_text = f"{display_name}\n@{handle}" if handle else display_name
+
+                # Format content with images
+                text_data = post.get("text", {}) or {}
+                content = text_data.get("content", "No text")
+                images = [
+                    img["url"] for img in post.get("images", []) if img is not None
+                ]
+                if images:
+                    content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
+                        f"📸 {url}" for url in images
+                    )
+
+                # Format links
+                links = text_data.get("links", [])
+                links_text = (
+                    "\n".join(f"{link['text']}\n→ {link['url']}" for link in links)
+                    or "No links"
+                )
+
+                # Format metrics
+                metrics = {
+                    "replies": "💬",
+                    "retweets": "🔄",
+                    "likes": "❤️",
+                }
+                metrics_text = "\n".join(
+                    f"{icon} {post.get(metric, '0')}"
+                    for metric, icon in metrics.items()
+                )
+
+                formatted_posts.append(
+                    {
+                        "Author": author_text,
+                        "Content": content,
+                        "Links": links_text,
+                        "Time": post.get("timestamp", "No timestamp").split("T")[0],
+                        "Metrics": metrics_text,
+                    }
+                )
 
             display_items(
-                items=posts, title="Tweets", columns=columns, formatters=formatters
+                items=formatted_posts,
+                title="Tweets",
+                columns=["Author", "Content", "Links", "Time", "Metrics"],
             )
-
             elapsed_time = time.time() - start_time
             tweets_per_minute = (len(posts) / elapsed_time) * 60
             console.print(
@@ -243,4 +233,7 @@ def run() -> bool:
             console.print("[yellow]No tweets found[/yellow]")
 
         page.close()
-        return True
+
+
+if __name__ == "__main__":
+    main()

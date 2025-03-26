@@ -39,7 +39,6 @@ PROGRESS_LABEL = "items"
 
 # Timeout constants (in milliseconds)
 INITIAL_LOAD_TIMEOUT_MS = 10000
-DYNAMIC_CONTENT_WAIT_MS = 2000
 CONTENT_EXTRACTION_TIMEOUT_MS = 3000
 CLICK_WAIT_TIMEOUT_MS = 500
 NETWORK_IDLE_TIMEOUT_MS = 5000
@@ -79,9 +78,6 @@ class DeepScrapeOptions(BaseModel):
     when navigating to individual content pages.
     """
 
-    # Whether to enable deep scraping of content from detail pages
-    enabled: bool = False
-
     # CSS selector to find the content element on the detail page
     content_selector: str = DEFAULT_CONTENT_SELECTOR
 
@@ -96,9 +92,6 @@ class DeepScrapeOptions(BaseModel):
 
     # Maximum delay in milliseconds between scraping actions
     max_delay_ms: int = DEFAULT_MAX_DELAY_MS
-
-    # Factor for random jitter (0.0-1.0) - higher means more randomness
-    jitter_factor: float = DEFAULT_JITTER_FACTOR
 
     # Whether to save markdown content to files
     save_markdown: bool = False
@@ -348,98 +341,251 @@ def slugify(url: str) -> str:
     return f"{slug}.md"
 
 
-def scroll_and_extract(
-    page: Any,
-    schema: type[BaseModel],
-    container_selector: str | None = None,
-    max_items: int = 5,
-    expand_item_selector: str | None = None,
-    deep_scrape_options: Optional[DeepScrapeOptions] = None,
-) -> List[Dict[str, Any]]:
-    """Scroll through a page and extract items based on the provided schema.
+class FeedConfig(BaseModel):
+    """Unified configuration for feed extraction.
 
-    This function implements a smart scrolling algorithm that handles page navigation,
-    deduplication of items, and extraction based on a defined schema. It simulates
-    human-like scrolling behavior with randomized patterns and delays.
-
-    Parameters:
-        page: The Playwright page object to perform actions on.
-
-        schema: A Pydantic BaseModel class that defines the structure and selectors
-               for extracting data. This should have SchemaField attributes that
-               specify how to extract each piece of data.
-
-        container_selector: Optional CSS selector string that identifies each container element
-                           (e.g., a post, tweet, or card) to extract data from. If not provided,
-                           will be extracted from the schema's container field.
-
-        max_items: Maximum number of items to extract before stopping. Default is 5.
-
-        expand_item_selector: Optional CSS selector for elements that need to be clicked to expand
-                            content (e.g., "Show more" buttons). These elements
-                            will be clicked while scrolling to ensure full content is visible.
-                            If None, no expansion is performed.
-
-        deep_scrape_options: Configuration options for deep scraping. If None, deep scraping
-                            is disabled. See DeepScrapeOptions class for details.
-
-    Returns:
-        A list of dictionaries where each dictionary contains the extracted data
-        for one item according to the provided schema.
+    This class combines all configuration options needed for feed extraction,
+    including schema definition, deep scraping options, and runtime behavior.
     """
-    # Initialize by waiting for container selector
+
+    # Schema definition
+    feed_schema: type[BaseModel]
+
+    # Deep scraping configuration
+    deep_scrape: Optional[DeepScrapeOptions] = None
+
+    # Runtime behavior
+    max_items: int = 5
+    expand_item_selector: Optional[str] = None
+    container_selector: Optional[str] = None
+
+    # Scroll behavior
+    scroll_pattern: ScrollPattern = ScrollPattern.NORMAL
+    scroll_config: ScrollConfig = ScrollConfig()
+
+    # Timeouts (in milliseconds)
+    initial_load_timeout_ms: int = INITIAL_LOAD_TIMEOUT_MS
+    network_idle_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS
+    click_wait_timeout_ms: int = CLICK_WAIT_TIMEOUT_MS
+
+
+def handle_deep_scraping(
+    page: Any,
+    item: Dict[str, Any],
+    config: FeedConfig,
+    item_position: int,
+    original_url: str,
+) -> None:
+    """Handle deep scraping for a single item."""
+    if not config.deep_scrape:
+        return
+
+    retry_count = 0
+    content_found = False
+
+    while retry_count <= DEEP_SCRAPE_MAX_RETRIES and not content_found:
+        try:
+            if retry_count > 0:
+                console.print(
+                    f"[yellow]Retry attempt {retry_count}/{DEEP_SCRAPE_MAX_RETRIES}[/yellow]"
+                )
+                page.go_back()
+                random_delay_with_jitter(
+                    config.deep_scrape.min_delay_ms,
+                    config.deep_scrape.max_delay_ms,
+                    DEFAULT_JITTER_FACTOR,
+                )
+
+            if not navigate_to_item(page, config, item_position):
+                retry_count += 1
+                continue
+
+            content_found = extract_and_save_content(page, item, config)
+
+        except Exception as e:
+            console.print(f"[red]Error during deep scraping: {str(e)}[/red]")
+            retry_count += 1
+            if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
+                page.go_back()
+                random_delay_with_jitter(
+                    config.deep_scrape.min_delay_ms,
+                    config.deep_scrape.max_delay_ms,
+                    DEFAULT_JITTER_FACTOR,
+                )
+            else:
+                item[MARKDOWN_FIELD_NAME] = f"Error: {str(e)}"
+
+    ensure_original_page(page, original_url, config)
+
+
+def navigate_to_item(page: Any, config: FeedConfig, item_position: int) -> bool:
+    """Navigate to a specific item's detail page."""
+    if not config.deep_scrape:
+        return False
+
+    visible_containers = page.query_selector_all(config.container_selector)
+    if not visible_containers or item_position >= len(visible_containers):
+        return False
+
+    container = visible_containers[item_position]
+    url_field = next(
+        (
+            field
+            for field_name, field in config.feed_schema.__dict__.items()
+            if isinstance(field, SchemaField) and field_name == URL_FIELD
+        ),
+        None,
+    )
+
+    if not url_field:
+        return False
+
+    clickable = container.query_selector(url_field.selector)
+    if not clickable:
+        return False
+
+    clickable.click()
+    if config.deep_scrape.wait_networkidle:
+        page.wait_for_load_state("networkidle", timeout=config.network_idle_timeout_ms)
+    random_delay_with_jitter(
+        DEEP_SCRAPE_RETRY_DELAY_MIN_MS,
+        DEEP_SCRAPE_RETRY_DELAY_MAX_MS,
+        DEFAULT_JITTER_FACTOR,
+    )
+    return True
+
+
+def extract_and_save_content(
+    page: Any, item: Dict[str, Any], config: FeedConfig
+) -> bool:
+    """Extract and save content from the detail page."""
+    if not config.deep_scrape:
+        return False
+
+    html_content = extract_content_from_page(page, config.deep_scrape)
+    if html_content:
+        markdown_content = convert_to_markdown(html_content)
+        item[MARKDOWN_FIELD_NAME] = markdown_content
+
+        if config.deep_scrape.save_markdown:
+            filepath = save_markdown(item)
+            if filepath:
+                console.print(f"[green]Saved markdown to: {filepath}[/green]")
+        return True
+
+    # Fallback to body content
+    body_element = page.query_selector(DEFAULT_BODY_SELECTOR)
+    if body_element:
+        body_html = body_element.inner_html()
+        item[MARKDOWN_FIELD_NAME] = convert_to_markdown(body_html)
+        return True
+
+    item[MARKDOWN_FIELD_NAME] = "No content found"
+    return True
+
+
+def ensure_original_page(page: Any, original_url: str, config: FeedConfig) -> None:
+    """Ensure we're back at the original page."""
+    if not config.deep_scrape:
+        return
+
+    if page.url != original_url:
+        try:
+            page.go_back()
+            if page.url != original_url:
+                page.goto(
+                    original_url,
+                    wait_until="networkidle"
+                    if config.deep_scrape.wait_networkidle
+                    else None,
+                )
+        except (TimeoutError, PlaywrightError) as e:
+            console.print(f"[red]Failed all navigation attempts: {str(e)}[/red]")
+
+
+def handle_scrolling(
+    page: Any, new_items: int, consecutive_same_height: int, config: FeedConfig
+) -> Tuple[int, int]:
+    """Handle scrolling logic and return updated metrics."""
+    current_height = page.evaluate("document.documentElement.scrollHeight")
+    last_height = page.evaluate("document.documentElement.scrollHeight")
+
+    if current_height == last_height:
+        consecutive_same_height += 1
+        if consecutive_same_height >= config.scroll_config.max_consecutive_same_height:
+            if consecutive_same_height % 2 == 0:
+                page.evaluate(
+                    "window.scrollTo(0, document.documentElement.scrollHeight)"
+                )
+                random_delay(0.5, 0.3)
+                page.evaluate("window.scrollTo(0, 0)")
+                random_delay(0.5, 0.3)
+            else:
+                human_scroll(page, ScrollPattern.FAST)
+            consecutive_same_height = 0
+        else:
+            human_scroll(page, random.choice(list(ScrollPattern)))
+    else:
+        consecutive_same_height = 0
+        human_scroll(page, random.choice(list(ScrollPattern)))
+
+    # Adaptive delays
+    if new_items > 0:
+        random_delay(0.3, 0.2)
+    elif consecutive_same_height > 0:
+        random_delay(1.0, 0.3)
+    else:
+        random_delay(0.5, 0.2)
+
+    return consecutive_same_height, last_height
+
+
+def scroll_and_extract(page: Any, config: FeedConfig) -> List[Dict[str, Any]]:
+    """Main function to scroll through a page and extract items."""
     try:
-        # Find container selector from schema if not provided
-        if container_selector is None:
-            for field_name, field in schema.__dict__.items():
+        if config.container_selector is None:
+            for field_name, field in config.feed_schema.__dict__.items():
                 if isinstance(field, SchemaField) and field.is_container:
-                    container_selector = field.selector
+                    config.container_selector = field.selector
                     break
-            if container_selector is None:
+            if config.container_selector is None:
                 raise ValueError("No container selector found in schema")
 
-        console.print(f"[cyan]Waiting for {PROGRESS_LABEL} to load...[/cyan]")
-        page.wait_for_selector(container_selector, timeout=INITIAL_LOAD_TIMEOUT_MS)
-        console.print(f"[green]Found initial {PROGRESS_LABEL}[/green]")
+        page.wait_for_selector(
+            config.container_selector, timeout=config.initial_load_timeout_ms
+        )
     except Exception as e:
         console.print(
             f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]"
         )
         return []
 
-    # Wait a bit for any dynamic content
-    page.wait_for_timeout(DYNAMIC_CONTENT_WAIT_MS)
-
     seen_urls: Set[str] = set()
     all_items: List[Dict[str, Any]] = []
-    last_height = 0
     no_new_items_count = 0
     consecutive_same_height = 0
-    scroll_config = ScrollConfig()
-
-    deep_scrape_options = deep_scrape_options or DeepScrapeOptions(enabled=False)
     original_url = page.url
 
     while (
-        len(all_items) < max_items
-        and no_new_items_count < scroll_config.max_no_new_items
+        len(all_items) < config.max_items
+        and no_new_items_count < config.scroll_config.max_no_new_items
     ):
-        # Handle expandable elements
-        if expand_item_selector:
-            for element in page.query_selector_all(expand_item_selector):
+        if config.expand_item_selector:
+            for element in page.query_selector_all(config.expand_item_selector):
                 try:
                     if element.is_visible():
                         element.click()
-                        page.wait_for_timeout(CLICK_WAIT_TIMEOUT_MS)
+                        page.timeout(config.click_wait_timeout_ms)
                 except Exception as e:
                     console.print(f"[red]Failed to expand element: {str(e)}[/red]")
 
-        # Extract current items
-        current_items = scrape_schema(page, schema, container_selector)
+        current_items = scrape_schema(
+            page, config.feed_schema, config.container_selector
+        )
         new_items = 0
 
         for item in current_items:
-            if len(all_items) >= max_items:
+            if len(all_items) >= config.max_items:
                 break
 
             url = item.get(URL_FIELD)
@@ -447,212 +593,27 @@ def scroll_and_extract(
                 seen_urls.add(url)
                 item_position = len(all_items)
 
-                # Deep scraping logic
-                if deep_scrape_options.enabled and url:
-                    retry_count = 0
-                    content_found = False
-
-                    while retry_count <= DEEP_SCRAPE_MAX_RETRIES and not content_found:
-                        try:
-                            if retry_count > 0:
-                                console.print(
-                                    f"[yellow]Retry attempt {retry_count}/{DEEP_SCRAPE_MAX_RETRIES}[/yellow]"
-                                )
-                                # Navigate back and wait for network idle
-                                page.go_back(
-                                    wait_until="networkidle"
-                                    if deep_scrape_options.wait_networkidle
-                                    else None
-                                )
-                                random_delay_with_jitter(
-                                    deep_scrape_options.min_delay_ms,
-                                    deep_scrape_options.max_delay_ms,
-                                    deep_scrape_options.jitter_factor,
-                                )
-
-                            # Find and click content link
-                            visible_containers = page.query_selector_all(
-                                container_selector
-                            )
-                            if visible_containers and item_position < len(
-                                visible_containers
-                            ):
-                                container = visible_containers[item_position]
-                                # Use the URL field from the schema to find the clickable link
-                                url_field = next(
-                                    (
-                                        field
-                                        for field_name, field in schema.__dict__.items()
-                                        if isinstance(field, SchemaField)
-                                        and field_name == URL_FIELD
-                                    ),
-                                    None,
-                                )
-                                if url_field:
-                                    clickable = container.query_selector(
-                                        url_field.selector
-                                    )
-                                    if clickable:
-                                        clickable.click()
-                                        page.wait_for_load_state(
-                                            "networkidle",
-                                            timeout=NETWORK_IDLE_TIMEOUT_MS,
-                                        )
-                                        random_delay_with_jitter(
-                                            DEEP_SCRAPE_RETRY_DELAY_MIN_MS,
-                                            DEEP_SCRAPE_RETRY_DELAY_MAX_MS,
-                                            deep_scrape_options.jitter_factor,
-                                        )
-
-                                        # Extract content
-                                        html_content = extract_content_from_page(
-                                            page, deep_scrape_options
-                                        )
-                                        if html_content:
-                                            markdown_content = convert_to_markdown(
-                                                html_content
-                                            )
-                                            item[MARKDOWN_FIELD_NAME] = markdown_content
-                                            content_found = True
-
-                                            if deep_scrape_options.save_markdown:
-                                                filepath = save_markdown(item)
-                                                if filepath:
-                                                    console.print(
-                                                        f"[green]Saved markdown to: {filepath}[/green]"
-                                                    )
-                                        else:
-                                            # Fallback to body content
-                                            body_element = page.query_selector(
-                                                DEFAULT_BODY_SELECTOR
-                                            )
-                                            if body_element:
-                                                body_html = body_element.inner_html()
-                                                markdown_content = convert_to_markdown(
-                                                    body_html
-                                                )
-                                                item[MARKDOWN_FIELD_NAME] = (
-                                                    markdown_content
-                                                )
-                                                content_found = True
-                                            else:
-                                                item[MARKDOWN_FIELD_NAME] = (
-                                                    "No content found"
-                                                )
-                                                content_found = True
-
-                            if not content_found:
-                                retry_count += 1
-                                if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
-                                    # Navigate back and wait before retry
-                                    page.go_back(
-                                        wait_until="networkidle"
-                                        if deep_scrape_options.wait_networkidle
-                                        else None
-                                    )
-                                    random_delay_with_jitter(
-                                        deep_scrape_options.min_delay_ms,
-                                        deep_scrape_options.max_delay_ms,
-                                        deep_scrape_options.jitter_factor,
-                                    )
-
-                        except Exception as e:
-                            console.print(
-                                f"[red]Error during deep scraping: {str(e)}[/red]"
-                            )
-                            retry_count += 1
-                            if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
-                                # Navigate back and wait before retry
-                                page.go_back(
-                                    wait_until="networkidle"
-                                    if deep_scrape_options.wait_networkidle
-                                    else None
-                                )
-                                random_delay_with_jitter(
-                                    deep_scrape_options.min_delay_ms,
-                                    deep_scrape_options.max_delay_ms,
-                                    deep_scrape_options.jitter_factor,
-                                )
-                            else:
-                                item[MARKDOWN_FIELD_NAME] = f"Error: {str(e)}"
-
-                    # Ensure we're back at the original page
-                    if page.url != original_url:
-                        try:
-                            page.go_back(
-                                wait_until="networkidle"
-                                if deep_scrape_options.wait_networkidle
-                                else None
-                            )
-                            if page.url != original_url:
-                                page.goto(
-                                    original_url,
-                                    wait_until="networkidle"
-                                    if deep_scrape_options.wait_networkidle
-                                    else None,
-                                )
-                        except (TimeoutError, PlaywrightError) as e:
-                            console.print(
-                                f"[red]Failed all navigation attempts: {str(e)}[/red]"
-                            )
+                if config.deep_scrape and url:
+                    handle_deep_scraping(
+                        page, item, config, item_position, original_url
+                    )
 
                 all_items.append(item)
                 new_items += 1
 
-        # Update counters
         if new_items == 0:
             no_new_items_count += 1
-            console.print(
-                f"[dim]No new items found (attempt {no_new_items_count}/{scroll_config.max_no_new_items})[/dim]"
-            )
         else:
             no_new_items_count = 0
-            console.print(f"[dim]Found {new_items} new items[/dim]")
 
-        # Smart scrolling
-        current_height = page.evaluate("document.documentElement.scrollHeight")
-
-        if current_height == last_height:
-            consecutive_same_height += 1
-            if consecutive_same_height >= scroll_config.max_consecutive_same_height:
-                if consecutive_same_height % 2 == 0:
-                    page.evaluate(
-                        "window.scrollTo(0, document.documentElement.scrollHeight)"
-                    )
-                    random_delay(0.5, 0.3)
-                    page.evaluate("window.scrollTo(0, 0)")
-                    random_delay(0.5, 0.3)
-                else:
-                    human_scroll(page, ScrollPattern.FAST)
-                consecutive_same_height = 0
-            else:
-                human_scroll(page, random.choice(list(ScrollPattern)))
-        else:
-            consecutive_same_height = 0
-            human_scroll(page, random.choice(list(ScrollPattern)))
-
-        last_height = current_height
-
-        # Adaptive delays
-        if new_items > 0:
-            random_delay(0.3, 0.2)
-        elif consecutive_same_height > 0:
-            random_delay(1.0, 0.3)
-        else:
-            random_delay(0.5, 0.2)
-
-        # Progress update
-        console.print(
-            f"[dim]Found {len(all_items)} unique {PROGRESS_LABEL}... (stuck: {consecutive_same_height}/{scroll_config.max_consecutive_same_height})[/dim]"
+        consecutive_same_height, _ = handle_scrolling(
+            page, new_items, consecutive_same_height, config
         )
 
-        # Random pause
-        if len(all_items) % random.randint(*scroll_config.random_pause_interval) == 0:
+        if (
+            len(all_items) % random.randint(*config.scroll_config.random_pause_interval)
+            == 0
+        ):
             random_delay(2.0, 0.5)
-
-    if no_new_items_count >= scroll_config.max_no_new_items:
-        console.print(
-            f"[dim]No new {PROGRESS_LABEL} found after multiple attempts. Reached end of feed.[/dim]"
-        )
 
     return all_items

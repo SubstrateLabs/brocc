@@ -1,9 +1,9 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
-from typing import Dict, Any, ClassVar, Optional
+from typing import ClassVar, Optional
 from pydantic import BaseModel
 from .chrome import connect_to_chrome, open_new_tab
-from .extract import SchemaField, scroll_and_extract, DeepScrapeOptions
+from .extract import SchemaField, scroll_and_extract, DeepScrapeOptions, FeedConfig
 from .display_result import display_items
 import time
 from datetime import datetime
@@ -11,7 +11,7 @@ import re
 
 console = Console()
 
-MAX_ITEMS = 8
+MAX_ITEMS = 4
 
 
 class SubstackFeedSchema(BaseModel):
@@ -111,75 +111,60 @@ def parse_author(meta_text: str) -> Optional[str]:
     return cleaned if cleaned else None
 
 
-## DEVELOPMENT
-
-
-def format_substack_content(item: Dict[str, Any]) -> str:
-    """Format Substack content with preview."""
-    content = item.get("markdown_content", "")
-    if not content:
-        return ""
-
-    content_text = content.replace("\n", " ").strip()
-    return (content_text[:100] + "...") if len(content_text) > 100 else content_text
-
-
-def run() -> bool:
+def main() -> None:
     with sync_playwright() as p:
         browser = connect_to_chrome(p)
         if not browser:
-            return False
+            return
 
         page = open_new_tab(browser, "https://substack.com/inbox")
         if not page:
-            return False
+            return
 
         start_time = time.time()
 
         deep_scrape_options = DeepScrapeOptions(
-            enabled=True,
             content_selector="article",
             wait_networkidle=True,
             content_timeout_ms=2000,
             min_delay_ms=1500,
             max_delay_ms=3000,
-            jitter_factor=0.3,
-            save_markdown=True,
+            # save_markdown=False,  # save markdown to /debug
+        )
+
+        config = FeedConfig(
+            feed_schema=SubstackFeedSchema,
+            max_items=MAX_ITEMS,
+            deep_scrape=deep_scrape_options,
         )
 
         console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")
 
-        posts = scroll_and_extract(
-            page=page,
-            schema=SubstackFeedSchema,
-            max_items=MAX_ITEMS,
-            deep_scrape_options=deep_scrape_options,
-        )
+        posts = scroll_and_extract(page=page, config=config)
 
         if posts:
-            # Define columns with auto-width and default styles
-            columns = [
-                "publication",
-                "title",
-                "summary",
-                "date",
-                "author",
-                "url",
-                "markdown_content",
-            ]
-
-            # Define formatters for custom column formatting
-            formatters = {
-                "markdown_content": format_substack_content,
-            }
-
+            for post in posts:
+                content = post.get("markdown_content", "")
+                if content:
+                    content_text = content.replace("\n", " ").strip()
+                    post["markdown_content"] = (
+                        (content_text[:100] + "...")
+                        if len(content_text) > 100
+                        else content_text
+                    )
             display_items(
                 items=posts,
                 title="Substack Posts",
-                columns=columns,
-                formatters=formatters,
+                columns=[
+                    "publication",
+                    "title",
+                    "summary",
+                    "date",
+                    "author",
+                    "url",
+                    "markdown_content",
+                ],
             )
-
             elapsed_time = time.time() - start_time
             posts_per_minute = (len(posts) / elapsed_time) * 60
             console.print(
@@ -191,4 +176,7 @@ def run() -> bool:
             console.print("[yellow]No posts found[/yellow]")
 
         page.close()
-        return True
+
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,6 @@
 from rich.console import Console
 from rich.table import Table
-from typing import List, Dict, Any, Optional, Union, Tuple, Sequence, Callable
+from typing import List, Dict, Any, Union, Tuple, Sequence
 
 console = Console()
 
@@ -20,7 +20,6 @@ def display_items(
     items: List[Dict[str, Any]],
     title: str,
     columns: Sequence[Union[str, Tuple[str, str], Tuple[str, str, bool]]],
-    formatters: Optional[Dict[str, Callable[[Dict[str, Any]], str]]] = None,
 ) -> None:
     """Display items in a rich table with auto-sizing and smart defaults.
 
@@ -31,7 +30,6 @@ def display_items(
             - str: Column name (uses default style)
             - tuple[str, str]: (name, style)
             - tuple[str, str, bool]: (name, style, no_wrap)
-        formatters: Optional dict mapping column names to formatting functions
     """
     table = Table(
         title=title,
@@ -57,14 +55,7 @@ def display_items(
         row_data = []
         for col in columns:
             name = col[0] if isinstance(col, (tuple, list)) else col
-
-            # Get value directly from item
             value = item.get(name, "")
-
-            # Apply custom formatter if provided
-            if formatters and name in formatters:
-                value = formatters[name](item)
-
             row_data.append(str(value) if value is not None else "")
 
         table.add_row(*row_data)
