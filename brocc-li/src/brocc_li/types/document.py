@@ -35,6 +35,9 @@ class DocumentExtractor(BaseModel):
     created_at: ClassVar[ExtractField]
     metadata: ClassVar[ExtractField]  # Source-specific metadata
 
+    # Selector for deep scraping content as markdown
+    deep_content_selector: ClassVar[Optional[str]] = None
+
 
 class Document(BaseModel):
     """Data model for a document.

@@ -51,8 +51,9 @@ class SubstackExtractSchema(DocumentExtractor):
     author_identifier: ClassVar[ExtractField] = ExtractField(
         selector="", transform=lambda x: ""
     )
+    # Use a simple placeholder for content that will be replaced during deep scrape
     content: ClassVar[ExtractField] = ExtractField(
-        selector="article", transform=lambda x: x.strip() if x else ""
+        selector="", extract=lambda element, field: {"content": ""}
     )
     metadata: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container",
@@ -62,6 +63,9 @@ class SubstackExtractSchema(DocumentExtractor):
             else None,
         },
     )
+
+    # Selector to use for markdown content during deep scraping
+    deep_content_selector: ClassVar[Optional[str]] = "article"
 
 
 def merge_description_publication(element):
@@ -121,7 +125,6 @@ def main() -> None:
         start_time = time.time()
 
         deep_scrape_options = DeepScrapeOptions(
-            content_selector="article",
             wait_networkidle=True,
             content_timeout_ms=2000,
             min_delay_ms=1500,

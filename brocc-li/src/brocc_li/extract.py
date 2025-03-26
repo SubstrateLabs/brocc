@@ -384,6 +384,11 @@ def extract_and_save_content(
     if not config.deep_scrape:
         return False
 
+    # Check if schema defines a deep_content_selector and use it if available
+    schema_selector = getattr(config.feed_schema, "deep_content_selector", None)
+    if schema_selector is not None:  # Only use it if explicitly set (not None)
+        config.deep_scrape.content_selector = schema_selector
+
     html_content = extract_content_from_page(page, config.deep_scrape)
     if html_content:
         content = convert_to_markdown(html_content)
