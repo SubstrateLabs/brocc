@@ -1,9 +1,13 @@
 # brocc
 
-- fix emoji parsing in tweet content (this is like an AGI-level problem)
+- store representative samples in scrape
+
+## backlog
+
+- fix emoji parsing in tweet content, autonomously?
 - normalize tweet + substack under shared type (maybe?)
-- contacts sync (twitter followers)
-- duckdb vs sqlite
+- store in duckdb
+- contacts sync: twitter, linkedin
 - cli login flow
 
 # install

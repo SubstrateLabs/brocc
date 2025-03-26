@@ -19,72 +19,75 @@ class TwitterFeedSchema(BaseModel):
     container: ClassVar[SchemaField] = SchemaField(
         selector='article[data-testid="tweet"]', is_container=True
     )
-    text: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="tweetText"]',
-        extract=lambda element, field: extract_tweet_text(element),
-    )
-    author: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="User-Name"]',
-        children={
-            "display_name": SchemaField(selector='div[dir="ltr"] span span'),
-            "handle": SchemaField(
-                selector='a[href*="/status/"]',
-                attribute="href",
-                transform=lambda x: x.split("/")[1] if x else None,
-            ),
-        },
-    )
-    timestamp: ClassVar[SchemaField] = SchemaField(
-        selector="time", attribute="datetime"
-    )
     url: ClassVar[SchemaField] = SchemaField(
         selector='a[href*="/status/"]',
         attribute="href",
         transform=lambda x: f"https://x.com{x}" if x else None,
     )
-    replies: ClassVar[SchemaField] = SchemaField(
+    timestamp: ClassVar[SchemaField] = SchemaField(
+        selector="time", attribute="datetime"
+    )
+    author_name: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="User-Name"] div[dir="ltr"] span span'
+    )
+    author_handle: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="User-Name"] a[href*="/status/"]',
+        attribute="href",
+        transform=lambda x: x.split("/")[1] if x else None,
+    )
+    content: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="tweetText"]',
+        extract=lambda element, field: extract_tweet_text(element),
+    )
+    num_replies: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="reply"]',
         extract=lambda element, field: extract_metric(element, field.selector),
     )
-    retweets: ClassVar[SchemaField] = SchemaField(
+    num_retweets: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="retweet"]',
         extract=lambda element, field: extract_metric(element, field.selector),
     )
-    likes: ClassVar[SchemaField] = SchemaField(
+    num_likes: ClassVar[SchemaField] = SchemaField(
         selector='[data-testid="like"]',
         extract=lambda element, field: extract_metric(element, field.selector),
     )
-    images: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="tweetPhoto"] img[draggable="true"]',
-        attribute="src",
+    media: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="tweetPhoto"] img[draggable="true"], video[poster], img[src*="tweet_video_thumb"]',
         multiple=True,
-        transform=lambda src: {"type": "image", "url": src}
-        if src and "profile_images" not in src
-        else None,
+        extract=lambda element, field: extract_media(element),
     )
-    # Direct video poster extractor (simplest approach)
-    video_posters: ClassVar[SchemaField] = SchemaField(
-        selector="video[poster]",
-        attribute="poster",
-        multiple=True,
-        transform=lambda poster: {"type": "video", "url": poster}
-        if poster and "profile_images" not in poster
-        else None,
-    )
-    # Direct approach for finding GIF thumbnails
-    gif_thumbs: ClassVar[SchemaField] = SchemaField(
-        selector='img[src*="tweet_video_thumb"]',
-        attribute="src",
-        multiple=True,
-        transform=lambda src: {"type": "gif", "url": src} if src else None,
-    )
-    # Debug field to examine tweet structure for video tweets
-    has_video_debug: ClassVar[SchemaField] = SchemaField(
-        selector='div[data-testid*="video"], div[aria-label*="Play"], video, [data-testid="videoPlayer"]',
-        extract=lambda element, field: {
-            "has_video_element": element.evaluate("node => node.outerHTML")
-        },
-    )
+
+
+def extract_media(element) -> Optional[Dict[str, Any]]:
+    """Extract media from an element, handling images, videos, and GIFs."""
+    # Get element info
+    tag_name = element.evaluate("node => node.tagName")
+    src = element.get_attribute("src")
+    poster = element.get_attribute("poster")
+
+    # Skip profile images
+    if src and "profile_images" in src:
+        return None
+
+    # Handle video elements
+    if tag_name == "VIDEO":
+        if poster and "profile_images" not in poster:
+            return {"type": "video", "url": poster}
+        if src and "profile_images" not in src:
+            return {"type": "video", "url": src}
+
+    # Handle images
+    if tag_name == "IMG":
+        if "tweet_video_thumb" in src or element.evaluate(
+            'node => node.closest("[data-testid=\\"tweetGif\\"]") !== null'
+        ):
+            return {"type": "gif", "url": src}
+        elif "video" in src:
+            return {"type": "video", "url": src}
+        else:
+            return {"type": "image", "url": src}
+
+    return None
 
 
 def extract_tweet_text(element) -> Dict[str, Any]:
@@ -97,21 +100,17 @@ def extract_tweet_text(element) -> Dict[str, Any]:
     for i, tweet_text in enumerate(tweet_texts):
         prefix = "\n↱ " if i > 0 else ""
 
-        # Get the raw text with line breaks preserved - this is the simplest and most robust approach
-        raw_content = tweet_text.inner_text()
-
-        # Much simpler direct approach to get visible link text and emojis
         processed_content = tweet_text.evaluate("""node => {
             // Super simple approach - directly select visible domains and emojis
-            
+
             // Get all links with t.co URLs - these are Twitter links
             const links = Array.from(node.querySelectorAll('a[href*="t.co/"]'));
             const emojis = Array.from(node.querySelectorAll('img[alt]'));
-            
+
             // Extract raw text to process line by line
             const lines = node.innerText.split('\\n');
             const processedLines = [];
-            
+
             // Build a map of links with their text and position
             const linkData = links.map(link => {
                 // Get the visible domain text - ONLY the domain, no http:// or hidden elements
@@ -121,9 +120,9 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                     .map(n => n.textContent)
                     .join('')
                     .trim();
-                
+
                 const rect = link.getBoundingClientRect();
-                
+
                 return {
                     element: link,
                     domain: visibleText,
@@ -132,11 +131,11 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                     left: rect.left
                 };
             });
-            
+
             // Build a map of emojis with their text and position
             const emojiData = emojis.map(emoji => {
                 const rect = emoji.getBoundingClientRect();
-                
+
                 return {
                     element: emoji,
                     alt: emoji.alt,
@@ -144,19 +143,19 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                     left: rect.left
                 };
             });
-            
+
             // Process each line to find and replace domains with markdown links
             for (let i = 0; i < lines.length; i++) {
                 let line = lines[i];
                 let processed = line;
-                
+
                 // Get links and emojis that likely appear on this line
                 // based on the vertical position
                 const linksOnLine = linkData.filter(link => {
                     // Check if this link's domain appears in the line text
                     return link.domain && line.includes(link.domain);
                 });
-                
+
                 // Process each link on this line
                 for (const link of linksOnLine) {
                     // Find emoji that might belong to this link
@@ -168,10 +167,10 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                         const beforeLink = emoji.left < link.left;
                         // Emoji appears in this line
                         const inLine = line.includes(emoji.alt);
-                        
+
                         return sameLine && beforeLink && inLine;
                     });
-                    
+
                     // Create markdown format with or without emoji
                     if (matchingEmoji && line.includes(matchingEmoji.alt + ' ' + link.domain)) {
                         // Replace "emoji domain" with "emoji[domain](url)"
@@ -188,10 +187,10 @@ def extract_tweet_text(element) -> Dict[str, Any]:
                         );
                     }
                 }
-                
+
                 processedLines.push(processed);
             }
-            
+
             return processedLines.join('\\n');
         }""")
 
@@ -239,176 +238,7 @@ def convert_metric(text: str) -> str:
     return text
 
 
-def log_debug(message: str, level: str = "info") -> None:
-    """Centralized debug logging function.
-
-    Args:
-        message: The message to log
-        level: The log level (info, success, warning, error, debug)
-    """
-    if not DEBUG:
-        return
-
-    color_map = {
-        "info": "blue",
-        "success": "green",
-        "warning": "yellow",
-        "error": "red",
-        "debug": "dim",
-        "highlight": "purple",
-        "special": "cyan",
-    }
-
-    color = color_map.get(level, "white")
-    console.print(f"[{color}]{message}[/{color}]")
-
-
-def extract_media_preview(element) -> Optional[Dict[str, Any]]:
-    """Extract a preview image for media (video or GIF)."""
-    # Get element info for debugging
-    tag_name = element.evaluate("node => node.tagName")
-    element_classes = element.evaluate("node => node.className")
-    element_id = element.evaluate("node => node.id")
-    parent_tag = element.evaluate(
-        'node => node.parentElement ? node.parentElement.tagName : "none"'
-    )
-
-    # For debugging
-    log_debug(
-        f"Examining element: {tag_name} (class: {element_classes}, id: {element_id}, parent: {parent_tag})",
-        "debug",
-    )
-
-    # Check for video-specific attributes
-    is_video = element.evaluate('node => node.tagName === "VIDEO"')
-    has_video_role = element.evaluate(
-        'node => node.getAttribute("role") === "button" && node.getAttribute("aria-label")?.includes("Play")'
-    )
-    is_in_video_component = element.evaluate(
-        'node => node.closest("[data-testid=\\"videoPlayer\\"]") !== null || node.closest("[data-testid=\\"videoComponent\\"]") !== null'
-    )
-
-    if has_video_role:
-        log_debug("Found element with video play button role", "info")
-
-    if is_in_video_component:
-        log_debug("Found element inside video component", "info")
-        # Try to find any image in the component that could be a preview
-        preview_img = element.evaluate("""node => {
-            const container = node.closest("[data-testid=\\"videoPlayer\\"]") || node.closest("[data-testid=\\"videoComponent\\"]");
-            if (!container) return null;
-            
-            // Look for images
-            const imgs = container.querySelectorAll("img");
-            for (const img of imgs) {
-                if (img.src && !img.src.includes("profile_images")) {
-                    return {src: img.src, alt: img.alt || "", width: img.width, height: img.height};
-                }
-            }
-            
-            // Check for div with background image
-            const divs = container.querySelectorAll("div");
-            for (const div of divs) {
-                const style = window.getComputedStyle(div);
-                if (style.backgroundImage && style.backgroundImage !== "none") {
-                    return {
-                        bgImage: style.backgroundImage,
-                        width: div.offsetWidth,
-                        height: div.offsetHeight
-                    };
-                }
-            }
-            
-            return null;
-        }""")
-
-        if preview_img:
-            log_debug(f"Found video preview in component: {preview_img}", "success")
-            return {
-                "type": "video",
-                "preview_url": preview_img.get("src")
-                or preview_img.get("bgImage", "")
-                .replace('url("', "")
-                .replace('")', ""),
-            }
-
-    # For video elements
-    if is_video:
-        log_debug("Found VIDEO element", "info")
-        src = element.get_attribute("src")
-        poster = element.get_attribute("poster")
-
-        log_debug(f"Video src: {src}", "debug")
-        log_debug(f"Video poster: {poster}", "debug")
-
-        # Prefer poster (preview image) if available
-        if poster and "profile_images" not in poster:
-            log_debug(f"Using video poster: {poster}", "success")
-            return {"type": "video", "preview_url": poster}
-
-        # Fall back to src if available
-        if src and "profile_images" not in src:
-            log_debug(f"Using video src: {src}", "success")
-            return {"type": "video", "preview_url": src}
-
-    # For image elements (GIFs or video thumbnails)
-    else:
-        src = element.get_attribute("src")
-        if src:
-            log_debug(f"Image src: {src}", "debug")
-
-            if "profile_images" in src:
-                log_debug("Skipping profile image", "warning")
-                return {"type": "skip", "reason": "profile_image"}
-
-            # Determine type based on URL
-            if "tweet_video_thumb" in src or element.evaluate(
-                'node => node.closest("[data-testid=\\"tweetGif\\"]") !== null'
-            ):
-                log_debug(f"Found GIF: {src}", "success")
-                return {"type": "gif", "preview_url": src}
-            elif "video" in src:
-                log_debug(f"Found video preview: {src}", "success")
-                return {"type": "video", "preview_url": src}
-            else:
-                log_debug(f"Found image: {src}", "success")
-                return {"type": "image", "preview_url": src}
-
-    # Extract any background images
-    bg_image = element.evaluate("""node => {
-        const style = window.getComputedStyle(node);
-        if (style.backgroundImage && style.backgroundImage !== "none") {
-            return style.backgroundImage.replace(/^url\\(['"]?/, '').replace(/['"]?\\)$/, '');
-        }
-        return null;
-    }""")
-
-    if bg_image:
-        log_debug(f"Found background image: {bg_image}", "success")
-        if "video" in bg_image:
-            return {"type": "video", "preview_url": bg_image}
-        else:
-            return {"type": "image", "preview_url": bg_image}
-
-    log_debug("No media found in element", "warning")
-    return {"type": "unknown"}
-
-
-def get_media_urls(post: Dict[str, Any], media_type: str) -> List[str]:
-    """Extract media URLs of specified type from a post.
-
-    Args:
-        post: Post dictionary
-        media_type: Media type (video_posters or gif_thumbs)
-
-    Returns:
-        List of media URLs
-    """
-    return [
-        item["url"]
-        for item in post.get(media_type, [])
-        if item is not None and isinstance(item, dict) and "url" in item
-    ]
+## development
 
 
 def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -423,41 +253,32 @@ def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     formatted_posts = []
     for post in posts:
         # Format author
-        author = post.get("author", {})
-        display_name = author.get("display_name", "Unknown")
-        handle = author.get("handle", "")
-        author_text = f"{display_name}\n@{handle}" if handle else display_name
+        author_name = post.get("author_name", "Unknown")
+        author_handle = post.get("author_handle", "")
 
-        # Format content with images
+        # Format content with media
         text_data = post.get("text", {}) or {}
         content = text_data.get("content", "No text")
-        images = [img["url"] for img in post.get("images", []) if img is not None]
-        if images:
-            content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
-                f"📸 {url}" for url in images
-            )
 
-        # Process videos
-        video_posters = get_media_urls(post, "video_posters")
+        # Group media by type
+        media_items = post.get("media", [])
+        media_by_type = {}
+        for item in media_items:
+            if item and isinstance(item, dict) and "type" in item and "url" in item:
+                media_type = item["type"]
+                if media_type not in media_by_type:
+                    media_by_type[media_type] = []
+                media_by_type[media_type].append(item["url"])
 
-        # Process GIFs
-        gif_thumbs = get_media_urls(post, "gif_thumbs")
+        # Add media to content with appropriate icons
+        media_icons = {"image": "📸", "video": "🎬", "gif": "🎞️"}
 
-        # Add videos to content
-        if video_posters:
-            content += "\n\n[dim]Videos:[/dim]\n" + "\n".join(
-                f"🎬 {url}" for url in video_posters
-            )
-            if DEBUG:
-                print(f"Added {len(video_posters)} videos to content")
-
-        # Add GIFs to content
-        if gif_thumbs:
-            content += "\n\n[dim]GIFs:[/dim]\n" + "\n".join(
-                f"🎞️ {url}" for url in gif_thumbs
-            )
-            if DEBUG:
-                print(f"Added {len(gif_thumbs)} GIFs to content")
+        for media_type, urls in media_by_type.items():
+            if urls:
+                icon = media_icons.get(media_type, "📎")
+                content += f"\n\n[dim]{media_type.title()}s:[/dim]\n" + "\n".join(
+                    f"{icon} {url}" for url in urls
+                )
 
         # Format metrics
         metrics = {
@@ -471,178 +292,14 @@ def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         formatted_posts.append(
             {
-                "Author": author_text,
+                "Author Name": author_name,
+                "Author Handle": f"@{author_handle}" if author_handle else "",
                 "Content": content,
                 "Time": post.get("timestamp", "No timestamp").split("T")[0],
                 "Metrics": metrics_text,
             }
         )
     return formatted_posts
-
-
-def fix_media_dictionaries(posts: List[Dict[str, Any]]) -> None:
-    """Fix flattened video and GIF dictionaries.
-
-    Args:
-        posts: List of posts to fix
-    """
-    for post in posts:
-        # Fix videos if they appear to be flattened dictionary keys
-        videos = post.get("videos", [])
-        if videos and all(isinstance(v, str) for v in videos):
-            # Dictionary keys have been split into separate items - reconstruct
-            # Only do this if all items are strings and match expected keys
-            expected_keys = {
-                "type",
-                "url",
-                "is_preview",
-                "_debug_html",
-                "is_card",
-                "is_video_component",
-                "html",
-                "note",
-            }
-            if all(v in expected_keys for v in videos):
-                # Create a single dictionary with these keys
-                fixed_video = {"type": "video"}
-                if "url" in videos:
-                    fixed_video["url"] = "https://twitter.com/video_preview"
-                post["videos"] = [fixed_video]
-                if DEBUG:
-                    print(
-                        f"Fixed flattened video dictionary for post: {post.get('text', {}).get('content', '')[:30]}..."
-                    )
-
-        # Fix gifs in the same way
-        gifs = post.get("gifs", [])
-        if gifs and all(isinstance(g, str) for g in gifs):
-            expected_keys = {"type", "url", "isGif", "html"}
-            if all(g in expected_keys for g in gifs):
-                fixed_gif = {"type": "gif"}
-                if "url" in gifs:
-                    fixed_gif["url"] = "https://twitter.com/gif_preview"
-                post["gifs"] = [fixed_gif]
-                if DEBUG:
-                    print(
-                        f"Fixed flattened gif dictionary for post: {post.get('text', {}).get('content', '')[:30]}..."
-                    )
-
-
-def debug_media_content(
-    posts: List[Dict[str, Any]], formatted_posts: List[Dict[str, Any]]
-) -> None:
-    """Debug media content in posts.
-
-    Args:
-        posts: List of original posts
-        formatted_posts: List of formatted posts
-    """
-    if not DEBUG:
-        return
-
-    # Debug output for tweets with links
-    for post in posts:
-        text_data = post.get("text", {})
-        html = text_data.get("raw_html", "")
-        if 'href="https://t.co/' in html:  # Check for actual Twitter links in HTML
-            console.print("\n[red]Tweet with links:[/red]")
-            console.print(f"Content: {text_data.get('content', '')}")
-            console.print(f"HTML: {html}")
-            console.print("---")
-
-    # Debug output for tweets with videos/GIFs
-    for post in posts:
-        text_data = post.get("text", {})
-        html = text_data.get("raw_html", "")
-        video_posters = get_media_urls(post, "video_posters")
-        gif_thumbs = get_media_urls(post, "gif_thumbs")
-
-        if video_posters or gif_thumbs:
-            console.print("\n[purple]Tweet with videos/GIFs:[/purple]")
-            console.print(f"Content: {text_data.get('content', '')}")
-
-            # Check if videos made it into the displayed content
-            content = [
-                item.get("Content", "")
-                for item in formatted_posts
-                if item.get("Author", "").endswith(
-                    f"@{post.get('author', {}).get('handle', '')}"
-                )
-            ]
-
-            if video_posters:
-                if content and "Videos:" in content[0]:
-                    console.print(
-                        "[green]✓ Video successfully included in displayed content[/green]"
-                    )
-                    for url in video_posters:
-                        console.print(f"Video preview: {url}")
-                else:
-                    console.print(
-                        "[red]✗ Video detected but not in displayed content![/red]"
-                    )
-
-            if gif_thumbs:
-                if content and "GIFs:" in content[0]:
-                    console.print(
-                        "[green]✓ GIF successfully included in displayed content[/green]"
-                    )
-                    for url in gif_thumbs:
-                        console.print(f"GIF preview: {url}")
-                else:
-                    console.print(
-                        "[red]✗ GIF detected but not in displayed content![/red]"
-                    )
-
-            if html:
-                console.print(f"HTML snippet: {html[:300]}...")
-
-            console.print("---")
-
-    # Add specific debug for tweets that should have videos
-    for post in posts:
-        text_data = post.get("text", {})
-        content = text_data.get("content", "")
-        html = text_data.get("raw_html", "")
-
-        # Look for common video keywords in content
-        video_keywords = [
-            "video",
-            "watch",
-            "filmed",
-            "recorded",
-            "movie",
-            "clip",
-            "recording",
-        ]
-        might_have_video = any(keyword in content.lower() for keyword in video_keywords)
-
-        # Check for video-related attributes in HTML
-        video_elements_in_html = (
-            'data-testid="videoPlayer"' in html
-            or 'data-testid="videoComponent"' in html
-            or 'aria-label="Play"' in html
-            or 'role="button" aria-label="Play this video"' in html
-            or "poster=" in html  # Check for video poster attribute
-        )
-
-        video_debug = post.get("has_video_debug", {})
-        video_posters = get_media_urls(post, "video_posters")
-
-        if might_have_video or video_elements_in_html:
-            console.print("\n[cyan]======================[/cyan]")
-            console.print("[cyan]Tweet likely has video:[/cyan]")
-            console.print(f"Content: {content[:100]}...")
-
-            if "has_video_element" in video_debug:
-                console.print("\nDetected video elements:")
-                console.print(video_debug.get("has_video_element", "None found"))
-
-            console.print("\nVideo posters found:")
-            for poster in video_posters:
-                console.print(f"  - {poster}")
-
-            console.print("[cyan]======================[/cyan]")
 
 
 def main() -> None:
@@ -666,9 +323,6 @@ def main() -> None:
         posts = scroll_and_extract(page=page, config=config)
 
         if posts:
-            # Fix flattened media dictionaries
-            fix_media_dictionaries(posts)
-
             # Format posts for display
             formatted_posts = format_posts(posts)
 
@@ -676,7 +330,7 @@ def main() -> None:
             display_items(
                 items=formatted_posts,
                 title="Tweets",
-                columns=["Author", "Content", "Time", "Metrics"],
+                columns=["Author Name", "Author Handle", "Content", "Time", "Metrics"],
             )
 
             # Print stats
@@ -687,9 +341,6 @@ def main() -> None:
                 f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
             )
-
-            # Debug information about media content
-            debug_media_content(posts, formatted_posts)
         else:
             console.print("[yellow]No tweets found[/yellow]")
 

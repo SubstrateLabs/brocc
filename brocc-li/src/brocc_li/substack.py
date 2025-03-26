@@ -18,6 +18,18 @@ class SubstackFeedSchema(BaseModel):
     container: ClassVar[SchemaField] = SchemaField(
         selector=".reader2-post-container", is_container=True
     )
+    url: ClassVar[SchemaField] = SchemaField(
+        selector="a.reader2-inbox-post",
+        attribute="href",
+        transform=lambda x: x if x else None,
+    )
+    timestamp: ClassVar[SchemaField] = SchemaField(
+        selector=".inbox-item-timestamp", transform=lambda x: x.strip() if x else None
+    )
+    author: ClassVar[SchemaField] = SchemaField(
+        selector=".reader2-item-meta",
+        transform=lambda x: parse_author(x.strip() if x else ""),
+    )
     title: ClassVar[SchemaField] = SchemaField(
         selector=".reader2-post-title", transform=lambda x: x.strip() if x else None
     )
@@ -25,25 +37,9 @@ class SubstackFeedSchema(BaseModel):
         selector=".reader2-paragraph.reader2-secondary",
         transform=lambda x: x.strip() if x else None,
     )
-    url: ClassVar[SchemaField] = SchemaField(
-        selector="a.reader2-inbox-post",
-        attribute="href",
-        transform=lambda x: x if x else None,
-    )
     publication: ClassVar[SchemaField] = SchemaField(
         selector=".pub-name a",
         transform=lambda x: x.strip() if x else None,
-    )
-    timestamp: ClassVar[SchemaField] = SchemaField(
-        selector=".inbox-item-timestamp", transform=lambda x: x.strip() if x else None
-    )
-    date: ClassVar[SchemaField] = SchemaField(
-        selector=".inbox-item-timestamp",
-        transform=lambda x: parse_date_from_text(x.strip() if x else ""),
-    )
-    author: ClassVar[SchemaField] = SchemaField(
-        selector=".reader2-item-meta",
-        transform=lambda x: parse_author(x.strip() if x else ""),
     )
     image: ClassVar[SchemaField] = SchemaField(
         selector=".reader2-post-picture",
@@ -144,10 +140,10 @@ def main() -> None:
 
         if posts:
             for post in posts:
-                content = post.get("markdown_content", "")
+                content = post.get("content", "")
                 if content:
                     content_text = content.replace("\n", " ").strip()
-                    post["markdown_content"] = (
+                    post["content"] = (
                         (content_text[:100] + "...")
                         if len(content_text) > 100
                         else content_text
@@ -162,7 +158,7 @@ def main() -> None:
                     "date",
                     "author",
                     "url",
-                    "markdown_content",
+                    "content",
                 ],
             )
             elapsed_time = time.time() - start_time

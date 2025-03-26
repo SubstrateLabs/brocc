@@ -32,7 +32,7 @@ class ScrollConfig:
 
 
 # Constants for deep scraping
-MARKDOWN_FIELD_NAME = "markdown_content"
+MARKDOWN_FIELD_NAME = "content"
 MARKDOWN_FOLDER = "debug"
 URL_FIELD = "url"
 PROGRESS_LABEL = "items"
@@ -464,8 +464,8 @@ def extract_and_save_content(
 
     html_content = extract_content_from_page(page, config.deep_scrape)
     if html_content:
-        markdown_content = convert_to_markdown(html_content)
-        item[MARKDOWN_FIELD_NAME] = markdown_content
+        content = convert_to_markdown(html_content)
+        item[MARKDOWN_FIELD_NAME] = content
 
         if config.deep_scrape.save_markdown:
             filepath = save_markdown(item)
