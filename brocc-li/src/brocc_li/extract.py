@@ -353,7 +353,7 @@ def scroll_and_extract(
     schema: type[BaseModel],
     container_selector: str | None = None,
     max_items: int = 5,
-    click_selector: str | None = None,
+    expand_item_selector: str | None = None,
     deep_scrape_options: Optional[DeepScrapeOptions] = None,
 ) -> List[Dict[str, Any]]:
     """Scroll through a page and extract items based on the provided schema.
@@ -375,8 +375,10 @@ def scroll_and_extract(
 
         max_items: Maximum number of items to extract before stopping. Default is 5.
 
-        click_selector: Optional CSS selector for elements to click while scrolling,
-                       such as "Load more" buttons. If None, no clicking is performed.
+        expand_item_selector: Optional CSS selector for elements that need to be clicked to expand
+                            content (e.g., "Show more" buttons). These elements
+                            will be clicked while scrolling to ensure full content is visible.
+                            If None, no expansion is performed.
 
         deep_scrape_options: Configuration options for deep scraping. If None, deep scraping
                             is disabled. See DeepScrapeOptions class for details.
@@ -422,15 +424,15 @@ def scroll_and_extract(
         len(all_items) < max_items
         and no_new_items_count < scroll_config.max_no_new_items
     ):
-        # Handle clickable elements
-        if click_selector:
-            for element in page.query_selector_all(click_selector):
+        # Handle expandable elements
+        if expand_item_selector:
+            for element in page.query_selector_all(expand_item_selector):
                 try:
                     if element.is_visible():
                         element.click()
                         page.wait_for_timeout(CLICK_WAIT_TIMEOUT_MS)
                 except Exception as e:
-                    console.print(f"[red]Failed to click element: {str(e)}[/red]")
+                    console.print(f"[red]Failed to expand element: {str(e)}[/red]")
 
         # Extract current items
         current_items = scrape_schema(page, schema, container_selector)

@@ -206,7 +206,7 @@ def run() -> bool:
             page=page,
             schema=TwitterFeedSchema,
             max_items=MAX_ITEMS,
-            click_selector='[role="button"]:has-text("Show more")',
+            expand_item_selector='[role="button"]:has-text("Show more")',
         )
 
         if posts:
