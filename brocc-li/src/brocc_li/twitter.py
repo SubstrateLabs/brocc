@@ -89,7 +89,7 @@ def extract_tweet_text(element) -> Dict[str, Any]:
     content_parts = []
 
     for i, tweet_text in enumerate(tweet_texts):
-        prefix = "↱ " if i > 0 else ""
+        prefix = "\n↱ " if i > 0 else ""
         nodes = tweet_text.query_selector_all("span, img[alt]")
         text_parts = [
             prefix
