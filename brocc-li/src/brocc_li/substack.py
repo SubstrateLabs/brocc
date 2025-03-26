@@ -1,90 +1,77 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
 from typing import ClassVar, Optional
-from pydantic import BaseModel
-from .chrome import connect_to_chrome, open_new_tab
-from .extract import SchemaField, scroll_and_extract, DeepScrapeOptions, FeedConfig
-from .display_result import display_items
 import time
-from datetime import datetime
 import re
+from brocc_li.types.document import DocumentExtractor, Document, Source
+from brocc_li.chrome import connect_to_chrome, open_new_tab
+from brocc_li.extract import (
+    ExtractField,
+    scroll_and_extract,
+    DeepScrapeOptions,
+    FeedConfig,
+)
+from brocc_li.display_result import display_items
+from brocc_li.utils.timestamp import parse_timestamp
 
 console = Console()
 
 MAX_ITEMS = 4
 
 
-class SubstackFeedSchema(BaseModel):
-    container: ClassVar[SchemaField] = SchemaField(
+class SubstackExtractSchema(DocumentExtractor):
+    container: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container", is_container=True
     )
-    url: ClassVar[SchemaField] = SchemaField(
+    url: ClassVar[ExtractField] = ExtractField(
         selector="a.reader2-inbox-post",
         attribute="href",
         transform=lambda x: x if x else None,
     )
-    timestamp: ClassVar[SchemaField] = SchemaField(
-        selector=".inbox-item-timestamp", transform=lambda x: x.strip() if x else None
+    created_at: ClassVar[ExtractField] = ExtractField(
+        selector=".inbox-item-timestamp",
+        transform=lambda x: parse_timestamp(x.strip() if x else ""),
     )
-    author: ClassVar[SchemaField] = SchemaField(
+    title: ClassVar[ExtractField] = ExtractField(
+        selector=".reader2-post-title", transform=lambda x: x.strip() if x else None
+    )
+    description: ClassVar[ExtractField] = ExtractField(
+        selector=".reader2-paragraph.reader2-secondary",
+        extract=lambda element, field: merge_description_publication(element),
+    )
+    # Map author to author_name for DocumentExtractor compatibility
+    author_name: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-item-meta",
         transform=lambda x: parse_author(x.strip() if x else ""),
     )
-    title: ClassVar[SchemaField] = SchemaField(
-        selector=".reader2-post-title", transform=lambda x: x.strip() if x else None
+    # Add required fields from DocumentExtractor
+    author_identifier: ClassVar[ExtractField] = ExtractField(
+        selector="", transform=lambda x: ""
     )
-    summary: ClassVar[SchemaField] = SchemaField(
-        selector=".reader2-paragraph.reader2-secondary",
-        transform=lambda x: x.strip() if x else None,
+    content: ClassVar[ExtractField] = ExtractField(
+        selector="article", transform=lambda x: x.strip() if x else ""
     )
-    publication: ClassVar[SchemaField] = SchemaField(
-        selector=".pub-name a",
-        transform=lambda x: x.strip() if x else None,
-    )
-    image: ClassVar[SchemaField] = SchemaField(
-        selector=".reader2-post-picture",
-        attribute="src",
-        transform=lambda x: x if x and "placeholder" not in x else None,
+    metadata: ClassVar[ExtractField] = ExtractField(
+        selector=".reader2-post-container",
+        extract=lambda element, field: {
+            "publication": element.query_selector(".pub-name a").inner_text().strip()
+            if element.query_selector(".pub-name a")
+            else None,
+        },
     )
 
 
-DATE_PATTERN = r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2})(?:,\s+(\d{4}))?"
+def merge_description_publication(element):
+    """Merge description and publication content."""
+    description_text = element.query_selector(".reader2-paragraph.reader2-secondary")
+    description = description_text.inner_text().strip() if description_text else ""
 
-MONTH_MAP = {
-    "JAN": "JANUARY",
-    "FEB": "FEBRUARY",
-    "MAR": "MARCH",
-    "APR": "APRIL",
-    "MAY": "MAY",
-    "JUN": "JUNE",
-    "JUL": "JULY",
-    "AUG": "AUGUST",
-    "SEP": "SEPTEMBER",
-    "OCT": "OCTOBER",
-    "NOV": "NOVEMBER",
-    "DEC": "DECEMBER",
-}
+    pub_element = element.query_selector(".pub-name a")
+    publication = pub_element.inner_text().strip() if pub_element else None
 
-
-def parse_date_from_text(text: str) -> Optional[str]:
-    """Parse and format date from text, handling both full and abbreviated month names."""
-    if not text:
-        return None
-
-    match = re.search(DATE_PATTERN, text, re.IGNORECASE)
-    if not match:
-        return text
-
-    month, day, year = match.groups()
-    current_year = datetime.now().year
-    year = int(year) if year else current_year
-    month = MONTH_MAP.get(month.upper(), month.upper())
-
-    try:
-        date_obj = datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
-        return date_obj.strftime("%Y-%m-%d")
-    except ValueError:
-        return text
+    if publication:
+        return f"{description}\nPublication: {publication}"
+    return description
 
 
 def parse_author(meta_text: str) -> Optional[str]:
@@ -95,11 +82,21 @@ def parse_author(meta_text: str) -> Optional[str]:
     # Handle simple case: AUTHOR∙LENGTH format
     parts = meta_text.split("∙")
     if len(parts) >= 2:
-        if not re.search(DATE_PATTERN, parts[0], re.IGNORECASE):
+        # Use a simplified DATE_PATTERN check here
+        if not re.search(
+            r"(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)",
+            parts[0],
+            re.IGNORECASE,
+        ):
             return parts[0].strip()
 
     # Extract from complex formats
-    text = re.sub(DATE_PATTERN, "", meta_text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2})(?:,\s+(\d{4}))?",
+        "",
+        meta_text,
+        flags=re.IGNORECASE,
+    )
     text = re.sub(r"\d+\s+MIN\s+(READ|LISTEN|WATCH)", "", text, flags=re.IGNORECASE)
     text = re.sub(r"PAID", "", text, flags=re.IGNORECASE)
 
@@ -113,7 +110,8 @@ def main() -> None:
         if not browser:
             return
 
-        page = open_new_tab(browser, "https://substack.com/inbox")
+        source_url = "https://substack.com/inbox"
+        page = open_new_tab(browser, source_url)
         if not page:
             return
 
@@ -129,7 +127,7 @@ def main() -> None:
         )
 
         config = FeedConfig(
-            feed_schema=SubstackFeedSchema,
+            feed_schema=SubstackExtractSchema,
             max_items=MAX_ITEMS,
             deep_scrape=deep_scrape_options,
             # debug=True,
@@ -137,35 +135,62 @@ def main() -> None:
 
         console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")
 
-        posts = scroll_and_extract(page=page, config=config)
+        extracted_data = scroll_and_extract(page=page, config=config)
 
-        if posts:
-            for post in posts:
-                content = post.get("content", "")
-                if content:
+        # Convert extracted data to Document objects
+        docs = []
+        if extracted_data:
+            for item in extracted_data:
+                doc = Document.from_extracted_data(
+                    data=item, source=Source.SUBSTACK, source_location=source_url
+                )
+                docs.append(doc)
+
+        if docs:
+            formatted_posts = []
+            for doc in docs:
+                # Truncate content for display
+                content = doc.content
+                if content and isinstance(content, str):
                     content_text = content.replace("\n", " ").strip()
-                    post["content"] = (
+                    content = (
                         (content_text[:100] + "...")
                         if len(content_text) > 100
                         else content_text
                     )
+
+                formatted_posts.append(
+                    {
+                        "Title": doc.title or "No title",
+                        "Description": doc.description or "",
+                        "Date": doc.created_at or "No date",
+                        "Author": doc.author_name or "Unknown",
+                        "URL": doc.url,
+                        "Content Preview": content or "No content",
+                        "Publication": doc.metadata.get("publication", "")
+                        if doc.metadata
+                        else "",
+                    }
+                )
+
             display_items(
-                items=posts,
+                items=formatted_posts,
                 title="Substack Posts",
                 columns=[
-                    "publication",
-                    "title",
-                    "summary",
-                    "date",
-                    "author",
-                    "url",
-                    "content",
+                    "Title",
+                    "Description",
+                    "Date",
+                    "Author",
+                    "URL",
+                    "Content Preview",
+                    "Publication",
                 ],
             )
+
             elapsed_time = time.time() - start_time
-            posts_per_minute = (len(posts) / elapsed_time) * 60
+            posts_per_minute = (len(docs) / elapsed_time) * 60
             console.print(
-                f"\n[green]Successfully extracted {len(posts)} unique posts[/green]"
+                f"\n[green]Successfully extracted {len(docs)} unique posts[/green]"
                 f"\n[blue]Collection rate: {posts_per_minute:.1f} posts/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
             )

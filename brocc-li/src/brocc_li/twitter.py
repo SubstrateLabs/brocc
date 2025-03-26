@@ -1,11 +1,12 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
-from typing import Dict, Any, ClassVar, Optional, List
-from pydantic import BaseModel
-from .chrome import connect_to_chrome, open_new_tab
-from .extract import SchemaField, scroll_and_extract, FeedConfig
-from .display_result import display_items
+from typing import Dict, Any, ClassVar, Optional
 import time
+from brocc_li.types.document import DocumentExtractor, Document, Source
+from brocc_li.chrome import connect_to_chrome, open_new_tab
+from brocc_li.extract import ExtractField, scroll_and_extract, FeedConfig
+from brocc_li.display_result import display_items
+from brocc_li.utils.timestamp import parse_timestamp
 
 console = Console()
 
@@ -15,46 +16,42 @@ TEST_URL = "https://x.com/i/bookmarks"
 DEBUG = False  # Set to True to enable debug logging
 
 
-class TwitterFeedSchema(BaseModel):
-    container: ClassVar[SchemaField] = SchemaField(
+class TwitterExtractSchema(DocumentExtractor):
+    container: ClassVar[ExtractField] = ExtractField(
         selector='article[data-testid="tweet"]', is_container=True
     )
-    url: ClassVar[SchemaField] = SchemaField(
+    url: ClassVar[ExtractField] = ExtractField(
         selector='a[href*="/status/"]',
         attribute="href",
         transform=lambda x: f"https://x.com{x}" if x else None,
     )
-    timestamp: ClassVar[SchemaField] = SchemaField(
-        selector="time", attribute="datetime"
+    created_at: ClassVar[ExtractField] = ExtractField(
+        selector="time", attribute="datetime", transform=parse_timestamp
     )
-    author_name: ClassVar[SchemaField] = SchemaField(
+    author_name: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="User-Name"] div[dir="ltr"] span span'
     )
-    author_handle: ClassVar[SchemaField] = SchemaField(
+    author_identifier: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="User-Name"] a[href*="/status/"]',
         attribute="href",
         transform=lambda x: x.split("/")[1] if x else None,
     )
-    content: ClassVar[SchemaField] = SchemaField(
+    content: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="tweetText"]',
         extract=lambda element, field: extract_tweet_text(element),
     )
-    num_replies: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="reply"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
+    metadata: ClassVar[ExtractField] = ExtractField(
+        selector='article[data-testid="tweet"]',
+        extract=lambda element, field: {
+            "replies": extract_metric(element, '[data-testid="reply"]'),
+            "retweets": extract_metric(element, '[data-testid="retweet"]'),
+            "likes": extract_metric(element, '[data-testid="like"]'),
+        },
     )
-    num_retweets: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="retweet"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
-    )
-    num_likes: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="like"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
-    )
-    media: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="tweetPhoto"] img[draggable="true"], video[poster], img[src*="tweet_video_thumb"]',
-        multiple=True,
-        extract=lambda element, field: extract_media(element),
+    # Default empty implementations for required fields from DocumentExtractor
+    title: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
+    description: ClassVar[ExtractField] = ExtractField(
+        selector="", transform=lambda x: ""
     )
 
 
@@ -203,6 +200,30 @@ def extract_tweet_text(element) -> Dict[str, Any]:
 
     final_content = "".join(content_parts)
 
+    # Extract media and add to content using markdown
+    media_items = []
+    media_elements = element.query_selector_all(
+        '[data-testid="tweetPhoto"] img[draggable="true"], video[poster], img[src*="tweet_video_thumb"]'
+    )
+
+    for media_element in media_elements:
+        media_item = extract_media(media_element)
+        if media_item:
+            media_items.append(media_item)
+
+    # Add markdown formatted media to content
+    if media_items:
+        final_content += "\n\n"
+        for item in media_items:
+            if item["type"] == "image":
+                final_content += f"![image]({item['url']})\n"
+            elif item["type"] == "video":
+                final_content += f"[video]({item['url']})\n"
+            elif item["type"] == "gif":
+                final_content += f"[gif]({item['url']})\n"
+            else:
+                final_content += f"[media]({item['url']})\n"
+
     return {
         "raw_html": raw_html,
         "content": final_content,
@@ -238,69 +259,6 @@ def convert_metric(text: str) -> str:
     return text
 
 
-## development
-
-
-def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Format tweet data for display.
-
-    Args:
-        posts: List of posts to format
-
-    Returns:
-        List of formatted posts
-    """
-    formatted_posts = []
-    for post in posts:
-        # Format author
-        author_name = post.get("author_name", "Unknown")
-        author_handle = post.get("author_handle", "")
-
-        # Format content with media
-        content = post.get("content", {}).get("content", "No text")
-
-        # Group media by type
-        media_items = post.get("media", []) or []
-        media_by_type = {}
-        for item in media_items:
-            if item and isinstance(item, dict) and "type" in item and "url" in item:
-                media_type = item["type"]
-                if media_type not in media_by_type:
-                    media_by_type[media_type] = []
-                media_by_type[media_type].append(item["url"])
-
-        # Add media to content with appropriate icons
-        media_icons = {"image": "📸", "video": "🎬", "gif": "🎞️"}
-
-        for media_type, urls in media_by_type.items():
-            if urls:
-                icon = media_icons.get(media_type, "📎")
-                content += f"\n\n[dim]{media_type.title()}s:[/dim]\n" + "\n".join(
-                    f"{icon} {url}" for url in urls
-                )
-
-        # Format metrics
-        metrics = {
-            "num_replies": "💬",
-            "num_retweets": "🔄",
-            "num_likes": "❤️",
-        }
-        metrics_text = "\n".join(
-            f"{icon} {post.get(metric, '0')}" for metric, icon in metrics.items()
-        )
-
-        formatted_posts.append(
-            {
-                "Author Name": author_name,
-                "Author Handle": f"@{author_handle}" if author_handle else "",
-                "Content": content,
-                "Time": post.get("timestamp", "No timestamp").split("T")[0],
-                "Metrics": metrics_text,
-            }
-        )
-    return formatted_posts
-
-
 def main() -> None:
     with sync_playwright() as p:
         browser = connect_to_chrome(p)
@@ -314,30 +272,68 @@ def main() -> None:
         start_time = time.time()
 
         config = FeedConfig(
-            feed_schema=TwitterFeedSchema,
+            feed_schema=TwitterExtractSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
             # debug=True,
         )
 
-        posts = scroll_and_extract(page=page, config=config)
+        extracted_data = scroll_and_extract(page=page, config=config)
 
-        if posts:
+        # Convert extracted data to Document objects
+        docs = []
+        if extracted_data:
+            for item in extracted_data:
+                doc = Document.from_extracted_data(
+                    data=item, source=Source.TWITTER, source_location=TEST_URL
+                )
+                docs.append(doc)
+
+        if docs:
             # Format posts for display
-            formatted_posts = format_posts(posts)
+            formatted_posts = []
+            for doc in docs:
+                # Format author
+                author_name = doc.author_name or "Unknown"
+                author_identifier = doc.author_identifier or ""
+
+                # Format content - media is already integrated in the content
+                content = (
+                    doc.content.get("content", "No text") if doc.content else "No text"
+                )
+
+                # Get metadata and format it with emojis
+                metadata = doc.metadata or {}
+                metadata_text = "\n".join(
+                    [
+                        f"💬 {metadata.get('replies', '0')}",
+                        f"🔄 {metadata.get('retweets', '0')}",
+                        f"❤️ {metadata.get('likes', '0')}",
+                    ]
+                )
+
+                formatted_posts.append(
+                    {
+                        "Author": author_name,
+                        "Handle": f"@{author_identifier}" if author_identifier else "",
+                        "Content": content,
+                        "Created": doc.created_at or "No date",
+                        "Metadata": metadata_text,
+                    }
+                )
 
             # Display the posts
             display_items(
                 items=formatted_posts,
                 title="Tweets",
-                columns=["Author Name", "Author Handle", "Content", "Time", "Metrics"],
+                columns=["Author", "Handle", "Content", "Time", "Metadata"],
             )
 
             # Print stats
             elapsed_time = time.time() - start_time
-            tweets_per_minute = (len(posts) / elapsed_time) * 60
+            tweets_per_minute = (len(docs) / elapsed_time) * 60
             console.print(
-                f"\n[green]Successfully extracted {len(posts)} unique tweets[/green]"
+                f"\n[green]Successfully extracted {len(docs)} unique tweets[/green]"
                 f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
             )

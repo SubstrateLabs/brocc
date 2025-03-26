@@ -1,6 +1,8 @@
 # brocc
 
-- twitter integrate media with text
+- ingested_at
+- twitter metadata
+- unified approach for ingested_at, location, sub_location
 - store in duckdb schema
   - should we handle type of file? is that in the url?
 
@@ -12,12 +14,12 @@ CREATE TABLE documents (
     description VARCHAR,                     -- Short summary/preview of content
     content TEXT,                            -- Main textual content with integrated media references
     author_name VARCHAR,                     -- Author's display name
-    author_id VARCHAR,                       -- Platform-specific author identifier
-    published_at TIMESTAMP,                  -- Publication timestamp
-    platform VARCHAR NOT NULL,               -- 'twitter', 'substack', etc.
-    source_type VARCHAR NOT NULL,            -- 'bookmarks', 'likes', 'feed', 'newsletter', etc.
+    author_identifier VARCHAR,               -- Platform-specific author identifier
+    timestamp TIMESTAMP,                     -- Publication timestamp
+    source VARCHAR NOT NULL,                 -- 'twitter', 'substack', 'local file', etc
+    source_location VARCHAR,                 -- e.g. url where extraction occurred
     metadata JSON,                           -- All platform-specific fields
-    extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- When we scraped it
+    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- When we scraped it
 );
 ```
 

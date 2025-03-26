@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Callable, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel
 from rich.console import Console
 import random
@@ -10,6 +10,7 @@ from enum import Enum
 from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
 import json
 from datetime import datetime
+from brocc_li.types.extract_field import ExtractField
 
 console = Console()
 
@@ -130,50 +131,7 @@ class DeepScrapeOptions(BaseModel):
     max_delay_ms: int = DEFAULT_MAX_DELAY_MS
 
 
-class SchemaField(BaseModel):
-    """A field in the schema that defines both data structure and selectors.
-
-    Field extraction follows this order:
-    1. If extract() is provided, use it to get the value directly (ignores all other options)
-    2. If children is provided, extract nested fields from the element
-    3. If multiple is True, get all matching elements and apply steps 4-6 to each
-    4. Find element(s) using selector
-    5. If attribute is provided, get that attribute's value
-    6. Otherwise get element's inner_text()
-    7. If transform is provided, apply it to the final value
-
-    Note: The extract() function takes precedence over all other options. When extract() is provided,
-    selector, attribute, transform, and children are ignored. This is because extract() provides
-    complete control over the extraction process.
-    """
-
-    # CSS selector to find the element (e.g. '[data-testid="tweet"]')
-    selector: str = ""
-
-    # Attribute to extract from the element (e.g. 'href', 'src', 'datetime')
-    attribute: Optional[str] = None
-
-    # Function to transform the extracted value (e.g. strip whitespace, format URL)
-    transform: Optional[Callable[[Any], Any]] = None
-
-    # Nested fields to extract from this element
-    children: Optional[Dict[str, "SchemaField"]] = None
-
-    # Custom extraction function for complex cases. Takes precedence over all other options.
-    # Type: Callable[[Any, SchemaField], Any]
-    # - First arg: The element to extract from (Any because it could be a Playwright ElementHandle or other type)
-    # - Second arg: The SchemaField instance itself (useful for accessing field metadata)
-    # - Returns: Any type of extracted value
-    extract: Optional[Callable[[Any, "SchemaField"], Any]] = None
-
-    # Whether to extract multiple elements matching the selector (e.g. list of images)
-    multiple: bool = False
-
-    # Whether this field is the container selector for the schema
-    is_container: bool = False
-
-
-def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any:
+def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> Any:
     """Extract data from an element based on a schema field."""
     if field.extract:
         return field.extract(element, field)
@@ -233,7 +191,7 @@ def scrape_schema(
         # Find container selector from schema if not provided
         if not container_selector:
             for field_name, field in schema.__dict__.items():
-                if isinstance(field, SchemaField) and field.is_container:
+                if isinstance(field, ExtractField) and field.is_container:
                     container_selector = field.selector
                     break
             if not container_selector:
@@ -271,7 +229,7 @@ def scrape_schema(
 
                 data = {}
                 for field_name, field in schema.__dict__.items():
-                    if field_name != "container" and isinstance(field, SchemaField):
+                    if field_name != "container" and isinstance(field, ExtractField):
                         try:
                             data[field_name] = extract_field(
                                 container, field, field_name
@@ -511,7 +469,7 @@ def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool
         (
             field
             for field_name, field in config.feed_schema.__dict__.items()
-            if isinstance(field, SchemaField) and field_name == URL_FIELD
+            if isinstance(field, ExtractField) and field_name == URL_FIELD
         ),
         None,
     )
@@ -595,7 +553,7 @@ def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
     try:
         if config.container_selector is None:
             for field_name, field in config.feed_schema.__dict__.items():
-                if isinstance(field, SchemaField) and field.is_container:
+                if isinstance(field, ExtractField) and field.is_container:
                     config.container_selector = field.selector
                     break
             if config.container_selector is None:
