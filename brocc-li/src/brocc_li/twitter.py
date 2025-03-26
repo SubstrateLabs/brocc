@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
-from typing import Dict, Any, ClassVar
+from typing import Dict, Any, ClassVar, Optional
 from pydantic import BaseModel
 from .chrome import connect_to_chrome, open_new_tab
 from .extract import SchemaField, scroll_and_extract, FeedConfig
@@ -59,6 +59,29 @@ class TwitterFeedSchema(BaseModel):
         transform=lambda src: {"type": "image", "url": src}
         if src and "profile_images" not in src
         else None,
+    )
+    # Direct video poster extractor (simplest approach)
+    video_posters: ClassVar[SchemaField] = SchemaField(
+        selector="video[poster]",
+        attribute="poster",
+        multiple=True,
+        transform=lambda poster: {"type": "video", "url": poster}
+        if poster and "profile_images" not in poster
+        else None,
+    )
+    # Direct approach for finding GIF thumbnails
+    gif_thumbs: ClassVar[SchemaField] = SchemaField(
+        selector='img[src*="tweet_video_thumb"]',
+        attribute="src",
+        multiple=True,
+        transform=lambda src: {"type": "gif", "url": src} if src else None,
+    )
+    # Debug field to examine tweet structure for video tweets
+    has_video_debug: ClassVar[SchemaField] = SchemaField(
+        selector='div[data-testid*="video"], div[aria-label*="Play"], video, [data-testid="videoPlayer"]',
+        extract=lambda element, field: {
+            "has_video_element": element.evaluate("node => node.outerHTML")
+        },
     )
 
 
@@ -214,6 +237,138 @@ def convert_metric(text: str) -> str:
     return text
 
 
+def extract_media_preview(element) -> Optional[Dict[str, Any]]:
+    """Extract a preview image for media (video or GIF)."""
+    # Get element info for debugging
+    tag_name = element.evaluate("node => node.tagName")
+    element_classes = element.evaluate("node => node.className")
+    element_id = element.evaluate("node => node.id")
+    parent_tag = element.evaluate(
+        'node => node.parentElement ? node.parentElement.tagName : "none"'
+    )
+
+    # For debugging
+    console.print(
+        f"[dim]Examining element: {tag_name} (class: {element_classes}, id: {element_id}, parent: {parent_tag})[/dim]"
+    )
+
+    # Check for video-specific attributes
+    is_video = element.evaluate('node => node.tagName === "VIDEO"')
+    has_video_role = element.evaluate(
+        'node => node.getAttribute("role") === "button" && node.getAttribute("aria-label")?.includes("Play")'
+    )
+    is_in_video_component = element.evaluate(
+        'node => node.closest("[data-testid=\\"videoPlayer\\"]") !== null || node.closest("[data-testid=\\"videoComponent\\"]") !== null'
+    )
+
+    if has_video_role:
+        console.print("[blue]Found element with video play button role[/blue]")
+
+    if is_in_video_component:
+        console.print("[blue]Found element inside video component[/blue]")
+        # Try to find any image in the component that could be a preview
+        preview_img = element.evaluate("""node => {
+            const container = node.closest("[data-testid=\\"videoPlayer\\"]") || node.closest("[data-testid=\\"videoComponent\\"]");
+            if (!container) return null;
+            
+            // Look for images
+            const imgs = container.querySelectorAll("img");
+            for (const img of imgs) {
+                if (img.src && !img.src.includes("profile_images")) {
+                    return {src: img.src, alt: img.alt || "", width: img.width, height: img.height};
+                }
+            }
+            
+            // Check for div with background image
+            const divs = container.querySelectorAll("div");
+            for (const div of divs) {
+                const style = window.getComputedStyle(div);
+                if (style.backgroundImage && style.backgroundImage !== "none") {
+                    return {
+                        bgImage: style.backgroundImage,
+                        width: div.offsetWidth,
+                        height: div.offsetHeight
+                    };
+                }
+            }
+            
+            return null;
+        }""")
+
+        if preview_img:
+            console.print(
+                f"[green]Found video preview in component: {preview_img}[/green]"
+            )
+            return {
+                "type": "video",
+                "preview_url": preview_img.get("src")
+                or preview_img.get("bgImage", "")
+                .replace('url("', "")
+                .replace('")', ""),
+            }
+
+    # For video elements
+    if is_video:
+        console.print("[blue]Found VIDEO element[/blue]")
+        src = element.get_attribute("src")
+        poster = element.get_attribute("poster")
+
+        console.print(f"Video src: {src}")
+        console.print(f"Video poster: {poster}")
+
+        # Prefer poster (preview image) if available
+        if poster and "profile_images" not in poster:
+            console.print(f"[green]Using video poster: {poster}[/green]")
+            return {"type": "video", "preview_url": poster}
+
+        # Fall back to src if available
+        if src and "profile_images" not in src:
+            console.print(f"[green]Using video src: {src}[/green]")
+            return {"type": "video", "preview_url": src}
+
+    # For image elements (GIFs or video thumbnails)
+    else:
+        src = element.get_attribute("src")
+        if src:
+            console.print(f"Image src: {src}")
+
+            if "profile_images" in src:
+                console.print("[yellow]Skipping profile image[/yellow]")
+                return {"type": "skip", "reason": "profile_image"}
+
+            # Determine type based on URL
+            if "tweet_video_thumb" in src or element.evaluate(
+                'node => node.closest("[data-testid=\\"tweetGif\\"]") !== null'
+            ):
+                console.print(f"[green]Found GIF: {src}[/green]")
+                return {"type": "gif", "preview_url": src}
+            elif "video" in src:
+                console.print(f"[green]Found video preview: {src}[/green]")
+                return {"type": "video", "preview_url": src}
+            else:
+                console.print(f"[green]Found image: {src}[/green]")
+                return {"type": "image", "preview_url": src}
+
+    # Extract any background images
+    bg_image = element.evaluate("""node => {
+        const style = window.getComputedStyle(node);
+        if (style.backgroundImage && style.backgroundImage !== "none") {
+            return style.backgroundImage.replace(/^url\\(['"]?/, '').replace(/['"]?\\)$/, '');
+        }
+        return null;
+    }""")
+
+    if bg_image:
+        console.print(f"[green]Found background image: {bg_image}[/green]")
+        if "video" in bg_image:
+            return {"type": "video", "preview_url": bg_image}
+        else:
+            return {"type": "image", "preview_url": bg_image}
+
+    console.print("[yellow]No media found in element[/yellow]")
+    return {"type": "unknown"}
+
+
 def main() -> None:
     with sync_playwright() as p:
         browser = connect_to_chrome(p)
@@ -235,6 +390,46 @@ def main() -> None:
         posts = scroll_and_extract(page=page, config=config)
 
         if posts:
+            # Preprocess posts to fix video and gif data
+            for post in posts:
+                # Fix videos if they appear to be flattened dictionary keys
+                videos = post.get("videos", [])
+                if videos and all(isinstance(v, str) for v in videos):
+                    # Dictionary keys have been split into separate items - reconstruct
+                    # Only do this if all items are strings and match expected keys
+                    expected_keys = {
+                        "type",
+                        "url",
+                        "is_preview",
+                        "_debug_html",
+                        "is_card",
+                        "is_video_component",
+                        "html",
+                        "note",
+                    }
+                    if all(v in expected_keys for v in videos):
+                        # Create a single dictionary with these keys
+                        fixed_video = {"type": "video"}
+                        if "url" in videos:
+                            fixed_video["url"] = "https://twitter.com/video_preview"
+                        post["videos"] = [fixed_video]
+                        print(
+                            f"Fixed flattened video dictionary for post: {post.get('text', {}).get('content', '')[:30]}..."
+                        )
+
+                # Fix gifs in the same way
+                gifs = post.get("gifs", [])
+                if gifs and all(isinstance(g, str) for g in gifs):
+                    expected_keys = {"type", "url", "isGif", "html"}
+                    if all(g in expected_keys for g in gifs):
+                        fixed_gif = {"type": "gif"}
+                        if "url" in gifs:
+                            fixed_gif["url"] = "https://twitter.com/gif_preview"
+                        post["gifs"] = [fixed_gif]
+                        print(
+                            f"Fixed flattened gif dictionary for post: {post.get('text', {}).get('content', '')[:30]}..."
+                        )
+
             # Format tweet data for display
             formatted_posts = []
             for post in posts:
@@ -254,6 +449,34 @@ def main() -> None:
                     content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
                         f"📸 {url}" for url in images
                     )
+
+                # Process videos
+                video_posters = [
+                    item["url"]
+                    for item in post.get("video_posters", [])
+                    if item is not None and isinstance(item, dict) and "url" in item
+                ]
+
+                # Process GIFs
+                gif_thumbs = [
+                    item["url"]
+                    for item in post.get("gif_thumbs", [])
+                    if item is not None and isinstance(item, dict) and "url" in item
+                ]
+
+                # Add videos to content
+                if video_posters:
+                    content += "\n\n[dim]Videos:[/dim]\n" + "\n".join(
+                        f"🎬 {url}" for url in video_posters
+                    )
+                    print(f"Added {len(video_posters)} videos to content")
+
+                # Add GIFs to content
+                if gif_thumbs:
+                    content += "\n\n[dim]GIFs:[/dim]\n" + "\n".join(
+                        f"🎞️ {url}" for url in gif_thumbs
+                    )
+                    print(f"Added {len(gif_thumbs)} GIFs to content")
 
                 # Format metrics
                 metrics = {
@@ -299,6 +522,112 @@ def main() -> None:
                     console.print(f"Content: {text_data.get('content', '')}")
                     console.print(f"HTML: {html}")
                     console.print("---")
+
+            # Debug output for tweets with videos/GIFs
+            for post in posts:
+                text_data = post.get("text", {})
+                html = text_data.get("raw_html", "")
+                video_posters = [
+                    item["url"]
+                    for item in post.get("video_posters", [])
+                    if item is not None and isinstance(item, dict) and "url" in item
+                ]
+                gif_thumbs = [
+                    item["url"]
+                    for item in post.get("gif_thumbs", [])
+                    if item is not None and isinstance(item, dict) and "url" in item
+                ]
+
+                if video_posters or gif_thumbs:
+                    console.print("\n[purple]Tweet with videos/GIFs:[/purple]")
+                    console.print(f"Content: {text_data.get('content', '')}")
+
+                    # Check if videos made it into the displayed content
+                    content = [
+                        item.get("Content", "")
+                        for item in formatted_posts
+                        if item.get("Author", "").endswith(
+                            f"@{post.get('author', {}).get('handle', '')}"
+                        )
+                    ]
+
+                    if video_posters:
+                        if content and "Videos:" in content[0]:
+                            console.print(
+                                "[green]✓ Video successfully included in displayed content[/green]"
+                            )
+                            for url in video_posters:
+                                console.print(f"Video preview: {url}")
+                        else:
+                            console.print(
+                                "[red]✗ Video detected but not in displayed content![/red]"
+                            )
+
+                    if gif_thumbs:
+                        if content and "GIFs:" in content[0]:
+                            console.print(
+                                "[green]✓ GIF successfully included in displayed content[/green]"
+                            )
+                            for url in gif_thumbs:
+                                console.print(f"GIF preview: {url}")
+                        else:
+                            console.print(
+                                "[red]✗ GIF detected but not in displayed content![/red]"
+                            )
+
+                    if html:
+                        console.print(f"HTML snippet: {html[:300]}...")
+
+                    console.print("---")
+
+            # Add specific debug for tweets that should have videos
+            for post in posts:
+                text_data = post.get("text", {})
+                content = text_data.get("content", "")
+                html = text_data.get("raw_html", "")
+
+                # Look for common video keywords in content
+                video_keywords = [
+                    "video",
+                    "watch",
+                    "filmed",
+                    "recorded",
+                    "movie",
+                    "clip",
+                    "recording",
+                ]
+                might_have_video = any(
+                    keyword in content.lower() for keyword in video_keywords
+                )
+
+                # Check for video-related attributes in HTML
+                video_elements_in_html = (
+                    'data-testid="videoPlayer"' in html
+                    or 'data-testid="videoComponent"' in html
+                    or 'aria-label="Play"' in html
+                    or 'role="button" aria-label="Play this video"' in html
+                    or "poster=" in html  # Check for video poster attribute
+                )
+
+                video_debug = post.get("has_video_debug", {})
+                video_posters = post.get("video_posters", [])
+
+                if might_have_video or video_elements_in_html:
+                    console.print("\n[cyan]======================[/cyan]")
+                    console.print("[cyan]Tweet likely has video:[/cyan]")
+                    console.print(f"Content: {content[:100]}...")
+
+                    if "has_video_element" in video_debug:
+                        console.print("\nDetected video elements:")
+                        console.print(
+                            video_debug.get("has_video_element", "None found")
+                        )
+
+                    console.print("\nVideo posters found:")
+                    for poster in video_posters:
+                        console.print(f"  - {poster}")
+
+                    console.print("[cyan]======================[/cyan]")
         else:
             console.print("[yellow]No tweets found[/yellow]")
 
