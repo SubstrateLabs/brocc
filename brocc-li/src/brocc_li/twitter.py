@@ -278,50 +278,53 @@ def main() -> None:
             # debug=True,
         )
 
-        extracted_data = scroll_and_extract(page=page, config=config)
-
-        # Convert extracted data to Document objects
+        # Process items as they're streamed back
         docs = []
-        if extracted_data:
-            for item in extracted_data:
-                doc = Document.from_extracted_data(
-                    data=item, source=Source.TWITTER, source_location=TEST_URL
-                )
-                docs.append(doc)
+        formatted_posts = []
+        extraction_generator = scroll_and_extract(page=page, config=config)
+
+        console.print(f"\n[cyan]Extracting tweets (max {MAX_ITEMS})...[/cyan]")
+
+        for item in extraction_generator:
+            # Convert to Document object
+            doc = Document.from_extracted_data(
+                data=item, source=Source.TWITTER, source_location=TEST_URL
+            )
+            docs.append(doc)
+
+            # Format for display as we get each tweet
+            author_name = doc.author_name or "Unknown"
+            author_identifier = doc.author_identifier or ""
+            content = (
+                doc.content.get("content", "No text") if doc.content else "No text"
+            )
+
+            # Get metadata and format it with emojis
+            metadata = doc.metadata or {}
+            metadata_text = "\n".join(
+                [
+                    f"💬 {metadata.get('replies', '0')}",
+                    f"🔄 {metadata.get('retweets', '0')}",
+                    f"❤️ {metadata.get('likes', '0')}",
+                ]
+            )
+
+            formatted_posts.append(
+                {
+                    "Author": author_name,
+                    "Handle": f"@{author_identifier}" if author_identifier else "",
+                    "Content": content,
+                    "Created": doc.created_at or "No date",
+                    "Metadata": metadata_text,
+                }
+            )
+
+            # Show progress
+            console.print(
+                f"[green]Extracted tweet {len(docs)}/{MAX_ITEMS} from @{author_identifier}[/green]"
+            )
 
         if docs:
-            # Format posts for display
-            formatted_posts = []
-            for doc in docs:
-                # Format author
-                author_name = doc.author_name or "Unknown"
-                author_identifier = doc.author_identifier or ""
-
-                # Format content - media is already integrated in the content
-                content = (
-                    doc.content.get("content", "No text") if doc.content else "No text"
-                )
-
-                # Get metadata and format it with emojis
-                metadata = doc.metadata or {}
-                metadata_text = "\n".join(
-                    [
-                        f"💬 {metadata.get('replies', '0')}",
-                        f"🔄 {metadata.get('retweets', '0')}",
-                        f"❤️ {metadata.get('likes', '0')}",
-                    ]
-                )
-
-                formatted_posts.append(
-                    {
-                        "Author": author_name,
-                        "Handle": f"@{author_identifier}" if author_identifier else "",
-                        "Content": content,
-                        "Created": doc.created_at or "No date",
-                        "Metadata": metadata_text,
-                    }
-                )
-
             # Display the posts
             display_items(
                 items=formatted_posts,

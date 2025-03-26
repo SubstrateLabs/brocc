@@ -1,12 +1,7 @@
 # brocc
 
-- store in duckdb schema
-  - should we handle type of file? is that in the url?
-
-in storage, help me design a consistent duckdb sql schema and utils that create this storage duckdb file in the right appdir
-i want all documents to be stored in a consisten schema in duckdb
-ie url, author, content, summary
-
+- stream back store_and_extract
+- store in duckdb schema with idempotency
 - markdown chunking
 - store in lancedb with chunking approach
 - cli login flow

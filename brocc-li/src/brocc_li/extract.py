@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Generator
 from pydantic import BaseModel
 from rich.console import Console
 import random
@@ -561,8 +561,10 @@ def handle_scrolling(
     return consecutive_same_height, last_height
 
 
-def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
-    """Main function to scroll through a page and extract items."""
+def scroll_and_extract(
+    page: Page, config: FeedConfig
+) -> Generator[Dict[str, Any], None, None]:
+    """Generator function to scroll through a page and yield items as they're found."""
     try:
         if config.container_selector is None:
             for field_name, field in config.feed_schema.__dict__.items():
@@ -579,16 +581,16 @@ def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
         console.print(
             f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]"
         )
-        return []
+        return
 
     seen_urls: Set[str] = set()
-    all_items: List[Dict[str, Any]] = []
+    items_yielded = 0
     no_new_items_count = 0
     consecutive_same_height = 0
     original_url = page.url
 
     while (
-        len(all_items) < config.max_items
+        items_yielded < config.max_items
         and no_new_items_count < config.scroll_config.max_no_new_items
     ):
         if config.expand_item_selector:
@@ -606,20 +608,22 @@ def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
         new_items = 0
 
         for item in current_items:
-            if len(all_items) >= config.max_items:
+            if items_yielded >= config.max_items:
                 break
 
             url = item.get(URL_FIELD)
             if url and url not in seen_urls:
                 seen_urls.add(url)
-                item_position = len(all_items)
+                item_position = items_yielded
 
                 if config.deep_scrape and url:
                     handle_deep_scraping(
                         page, item, config, item_position, original_url
                     )
 
-                all_items.append(item)
+                # Yield the item immediately instead of collecting
+                yield item
+                items_yielded += 1
                 new_items += 1
 
         if new_items == 0:
@@ -632,9 +636,7 @@ def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
         )
 
         if (
-            len(all_items) % random.randint(*config.scroll_config.random_pause_interval)
+            items_yielded % random.randint(*config.scroll_config.random_pause_interval)
             == 0
         ):
             random_delay(2.0, 0.5)
-
-    return all_items

@@ -140,44 +140,49 @@ def main() -> None:
 
         console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")
 
-        extracted_data = scroll_and_extract(page=page, config=config)
-
-        # Convert extracted data to Document objects
+        # Process items as they're streamed back
         docs = []
-        if extracted_data:
-            for item in extracted_data:
-                doc = Document.from_extracted_data(
-                    data=item, source=Source.SUBSTACK, source_location=source_url
+        formatted_posts = []
+        extraction_generator = scroll_and_extract(page=page, config=config)
+
+        for item in extraction_generator:
+            # Convert to Document object
+            doc = Document.from_extracted_data(
+                data=item, source=Source.SUBSTACK, source_location=source_url
+            )
+            docs.append(doc)
+
+            # Format for display as we get each post
+            # Truncate content for display
+            content = doc.content
+            if content and isinstance(content, str):
+                content_text = content.replace("\n", " ").strip()
+                content = (
+                    (content_text[:100] + "...")
+                    if len(content_text) > 100
+                    else content_text
                 )
-                docs.append(doc)
+
+            formatted_posts.append(
+                {
+                    "Title": doc.title or "No title",
+                    "Description": doc.description or "",
+                    "Date": doc.created_at or "No date",
+                    "Author": doc.author_name or "Unknown",
+                    "URL": doc.url,
+                    "Content Preview": content or "No content",
+                    "Publication": doc.metadata.get("publication", "")
+                    if doc.metadata
+                    else "",
+                }
+            )
+
+            # Show progress
+            console.print(
+                f"[green]Extracted post {len(docs)}/{MAX_ITEMS}: {doc.title or 'Untitled'}[/green]"
+            )
 
         if docs:
-            formatted_posts = []
-            for doc in docs:
-                # Truncate content for display
-                content = doc.content
-                if content and isinstance(content, str):
-                    content_text = content.replace("\n", " ").strip()
-                    content = (
-                        (content_text[:100] + "...")
-                        if len(content_text) > 100
-                        else content_text
-                    )
-
-                formatted_posts.append(
-                    {
-                        "Title": doc.title or "No title",
-                        "Description": doc.description or "",
-                        "Date": doc.created_at or "No date",
-                        "Author": doc.author_name or "Unknown",
-                        "URL": doc.url,
-                        "Content Preview": content or "No content",
-                        "Publication": doc.metadata.get("publication", "")
-                        if doc.metadata
-                        else "",
-                    }
-                )
-
             display_items(
                 items=formatted_posts,
                 title="Substack Posts",
