@@ -104,6 +104,11 @@ class FeedConfig(BaseModel):
     network_idle_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS
     click_wait_timeout_ms: int = CLICK_WAIT_TIMEOUT_MS
 
+    # Storage options
+    use_storage: bool = False
+    storage_path: Optional[str] = None
+    continue_on_seen: bool = False
+
     # Debug options
     debug: bool = False
     debug_file: Optional[str] = None
@@ -583,11 +588,43 @@ def scroll_and_extract(
         )
         return
 
+    # Initialize storage if configured
+    storage = None
+    if config.use_storage:
+        # Import here to avoid circular imports
+        from brocc_li.utils.storage import DocumentStorage
+
+        storage = DocumentStorage(config.storage_path)
+        console.print(f"[dim]Using document storage: {storage.db_path}[/dim]")
+
+    # Get seen URLs if using storage
     seen_urls: Set[str] = set()
+    if storage:
+        # Get URLs from current source/location if we're continuing, otherwise get all URLs
+        if config.continue_on_seen:
+            # Extract source info from the URL
+            url = page.url
+            source = url.split("//")[-1].split("/")[0]  # Extract domain as source
+            location = "/".join(url.split("//")[-1].split("/")[1:])
+            if not location:
+                location = "home"
+            # Get URLs only for this source/location
+            seen_urls = storage.get_seen_urls(source=source, source_location=location)
+            console.print(
+                f"[dim]Found {len(seen_urls)} previously seen URLs for this source[/dim]"
+            )
+        else:
+            # Get all URLs in storage
+            seen_urls = storage.get_seen_urls()
+            console.print(
+                f"[dim]Found {len(seen_urls)} previously seen URLs across all sources[/dim]"
+            )
+
     items_yielded = 0
     no_new_items_count = 0
     consecutive_same_height = 0
     original_url = page.url
+    total_skipped = 0
 
     while (
         items_yielded < config.max_items
@@ -606,30 +643,72 @@ def scroll_and_extract(
             page, config.feed_schema, config.container_selector, config
         )
         new_items = 0
+        skipped_items = 0
 
         for item in current_items:
             if items_yielded >= config.max_items:
                 break
 
             url = item.get(URL_FIELD)
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                item_position = items_yielded
+            if not url:
+                continue
 
-                if config.deep_scrape and url:
-                    handle_deep_scraping(
-                        page, item, config, item_position, original_url
-                    )
+            # Skip already seen URLs - don't process them at all
+            if url in seen_urls:
+                skipped_items += 1
+                total_skipped += 1
+                continue
 
-                # Yield the item immediately instead of collecting
-                yield item
-                items_yielded += 1
-                new_items += 1
+            # Add to seen URLs to avoid duplicates in this session
+            seen_urls.add(url)
+            item_position = items_yielded
 
-        if new_items == 0:
-            no_new_items_count += 1
-        else:
+            # Process this unseen item
+            if config.deep_scrape and url:
+                handle_deep_scraping(page, item, config, item_position, original_url)
+
+            # Store the item if using storage
+            if storage:
+                # Convert to Document format for storage
+                # Import here to avoid circular imports
+                from brocc_li.types.document import Document, Source
+
+                # Extract source from URL if possible
+                source_str = page.url.split("//")[-1].split("/")[0]
+                try:
+                    source = Source(source_str)
+                except ValueError:
+                    source = Source.TWITTER  # Default fallback
+
+                doc = Document.from_extracted_data(
+                    data=item, source=source, source_location=original_url
+                )
+                doc_dict = doc.dict()
+                storage.store_document(doc_dict)
+
+            # Yield the item
+            yield item
+            items_yielded += 1
+            new_items += 1
+
+        if skipped_items > 0:
+            console.print(f"[dim]Skipped {skipped_items} already seen items[/dim]")
+
+        # If we're continuing on seen items but still finding new ones,
+        # reset the no_new_items counter to keep scrolling
+        if new_items > 0:
             no_new_items_count = 0
+        else:
+            no_new_items_count += 1
+            # If we're continuing on seen and have skipped some items, be more persistent
+            if (
+                config.continue_on_seen
+                and total_skipped > 0
+                and no_new_items_count < config.scroll_config.max_no_new_items
+            ):
+                console.print(
+                    f"[dim]No new items this scroll, but continuing to look for unseen content...[/dim]"
+                )
 
         consecutive_same_height, _ = handle_scrolling(
             page, new_items, consecutive_same_height, config

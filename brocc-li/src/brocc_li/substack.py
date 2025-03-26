@@ -13,6 +13,7 @@ from brocc_li.extract import (
 )
 from brocc_li.display_result import display_items
 from brocc_li.utils.timestamp import parse_timestamp
+from brocc_li.utils.storage import DocumentStorage
 
 console = Console()
 
@@ -124,6 +125,10 @@ def main() -> None:
 
         start_time = time.time()
 
+        # Initialize storage
+        storage = DocumentStorage()
+        console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
+
         deep_scrape_options = DeepScrapeOptions(
             wait_networkidle=True,
             content_timeout_ms=2000,
@@ -135,6 +140,9 @@ def main() -> None:
             feed_schema=SubstackExtractSchema,
             max_items=MAX_ITEMS,
             deep_scrape=deep_scrape_options,
+            # Enable storage options
+            use_storage=True,
+            continue_on_seen=True,  # Continue past seen URLs to get a complete feed
             debug=DEBUG,
         )
 
@@ -203,6 +211,7 @@ def main() -> None:
                 f"\n[green]Successfully extracted {len(docs)} unique posts[/green]"
                 f"\n[blue]Collection rate: {posts_per_minute:.1f} posts/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
+                f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
             )
         else:
             console.print("[yellow]No posts found[/yellow]")

@@ -1,6 +1,6 @@
 # brocc
 
-- stream back store_and_extract
+- pandas schema for storage
 - store in duckdb schema with idempotency
 - markdown chunking
 - store in lancedb with chunking approach

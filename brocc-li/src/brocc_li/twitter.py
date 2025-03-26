@@ -7,6 +7,7 @@ from brocc_li.chrome import connect_to_chrome, open_new_tab
 from brocc_li.extract import ExtractField, scroll_and_extract, FeedConfig
 from brocc_li.display_result import display_items
 from brocc_li.utils.timestamp import parse_timestamp
+from brocc_li.utils.storage import DocumentStorage
 
 console = Console()
 
@@ -271,10 +272,17 @@ def main() -> None:
 
         start_time = time.time()
 
+        # Initialize storage
+        storage = DocumentStorage()
+        console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
+
         config = FeedConfig(
             feed_schema=TwitterFeedSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
+            # Enable storage options
+            use_storage=True,
+            continue_on_seen=True,  # Continue past seen URLs to get a complete feed
             # debug=True,
         )
 
@@ -339,6 +347,7 @@ def main() -> None:
                 f"\n[green]Successfully extracted {len(docs)} unique tweets[/green]"
                 f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
+                f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
             )
         else:
             console.print("[yellow]No tweets found[/yellow]")
