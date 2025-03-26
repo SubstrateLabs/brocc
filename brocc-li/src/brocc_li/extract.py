@@ -9,6 +9,7 @@ import urllib.parse
 import re
 from dataclasses import dataclass
 from enum import Enum
+from playwright.sync_api import TimeoutError, Error as PlaywrightError
 
 console = Console()
 
@@ -30,6 +31,47 @@ class ScrollConfig:
     random_pause_interval: Tuple[int, int] = (15, 25)
 
 
+# Constants for deep scraping
+MARKDOWN_FIELD_NAME = "markdown_content"
+MARKDOWN_FOLDER = "debug"
+URL_FIELD = "url"
+PROGRESS_LABEL = "items"
+
+# Timeout constants (in milliseconds)
+INITIAL_LOAD_TIMEOUT_MS = 10000
+DYNAMIC_CONTENT_WAIT_MS = 2000
+CONTENT_EXTRACTION_TIMEOUT_MS = 3000
+CLICK_WAIT_TIMEOUT_MS = 500
+NETWORK_IDLE_TIMEOUT_MS = 5000
+
+# Delay constants (in milliseconds)
+DEFAULT_MIN_DELAY_MS = 1000
+DEFAULT_MAX_DELAY_MS = 3000
+DEFAULT_JITTER_FACTOR = 0.3
+
+# Content extraction constants
+MIN_CONTENT_LENGTH = 100
+DEFAULT_CONTENT_SELECTOR = "article"
+DEFAULT_BODY_SELECTOR = "body"
+
+# Deep scraping retry constants
+DEEP_SCRAPE_MAX_RETRIES = 2
+DEEP_SCRAPE_RETRY_DELAY_MIN_MS = 1000
+DEEP_SCRAPE_RETRY_DELAY_MAX_MS = 2000
+
+# Scroll constants
+SCROLL_PATTERN_CONFIGS = {
+    ScrollPattern.NORMAL: (0.8, 1.2),
+    ScrollPattern.FAST: (1.5, 2.5),
+    ScrollPattern.SLOW: (0.5, 0.8),
+    ScrollPattern.BOUNCE: (1.2, 1.5),
+}
+BOUNCE_SCROLL_UP_RATIO_MIN = 0.3
+BOUNCE_SCROLL_UP_RATIO_MAX = 0.5
+BOUNCE_SCROLL_PAUSE_MIN = 0.2
+BOUNCE_SCROLL_PAUSE_MAX = 0.4
+
+
 class DeepScrapeOptions(BaseModel):
     """Configuration options for deep scraping content.
 
@@ -41,37 +83,25 @@ class DeepScrapeOptions(BaseModel):
     enabled: bool = False
 
     # CSS selector to find the content element on the detail page
-    content_selector: str = "article"
-
-    # Field name where the extracted markdown content will be stored
-    markdown_field_name: str = "markdown_content"
+    content_selector: str = DEFAULT_CONTENT_SELECTOR
 
     # Whether to wait for network idle when navigating to pages
     wait_networkidle: bool = True
 
     # Maximum time in milliseconds to wait for content selector to appear
-    timeout_ms: int = 5000
-
-    # Whether to attempt restoring the original scroll position after returning
-    restore_scroll: bool = True
+    content_timeout_ms: int = CONTENT_EXTRACTION_TIMEOUT_MS
 
     # Minimum delay in milliseconds between scraping actions
-    min_delay_ms: int = 1000
+    min_delay_ms: int = DEFAULT_MIN_DELAY_MS
 
     # Maximum delay in milliseconds between scraping actions
-    max_delay_ms: int = 3000
+    max_delay_ms: int = DEFAULT_MAX_DELAY_MS
 
     # Factor for random jitter (0.0-1.0) - higher means more randomness
-    jitter_factor: float = 0.3
+    jitter_factor: float = DEFAULT_JITTER_FACTOR
 
     # Whether to save markdown content to files
     save_markdown: bool = False
-
-    # Folder to save markdown files in
-    markdown_folder: str = "debug"
-
-    # Whether to include frontmatter in saved markdown files
-    include_frontmatter: bool = True
 
 
 class SchemaField(BaseModel):
@@ -112,6 +142,9 @@ class SchemaField(BaseModel):
 
     # Whether to extract multiple elements matching the selector (e.g. list of images)
     multiple: bool = False
+
+    # Whether this field is the container selector for the schema
+    is_container: bool = False
 
 
 def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any:
@@ -164,10 +197,19 @@ def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any
 
 
 def scrape_schema(
-    page: Any, schema: type[BaseModel], container_selector: str
+    page: Any, schema: type[BaseModel], container_selector: str | None = None
 ) -> List[Dict[str, Any]]:
     """Scrape data using a schema definition."""
     try:
+        # Find container selector from schema if not provided
+        if container_selector is None:
+            for field_name, field in schema.__dict__.items():
+                if isinstance(field, SchemaField) and field.is_container:
+                    container_selector = field.selector
+                    break
+            if container_selector is None:
+                raise ValueError("No container selector found in schema")
+
         containers = page.query_selector_all(container_selector)
         console.print(f"[dim]Found {len(containers)} containers[/dim]")
 
@@ -210,21 +252,21 @@ def human_scroll(page: Any, pattern: ScrollPattern) -> None:
     """Simulate human-like scrolling behavior."""
     viewport_height = page.evaluate("window.innerHeight")
 
-    scroll_configs = {
-        ScrollPattern.NORMAL: (0.8, 1.2),
-        ScrollPattern.FAST: (1.5, 2.5),
-        ScrollPattern.SLOW: (0.5, 0.8),
-        ScrollPattern.BOUNCE: (1.2, 1.5),
-    }
-
     if pattern == ScrollPattern.BOUNCE:
-        down_amount = int(viewport_height * random.uniform(*scroll_configs[pattern]))
-        up_amount = int(down_amount * random.uniform(0.3, 0.5))
+        down_amount = int(
+            viewport_height * random.uniform(*SCROLL_PATTERN_CONFIGS[pattern])
+        )
+        up_amount = int(
+            down_amount
+            * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
+        )
         page.evaluate(f"window.scrollBy(0, {down_amount})")
-        time.sleep(random.uniform(0.2, 0.4))
+        time.sleep(random.uniform(BOUNCE_SCROLL_PAUSE_MIN, BOUNCE_SCROLL_PAUSE_MAX))
         page.evaluate(f"window.scrollBy(0, -{up_amount})")
     else:
-        scroll_amount = int(viewport_height * random.uniform(*scroll_configs[pattern]))
+        scroll_amount = int(
+            viewport_height * random.uniform(*SCROLL_PATTERN_CONFIGS[pattern])
+        )
         page.evaluate(f"window.scrollBy(0, {scroll_amount})")
 
 
@@ -242,77 +284,51 @@ def random_delay_with_jitter(
 
 
 def extract_content_from_page(page: Any, options: DeepScrapeOptions) -> Optional[str]:
-    """Extract content from a page using multiple selectors."""
-    selectors = [s.strip() for s in options.content_selector.split(",")]
+    """Extract content from a page using the provided selector."""
+    selector = options.content_selector.strip()
 
-    for selector in selectors:
-        try:
-            page.wait_for_selector(
-                selector, timeout=options.timeout_ms // len(selectors)
-            )
-            console.print(f"[green]Found content with selector: '{selector}'[/green]")
+    try:
+        page.wait_for_selector(selector, timeout=options.content_timeout_ms)
+        console.print(f"[green]Found content with selector: '{selector}'[/green]")
 
-            content_elements = page.query_selector_all(selector)
-            if not content_elements:
-                continue
+        content_elements = page.query_selector_all(selector)
+        if not content_elements:
+            return None
 
-            largest_content = max(
-                (el.inner_html() for el in content_elements), key=len, default=""
-            )
+        largest_content = max(
+            (el.inner_html() for el in content_elements), key=len, default=""
+        )
 
-            if len(largest_content) > 100:
-                console.print(
-                    f"[green]Selected content from '{selector}' ({len(largest_content)} chars)[/green]"
-                )
-                return largest_content
-
-        except Exception as e:
+        if len(largest_content) > MIN_CONTENT_LENGTH:
             console.print(
-                f"[yellow]Error with selector '{selector}': {str(e)}[/yellow]"
+                f"[green]Selected content from '{selector}' ({len(largest_content)} chars)[/green]"
             )
-            continue
+            return largest_content
+
+    except Exception as e:
+        console.print(f"[yellow]Error with selector '{selector}': {str(e)}[/yellow]")
+        return None
 
     return None
 
 
-def save_markdown(item: Dict[str, Any], options: DeepScrapeOptions) -> str:
+def save_markdown(item: Dict[str, Any]) -> str:
     """Save post content to a markdown file and return the filepath."""
     if not all(
         [
-            options.markdown_field_name in item,
-            item[options.markdown_field_name],
+            MARKDOWN_FIELD_NAME in item,
+            item.get(MARKDOWN_FIELD_NAME),
             "url" in item,
-            item["url"],
+            item.get("url"),
         ]
     ):
         return ""
 
-    os.makedirs(options.markdown_folder, exist_ok=True)
-    filename = slugify(item["url"])
-    filepath = os.path.join(options.markdown_folder, filename)
+    os.makedirs(MARKDOWN_FOLDER, exist_ok=True)
+    filename = slugify(item.get("url", ""))
+    filepath = os.path.join(MARKDOWN_FOLDER, filename)
 
-    content = item[options.markdown_field_name]
-    if options.include_frontmatter:
-        frontmatter = {
-            "title": item.get("title", "Untitled"),
-            "publication": item.get("publication", {}).get(
-                "name", "Unknown Publication"
-            ),
-            "author": item.get("author", "Unknown Author"),
-            "date": item.get("date", ""),
-            "url": item["url"],
-        }
-        content = f"""---
-title: "{frontmatter["title"]}"
-publication: "{frontmatter["publication"]}"
-author: "{frontmatter["author"]}"
-date: {frontmatter["date"]}
-url: {frontmatter["url"]}
----
-
-{content}
-"""
-
+    content = item.get(MARKDOWN_FIELD_NAME, "")
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -335,11 +351,9 @@ def slugify(url: str) -> str:
 def scroll_and_extract(
     page: Any,
     schema: type[BaseModel],
-    container_selector: str,
+    container_selector: str | None = None,
     max_items: int = 5,
     click_selector: str | None = None,
-    url_field: str = "url",
-    progress_label: str = "items",
     deep_scrape_options: Optional[DeepScrapeOptions] = None,
 ) -> List[Dict[str, Any]]:
     """Scroll through a page and extract items based on the provided schema.
@@ -355,19 +369,14 @@ def scroll_and_extract(
                for extracting data. This should have SchemaField attributes that
                specify how to extract each piece of data.
 
-        container_selector: CSS selector string that identifies each container element
-                           (e.g., a post, tweet, or card) to extract data from.
+        container_selector: Optional CSS selector string that identifies each container element
+                           (e.g., a post, tweet, or card) to extract data from. If not provided,
+                           will be extracted from the schema's container field.
 
         max_items: Maximum number of items to extract before stopping. Default is 5.
 
         click_selector: Optional CSS selector for elements to click while scrolling,
                        such as "Load more" buttons. If None, no clicking is performed.
-
-        url_field: Name of the field in the schema that contains the URL or unique ID
-                  used for deduplication. Default is "url".
-
-        progress_label: Label to use in progress messages for better readability,
-                       e.g., "tweets", "posts", etc. Default is "items".
 
         deep_scrape_options: Configuration options for deep scraping. If None, deep scraping
                             is disabled. See DeepScrapeOptions class for details.
@@ -378,17 +387,26 @@ def scroll_and_extract(
     """
     # Initialize by waiting for container selector
     try:
-        console.print(f"[cyan]Waiting for {progress_label} to load...[/cyan]")
-        page.wait_for_selector(container_selector, timeout=10000)
-        console.print(f"[green]Found initial {progress_label}[/green]")
+        # Find container selector from schema if not provided
+        if container_selector is None:
+            for field_name, field in schema.__dict__.items():
+                if isinstance(field, SchemaField) and field.is_container:
+                    container_selector = field.selector
+                    break
+            if container_selector is None:
+                raise ValueError("No container selector found in schema")
+
+        console.print(f"[cyan]Waiting for {PROGRESS_LABEL} to load...[/cyan]")
+        page.wait_for_selector(container_selector, timeout=INITIAL_LOAD_TIMEOUT_MS)
+        console.print(f"[green]Found initial {PROGRESS_LABEL}[/green]")
     except Exception as e:
         console.print(
-            f"[red]Timeout waiting for {progress_label} to load: {str(e)}[/red]"
+            f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]"
         )
         return []
 
     # Wait a bit for any dynamic content
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(DYNAMIC_CONTENT_WAIT_MS)
 
     seen_urls: Set[str] = set()
     all_items: List[Dict[str, Any]] = []
@@ -410,7 +428,7 @@ def scroll_and_extract(
                 try:
                     if element.is_visible():
                         element.click()
-                        page.wait_for_timeout(500)
+                        page.wait_for_timeout(CLICK_WAIT_TIMEOUT_MS)
                 except Exception as e:
                     console.print(f"[red]Failed to click element: {str(e)}[/red]")
 
@@ -422,126 +440,159 @@ def scroll_and_extract(
             if len(all_items) >= max_items:
                 break
 
-            url = item.get(url_field)
+            url = item.get(URL_FIELD)
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 item_position = len(all_items)
 
                 # Deep scraping logic
                 if deep_scrape_options.enabled and url:
-                    try:
-                        console.print(
-                            f"[cyan]Deep scraping content for item #{item_position + 1} ({len(all_items) + 1}/{max_items})[/cyan]"
-                        )
+                    retry_count = 0
+                    content_found = False
 
-                        # Store scroll position
-                        scroll_y = (
-                            page.evaluate("window.scrollY")
-                            if deep_scrape_options.restore_scroll
-                            else 0
-                        )
-
-                        # Find and click content link
-                        visible_containers = page.query_selector_all(container_selector)
-                        if visible_containers and item_position < len(
-                            visible_containers
-                        ):
-                            container = visible_containers[item_position]
-                            clickable = container.query_selector("a.reader2-inbox-post")
-
-                            if clickable:
-                                clickable.click()
-                                page.wait_for_load_state("networkidle")
-                                random_delay_with_jitter(
-                                    1000, 2000, deep_scrape_options.jitter_factor
+                    while retry_count <= DEEP_SCRAPE_MAX_RETRIES and not content_found:
+                        try:
+                            if retry_count > 0:
+                                console.print(
+                                    f"[yellow]Retry attempt {retry_count}/{DEEP_SCRAPE_MAX_RETRIES}[/yellow]"
                                 )
-
-                                # Extract content
-                                html_content = extract_content_from_page(
-                                    page, deep_scrape_options
-                                )
-                                if html_content:
-                                    markdown_content = convert_to_markdown(html_content)
-                                    item[deep_scrape_options.markdown_field_name] = (
-                                        markdown_content
-                                    )
-
-                                    if deep_scrape_options.save_markdown:
-                                        filepath = save_markdown(
-                                            item, deep_scrape_options
-                                        )
-                                        if filepath:
-                                            console.print(
-                                                f"[green]Saved markdown to: {filepath}[/green]"
-                                            )
-                                else:
-                                    # Fallback to body content
-                                    body_element = page.query_selector("body")
-                                    if body_element:
-                                        body_html = body_element.inner_html()
-                                        markdown_content = convert_to_markdown(
-                                            body_html
-                                        )
-                                        item[
-                                            deep_scrape_options.markdown_field_name
-                                        ] = markdown_content
-                                    else:
-                                        item[
-                                            deep_scrape_options.markdown_field_name
-                                        ] = "No content found"
-
-                        # Navigate back
-                        random_delay_with_jitter(
-                            deep_scrape_options.min_delay_ms // 2,
-                            deep_scrape_options.max_delay_ms // 2,
-                            deep_scrape_options.jitter_factor,
-                        )
-
-                        page.go_back(
-                            wait_until="networkidle"
-                            if deep_scrape_options.wait_networkidle
-                            else None
-                        )
-
-                        if deep_scrape_options.restore_scroll and scroll_y > 0:
-                            random_delay_with_jitter(
-                                500, 1000, deep_scrape_options.jitter_factor
-                            )
-                            page.evaluate(f"window.scrollTo(0, {scroll_y})")
-
-                    except Exception as e:
-                        console.print(
-                            f"[red]Error during deep scraping: {str(e)}[/red]"
-                        )
-                        item[deep_scrape_options.markdown_field_name] = (
-                            f"Error: {str(e)}"
-                        )
-
-                        # Ensure we're back at the original page
-                        if page.url != original_url:
-                            try:
+                                # Navigate back and wait for network idle
                                 page.go_back(
                                     wait_until="networkidle"
                                     if deep_scrape_options.wait_networkidle
                                     else None
                                 )
-                                if page.url != original_url:
-                                    page.goto(
-                                        original_url,
+                                random_delay_with_jitter(
+                                    deep_scrape_options.min_delay_ms,
+                                    deep_scrape_options.max_delay_ms,
+                                    deep_scrape_options.jitter_factor,
+                                )
+
+                            # Find and click content link
+                            visible_containers = page.query_selector_all(
+                                container_selector
+                            )
+                            if visible_containers and item_position < len(
+                                visible_containers
+                            ):
+                                container = visible_containers[item_position]
+                                # Use the URL field from the schema to find the clickable link
+                                url_field = next(
+                                    (
+                                        field
+                                        for field_name, field in schema.__dict__.items()
+                                        if isinstance(field, SchemaField)
+                                        and field_name == URL_FIELD
+                                    ),
+                                    None,
+                                )
+                                if url_field:
+                                    clickable = container.query_selector(
+                                        url_field.selector
+                                    )
+                                    if clickable:
+                                        clickable.click()
+                                        page.wait_for_load_state(
+                                            "networkidle",
+                                            timeout=NETWORK_IDLE_TIMEOUT_MS,
+                                        )
+                                        random_delay_with_jitter(
+                                            DEEP_SCRAPE_RETRY_DELAY_MIN_MS,
+                                            DEEP_SCRAPE_RETRY_DELAY_MAX_MS,
+                                            deep_scrape_options.jitter_factor,
+                                        )
+
+                                        # Extract content
+                                        html_content = extract_content_from_page(
+                                            page, deep_scrape_options
+                                        )
+                                        if html_content:
+                                            markdown_content = convert_to_markdown(
+                                                html_content
+                                            )
+                                            item[MARKDOWN_FIELD_NAME] = markdown_content
+                                            content_found = True
+
+                                            if deep_scrape_options.save_markdown:
+                                                filepath = save_markdown(item)
+                                                if filepath:
+                                                    console.print(
+                                                        f"[green]Saved markdown to: {filepath}[/green]"
+                                                    )
+                                        else:
+                                            # Fallback to body content
+                                            body_element = page.query_selector(
+                                                DEFAULT_BODY_SELECTOR
+                                            )
+                                            if body_element:
+                                                body_html = body_element.inner_html()
+                                                markdown_content = convert_to_markdown(
+                                                    body_html
+                                                )
+                                                item[MARKDOWN_FIELD_NAME] = (
+                                                    markdown_content
+                                                )
+                                                content_found = True
+                                            else:
+                                                item[MARKDOWN_FIELD_NAME] = (
+                                                    "No content found"
+                                                )
+                                                content_found = True
+
+                            if not content_found:
+                                retry_count += 1
+                                if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
+                                    # Navigate back and wait before retry
+                                    page.go_back(
                                         wait_until="networkidle"
                                         if deep_scrape_options.wait_networkidle
-                                        else None,
+                                        else None
                                     )
-                            except Exception as nav_error:
-                                console.print(
-                                    f"[red]Navigation error: {str(nav_error)}[/red]"
+                                    random_delay_with_jitter(
+                                        deep_scrape_options.min_delay_ms,
+                                        deep_scrape_options.max_delay_ms,
+                                        deep_scrape_options.jitter_factor,
+                                    )
+
+                        except Exception as e:
+                            console.print(
+                                f"[red]Error during deep scraping: {str(e)}[/red]"
+                            )
+                            retry_count += 1
+                            if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
+                                # Navigate back and wait before retry
+                                page.go_back(
+                                    wait_until="networkidle"
+                                    if deep_scrape_options.wait_networkidle
+                                    else None
                                 )
-                                try:
-                                    page.goto(original_url)
-                                except:
-                                    console.print(
-                                        "[red]Failed all navigation attempts![/red]"
-                                    )
+                                random_delay_with_jitter(
+                                    deep_scrape_options.min_delay_ms,
+                                    deep_scrape_options.max_delay_ms,
+                                    deep_scrape_options.jitter_factor,
+                                )
+                            else:
+                                item[MARKDOWN_FIELD_NAME] = f"Error: {str(e)}"
+
+                    # Ensure we're back at the original page
+                    if page.url != original_url:
+                        try:
+                            page.go_back(
+                                wait_until="networkidle"
+                                if deep_scrape_options.wait_networkidle
+                                else None
+                            )
+                            if page.url != original_url:
+                                page.goto(
+                                    original_url,
+                                    wait_until="networkidle"
+                                    if deep_scrape_options.wait_networkidle
+                                    else None,
+                                )
+                        except (TimeoutError, PlaywrightError) as e:
+                            console.print(
+                                f"[red]Failed all navigation attempts: {str(e)}[/red]"
+                            )
 
                 all_items.append(item)
                 new_items += 1
@@ -590,7 +641,7 @@ def scroll_and_extract(
 
         # Progress update
         console.print(
-            f"[dim]Found {len(all_items)} unique {progress_label}... (stuck: {consecutive_same_height}/{scroll_config.max_consecutive_same_height})[/dim]"
+            f"[dim]Found {len(all_items)} unique {PROGRESS_LABEL}... (stuck: {consecutive_same_height}/{scroll_config.max_consecutive_same_height})[/dim]"
         )
 
         # Random pause
@@ -599,7 +650,7 @@ def scroll_and_extract(
 
     if no_new_items_count >= scroll_config.max_no_new_items:
         console.print(
-            f"[dim]No new {progress_label} found after multiple attempts. Reached end of feed.[/dim]"
+            f"[dim]No new {PROGRESS_LABEL} found after multiple attempts. Reached end of feed.[/dim]"
         )
 
     return all_items

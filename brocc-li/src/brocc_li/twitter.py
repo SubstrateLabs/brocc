@@ -1,15 +1,64 @@
 from playwright.sync_api import sync_playwright
 from rich.console import Console
-from rich.table import Table
-from typing import List, Dict, Any, ClassVar
+from typing import Dict, Any, ClassVar
 from pydantic import BaseModel
 from .chrome import connect_to_chrome, open_new_tab
 from .extract import SchemaField, scroll_and_extract
+from .display_result import display_items
 import time
 
 console = Console()
 
-TWEET_CONTAINER = 'article[data-testid="tweet"]'
+MAX_ITEMS = 8
+
+
+class TwitterFeedSchema(BaseModel):
+    container: ClassVar[SchemaField] = SchemaField(
+        selector='article[data-testid="tweet"]', is_container=True
+    )
+    text: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="tweetText"]',
+        extract=lambda element, field: extract_tweet_text(element),
+    )
+    author: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="User-Name"]',
+        children={
+            "display_name": SchemaField(selector='div[dir="ltr"] span span'),
+            "handle": SchemaField(
+                selector='a[href*="/status/"]',
+                attribute="href",
+                transform=lambda x: x.split("/")[1] if x else None,
+            ),
+        },
+    )
+    timestamp: ClassVar[SchemaField] = SchemaField(
+        selector="time", attribute="datetime"
+    )
+    url: ClassVar[SchemaField] = SchemaField(
+        selector='a[href*="/status/"]',
+        attribute="href",
+        transform=lambda x: f"https://x.com{x}" if x else None,
+    )
+    replies: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="reply"]',
+        extract=lambda element, field: extract_metric(element, field.selector),
+    )
+    retweets: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="retweet"]',
+        extract=lambda element, field: extract_metric(element, field.selector),
+    )
+    likes: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="like"]',
+        extract=lambda element, field: extract_metric(element, field.selector),
+    )
+    images: ClassVar[SchemaField] = SchemaField(
+        selector='[data-testid="tweetPhoto"] img[draggable="true"]',
+        attribute="src",
+        multiple=True,
+        transform=lambda src: {"type": "image", "url": src}
+        if src and "profile_images" not in src
+        else None,
+    )
 
 
 def extract_tweet_text(element) -> Dict[str, Any]:
@@ -83,53 +132,6 @@ def extract_metric(element, selector: str) -> str:
     return convert_metric(span.inner_text())
 
 
-class TwitterFeedSchema(BaseModel):
-    container: ClassVar[SchemaField] = SchemaField(selector=TWEET_CONTAINER)
-    text: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="tweetText"]',
-        extract=lambda element, field: extract_tweet_text(element),
-    )
-    author: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="User-Name"]',
-        children={
-            "display_name": SchemaField(selector='div[dir="ltr"] span span'),
-            "handle": SchemaField(
-                selector='a[href*="/status/"]',
-                attribute="href",
-                transform=lambda x: x.split("/")[1] if x else None,
-            ),
-        },
-    )
-    timestamp: ClassVar[SchemaField] = SchemaField(
-        selector="time", attribute="datetime"
-    )
-    url: ClassVar[SchemaField] = SchemaField(
-        selector='a[href*="/status/"]',
-        attribute="href",
-        transform=lambda x: f"https://x.com{x}" if x else None,
-    )
-    replies: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="reply"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
-    )
-    retweets: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="retweet"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
-    )
-    likes: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="like"]',
-        extract=lambda element, field: extract_metric(element, field.selector),
-    )
-    images: ClassVar[SchemaField] = SchemaField(
-        selector='[data-testid="tweetPhoto"] img[draggable="true"]',
-        attribute="src",
-        multiple=True,
-        transform=lambda src: {"type": "image", "url": src}
-        if src and "profile_images" not in src
-        else None,
-    )
-
-
 def convert_metric(text: str) -> str:
     """Convert metric strings like '1.2K' or '3.4M' to full numbers."""
     if not text:
@@ -146,63 +148,46 @@ def convert_metric(text: str) -> str:
     return text
 
 
-METRIC_ICONS = {
-    "replies": "💬",
-    "retweets": "🔄",
-    "likes": "❤️",
-}
+## DEVELOPMENT
 
 
-def format_metrics(post: Dict[str, Any]) -> str:
+def format_tweet_metrics(item: Dict[str, Any]) -> str:
     """Format tweet metrics with icons."""
+    metrics = {
+        "replies": "💬",
+        "retweets": "🔄",
+        "likes": "❤️",
+    }
     return "\n".join(
-        f"{icon} {post.get(metric, '0')}" for metric, icon in METRIC_ICONS.items()
+        f"{icon} {item.get(metric, '0')}" for metric, icon in metrics.items()
     )
 
 
-def display_tweets(posts: List[Dict[str, Any]]) -> None:
-    """Display tweets using rich Table with better formatting."""
-    table = Table(
-        title="Tweets",
-        show_header=True,
-        header_style="bold magenta",
-        show_lines=True,
-        width=console.width,
-    )
+def format_tweet_author(item: Dict[str, Any]) -> str:
+    """Format tweet author with display name and handle."""
+    author = item.get("author", {})
+    display_name = author.get("display_name", "Unknown")
+    handle = author.get("handle", "")
+    return f"{display_name}\n@{handle}" if handle else display_name
 
-    # Add columns with fixed widths to prevent layout issues
-    table.add_column("Author", style="cyan", width=20, no_wrap=True)
-    table.add_column("Content", style="white", width=60, no_wrap=False)
-    table.add_column("Links", style="blue", width=20, no_wrap=False)
-    table.add_column("Time", style="green", width=12, no_wrap=True)
-    table.add_column("Metrics", style="yellow", width=12, no_wrap=True)
 
-    for post in posts:
-        author = post.get("author", {})
-        display_name = author.get("display_name", "Unknown")
-        handle = author.get("handle", "")
-        author_str = f"{display_name}\n@{handle}" if handle else display_name
+def format_tweet_links(item: Dict[str, Any]) -> str:
+    """Format tweet links."""
+    text_data = item.get("text", {}) or {}
+    links = text_data.get("links", [])
+    return "\n".join(f"{link['text']}\n→ {link['url']}" for link in links) or "No links"
 
-        text_data = post.get("text", {}) or {}
-        content = text_data.get("content", "No text")
-        links = text_data.get("links", [])
-        links_str = (
-            "\n".join(f"{link['text']}\n→ {link['url']}" for link in links)
-            or "No links"
-        )
 
-        timestamp = post.get("timestamp", "No timestamp").split("T")[0]
-        metrics = format_metrics(post)
+def format_tweet_content(item: Dict[str, Any]) -> str:
+    """Format tweet content with images."""
+    text_data = item.get("text", {}) or {}
+    content = text_data.get("content", "No text")
 
-        images = [img["url"] for img in post.get("images", []) if img is not None]
-        if images:
-            content += "\n\n[dim]Images:[/dim]\n" + "\n".join(
-                f"📸 {url}" for url in images
-            )
+    images = [img["url"] for img in item.get("images", []) if img is not None]
+    if images:
+        content += "\n\n[dim]Images:[/dim]\n" + "\n".join(f"📸 {url}" for url in images)
 
-        table.add_row(author_str, content, links_str, timestamp, metrics)
-
-    console.print(table)
+    return content
 
 
 def run() -> bool:
@@ -220,15 +205,33 @@ def run() -> bool:
         posts = scroll_and_extract(
             page=page,
             schema=TwitterFeedSchema,
-            container_selector=TWEET_CONTAINER,
-            max_items=12,
+            max_items=MAX_ITEMS,
             click_selector='[role="button"]:has-text("Show more")',
-            url_field="url",
-            progress_label="tweets",
         )
 
         if posts:
-            display_tweets(posts)
+            columns = [
+                "Author",
+                "Content",
+                "Links",
+                "Time",
+                "Metrics",
+            ]
+
+            formatters = {
+                "Author": format_tweet_author,
+                "Content": format_tweet_content,
+                "Links": format_tweet_links,
+                "Time": lambda item: item.get("timestamp", "No timestamp").split("T")[
+                    0
+                ],
+                "Metrics": format_tweet_metrics,
+            }
+
+            display_items(
+                items=posts, title="Tweets", columns=columns, formatters=formatters
+            )
+
             elapsed_time = time.time() - start_time
             tweets_per_minute = (len(posts) / elapsed_time) * 60
             console.print(
