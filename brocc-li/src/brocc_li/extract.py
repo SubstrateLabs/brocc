@@ -5,11 +5,11 @@ import random
 import time
 from html_to_markdown import convert_to_markdown
 import os
-import urllib.parse
-import re
 from dataclasses import dataclass
 from enum import Enum
 from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
+import json
+from datetime import datetime
 
 console = Console()
 
@@ -70,6 +70,42 @@ BOUNCE_SCROLL_UP_RATIO_MAX = 0.5
 BOUNCE_SCROLL_PAUSE_MIN = 0.2
 BOUNCE_SCROLL_PAUSE_MAX = 0.4
 
+# Constants for debug logging
+DEBUG_FOLDER = "debug"
+DEBUG_FILENAME_FORMAT = "brocc_debug_{timestamp}.jsonl"
+
+
+class FeedConfig(BaseModel):
+    """Unified configuration for feed extraction.
+
+    This class combines all configuration options needed for feed extraction,
+    including schema definition, deep scraping options, and runtime behavior.
+    """
+
+    # Schema definition
+    feed_schema: type[BaseModel]
+
+    # Deep scraping configuration
+    deep_scrape: Optional["DeepScrapeOptions"] = None
+
+    # Runtime behavior
+    max_items: int = 5
+    expand_item_selector: Optional[str] = None
+    container_selector: Optional[str] = None
+
+    # Scroll behavior
+    scroll_pattern: ScrollPattern = ScrollPattern.NORMAL
+    scroll_config: ScrollConfig = ScrollConfig()
+
+    # Timeouts (in milliseconds)
+    initial_load_timeout_ms: int = INITIAL_LOAD_TIMEOUT_MS
+    network_idle_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS
+    click_wait_timeout_ms: int = CLICK_WAIT_TIMEOUT_MS
+
+    # Debug options
+    debug: bool = False
+    debug_file: Optional[str] = None
+
 
 class DeepScrapeOptions(BaseModel):
     """Configuration options for deep scraping content.
@@ -92,9 +128,6 @@ class DeepScrapeOptions(BaseModel):
 
     # Maximum delay in milliseconds between scraping actions
     max_delay_ms: int = DEFAULT_MAX_DELAY_MS
-
-    # Whether to save markdown content to files
-    save_markdown: bool = False
 
 
 class SchemaField(BaseModel):
@@ -190,7 +223,10 @@ def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any
 
 
 def scrape_schema(
-    page: Page, schema: type[BaseModel], container_selector: str
+    page: Page,
+    schema: type[BaseModel],
+    container_selector: str,
+    config: Optional[FeedConfig] = None,
 ) -> List[Dict[str, Any]]:
     """Scrape data using a schema definition."""
     try:
@@ -206,12 +242,32 @@ def scrape_schema(
         containers = page.query_selector_all(container_selector)
         console.print(f"[dim]Found {len(containers)} containers[/dim]")
 
+        # Save feed page HTML if debug is enabled
+        if config and config.debug:
+            save_debug_log(
+                {},  # Empty item since this is page-level
+                page,
+                config,
+                "feed_page",
+                {"html": page.content()},
+            )
+
         items = []
         for i, container in enumerate(containers):
             try:
                 if not container.is_visible():
                     console.print(f"[dim]Container {i} is not visible, skipping[/dim]")
                     continue
+
+                # Save container HTML if debug is enabled
+                if config and config.debug:
+                    save_debug_log(
+                        {},  # Empty item since this is container-level
+                        page,
+                        config,
+                        "container",
+                        {"html": container.inner_html(), "position": i},
+                    )
 
                 data = {}
                 for field_name, field in schema.__dict__.items():
@@ -225,6 +281,17 @@ def scrape_schema(
                                 f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
                             )
                             data[field_name] = None
+
+                # Save extract results if debug is enabled
+                if config and config.debug:
+                    save_debug_log(
+                        data,  # Use extracted data as item
+                        page,
+                        config,
+                        "extract_result",
+                        {"position": i, "fields": data},
+                    )
+
                 items.append(data)
             except Exception as e:
                 console.print(f"[red]Failed to process container {i}: {str(e)}[/red]")
@@ -305,68 +372,80 @@ def extract_content_from_page(page: Page, options: DeepScrapeOptions) -> Optiona
     return None
 
 
-def save_markdown(item: Dict[str, Any]) -> str:
-    """Save post content to a markdown file and return the filepath."""
-    if not all(
-        [
-            MARKDOWN_FIELD_NAME in item,
-            item.get(MARKDOWN_FIELD_NAME),
-            "url" in item,
-            item.get("url"),
-        ]
-    ):
-        return ""
+def save_debug_log(
+    item: Dict[str, Any],
+    page: Page,
+    config: FeedConfig,
+    log_type: str,
+    data: Dict[str, Any],
+) -> None:
+    """Save debug information to a JSONL file.
 
-    os.makedirs(MARKDOWN_FOLDER, exist_ok=True)
-    filename = slugify(item.get("url", ""))
-    filepath = os.path.join(MARKDOWN_FOLDER, filename)
-
-    content = item.get(MARKDOWN_FIELD_NAME, "")
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    return filepath
-
-
-def slugify(url: str) -> str:
-    """Convert a URL to a slugified filename."""
-    parsed_url = urllib.parse.urlparse(url)
-    path = parsed_url.path.strip("/")
-    path = os.path.splitext(path)[0]
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", path).strip("-").lower()
-
-    if not slug:
-        slug = re.sub(r"[^a-zA-Z0-9]+", "-", parsed_url.netloc).strip("-").lower()
-
-    return f"{slug}.md"
-
-
-class FeedConfig(BaseModel):
-    """Unified configuration for feed extraction.
-
-    This class combines all configuration options needed for feed extraction,
-    including schema definition, deep scraping options, and runtime behavior.
+    Args:
+        item: The item being processed
+        page: The current page
+        config: Feed configuration
+        log_type: Type of debug data (feed_page, container, deep_scrape, extract_result)
+        data: The data to log
     """
+    if not config.debug:
+        return
 
-    # Schema definition
-    feed_schema: type[BaseModel]
+    # Create debug file if it doesn't exist
+    if not config.debug_file:
+        os.makedirs(DEBUG_FOLDER, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        config.debug_file = os.path.join(
+            DEBUG_FOLDER, DEBUG_FILENAME_FORMAT.format(timestamp=timestamp)
+        )
 
-    # Deep scraping configuration
-    deep_scrape: Optional[DeepScrapeOptions] = None
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "type": log_type,
+        "url": page.url,
+        "data": data,
+    }
 
-    # Runtime behavior
-    max_items: int = 5
-    expand_item_selector: Optional[str] = None
-    container_selector: Optional[str] = None
+    with open(config.debug_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
-    # Scroll behavior
-    scroll_pattern: ScrollPattern = ScrollPattern.NORMAL
-    scroll_config: ScrollConfig = ScrollConfig()
 
-    # Timeouts (in milliseconds)
-    initial_load_timeout_ms: int = INITIAL_LOAD_TIMEOUT_MS
-    network_idle_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS
-    click_wait_timeout_ms: int = CLICK_WAIT_TIMEOUT_MS
+def extract_and_save_content(
+    page: Page, item: Dict[str, Any], config: FeedConfig
+) -> bool:
+    """Extract and save content from the detail page."""
+    if not config.deep_scrape:
+        return False
+
+    html_content = extract_content_from_page(page, config.deep_scrape)
+    if html_content:
+        content = convert_to_markdown(html_content)
+        item[MARKDOWN_FIELD_NAME] = content
+
+        # Save debug info for deep scrape
+        if config.debug:
+            save_debug_log(
+                item,
+                page,
+                config,
+                "deep_scrape",
+                {
+                    "html": page.content(),
+                    "content_selector": config.deep_scrape.content_selector,
+                },
+            )
+
+        return True
+
+    # Fallback to body content
+    body_element = page.query_selector(DEFAULT_BODY_SELECTOR)
+    if body_element:
+        body_html = body_element.inner_html()
+        item[MARKDOWN_FIELD_NAME] = convert_to_markdown(body_html)
+        return True
+
+    item[MARKDOWN_FIELD_NAME] = "No content found"
+    return True
 
 
 def handle_deep_scraping(
@@ -452,35 +531,6 @@ def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool
         DEEP_SCRAPE_RETRY_DELAY_MAX_MS,
         DEFAULT_JITTER_FACTOR,
     )
-    return True
-
-
-def extract_and_save_content(
-    page: Page, item: Dict[str, Any], config: FeedConfig
-) -> bool:
-    """Extract and save content from the detail page."""
-    if not config.deep_scrape:
-        return False
-
-    html_content = extract_content_from_page(page, config.deep_scrape)
-    if html_content:
-        content = convert_to_markdown(html_content)
-        item[MARKDOWN_FIELD_NAME] = content
-
-        if config.deep_scrape.save_markdown:
-            filepath = save_markdown(item)
-            if filepath:
-                console.print(f"[green]Saved markdown to: {filepath}[/green]")
-        return True
-
-    # Fallback to body content
-    body_element = page.query_selector(DEFAULT_BODY_SELECTOR)
-    if body_element:
-        body_html = body_element.inner_html()
-        item[MARKDOWN_FIELD_NAME] = convert_to_markdown(body_html)
-        return True
-
-    item[MARKDOWN_FIELD_NAME] = "No content found"
     return True
 
 
@@ -580,7 +630,7 @@ def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
                     console.print(f"[red]Failed to expand element: {str(e)}[/red]")
 
         current_items = scrape_schema(
-            page, config.feed_schema, config.container_selector
+            page, config.feed_schema, config.container_selector, config
         )
         new_items = 0
 

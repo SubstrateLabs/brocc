@@ -257,11 +257,10 @@ def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         author_handle = post.get("author_handle", "")
 
         # Format content with media
-        text_data = post.get("text", {}) or {}
-        content = text_data.get("content", "No text")
+        content = post.get("content", {}).get("content", "No text")
 
         # Group media by type
-        media_items = post.get("media", [])
+        media_items = post.get("media", []) or []
         media_by_type = {}
         for item in media_items:
             if item and isinstance(item, dict) and "type" in item and "url" in item:
@@ -282,9 +281,9 @@ def format_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         # Format metrics
         metrics = {
-            "replies": "💬",
-            "retweets": "🔄",
-            "likes": "❤️",
+            "num_replies": "💬",
+            "num_retweets": "🔄",
+            "num_likes": "❤️",
         }
         metrics_text = "\n".join(
             f"{icon} {post.get(metric, '0')}" for metric, icon in metrics.items()
@@ -318,6 +317,7 @@ def main() -> None:
             feed_schema=TwitterFeedSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
+            # debug=True,
         )
 
         posts = scroll_and_extract(page=page, config=config)

@@ -132,6 +132,7 @@ def main() -> None:
             feed_schema=SubstackFeedSchema,
             max_items=MAX_ITEMS,
             deep_scrape=deep_scrape_options,
+            # debug=True,
         )
 
         console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")

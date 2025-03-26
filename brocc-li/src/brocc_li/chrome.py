@@ -187,25 +187,25 @@ def open_new_tab(browser: Browser, url: str) -> Optional[Page]:
         return None
 
 
-def run() -> Optional[bool]:
+def main() -> None:
     state = get_chrome_state()
 
     if state.has_debug_port:
         console.print("[green]Chrome is already running with debug port[/green]")
-        return True
+        return
 
     if state.is_running:
         if not Confirm.ask(
             "Chrome is running but without debug port. Would you like to quit and relaunch it with debug port?"
         ):
             console.print("[yellow]Skipping Chrome relaunch[/yellow]")
-            return None
+            return
     else:
         if not Confirm.ask(
             "Chrome is not running. Would you like to launch it with debug port?"
         ):
             console.print("[yellow]Skipping Chrome launch[/yellow]")
-            return None
+            return
 
     if state.is_running:
         if quit_chrome():
@@ -213,7 +213,7 @@ def run() -> Optional[bool]:
 
     if launch_chrome():
         console.print("[green]Successfully launched Chrome with debug port[/green]")
-        return True
+        return
     else:
         console.print("[red]Failed to launch Chrome[/red]")
-        return False
+        return

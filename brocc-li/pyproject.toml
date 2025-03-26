@@ -29,6 +29,9 @@ dependencies = [
     "textual>=0.73.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
 [project.scripts]
 brocc = "brocc_li.entry_points:main"
 chrome = "brocc_li.chrome:main"

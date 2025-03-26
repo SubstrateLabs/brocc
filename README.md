@@ -1,14 +1,23 @@
 # brocc
 
-- store representative samples in scrape
+- store in duckdb
+- markdown chunking
+- store in lancedb with chunking approach
+- cli login flow
+- embedding endpoint
+- contacts sync: twitter, linkedin
+- transcription
 
 ## backlog
 
 - fix emoji parsing in tweet content, autonomously?
-- normalize tweet + substack under shared type (maybe?)
-- store in duckdb
-- contacts sync: twitter, linkedin
-- cli login flow
+
+# dev
+
+```sh
+uv pip install -e . # install package in dev mode
+uv run brocc # textual
+```
 
 # install
 
@@ -21,10 +30,6 @@
 ```
 
 # developing
-
-```sh
-uv run brocc
-```
 
 # publishing the cli
 
