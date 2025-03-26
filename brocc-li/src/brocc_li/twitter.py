@@ -10,6 +10,7 @@ import time
 console = Console()
 
 MAX_ITEMS = 8
+TEST_URL = "https://x.com/i/bookmarks"
 
 
 class TwitterFeedSchema(BaseModel):
@@ -63,59 +64,84 @@ class TwitterFeedSchema(BaseModel):
 
 def extract_tweet_text(element) -> Dict[str, Any]:
     """Extract tweet text content, handling both main and quoted tweets."""
-
-    def should_include_node(node):
-        tag_name = node.evaluate("node => node.tagName.toLowerCase()")
-        if tag_name == "span":
-            return node.evaluate("""node => {
-                    return node.textContent.trim() &&
-                        !node.querySelector("a[href*='http']") &&
-                        !node.querySelector("a[href*='https']") &&
-                        !node.querySelector('[data-testid="app-text-transition-container"]') &&
-                        !node.querySelector('[data-testid="User-Name"]') &&
-                        !node.querySelector('[data-testid="User-Name"] span') &&
-                        !['reply', 'retweet', 'like', 'bookmark', 'share', 'analytics']
-                            .some(metric => node.querySelector(`[data-testid="${metric}"]`));
-                }""")
-        elif tag_name == "img":
-            return node.evaluate("""node => {
-                    return node.getAttribute('alt') &&
-                        !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/profile_images') &&
-                        !(node.getAttribute('src') || '').startsWith('https://pbs.twimg.com/media');
-                }""")
-        return False
-
     tweet_texts = element.query_selector_all('[data-testid="tweetText"]')
     content_parts = []
 
+    raw_html = element.inner_html()
+
     for i, tweet_text in enumerate(tweet_texts):
         prefix = "\n↱ " if i > 0 else ""
-        nodes = tweet_text.query_selector_all("span, img[alt]")
-        text_parts = [
-            prefix
-            + node.evaluate(
-                "node => node.tagName.toLowerCase() === 'img' ? node.getAttribute('alt') : node.textContent.trim()"
+
+        # Get the raw text with line breaks preserved - this is the simplest and most robust approach
+        raw_content = tweet_text.inner_text()
+
+        # Much simpler direct approach to get visible link text and emojis
+        processed_content = tweet_text.evaluate("""node => {
+            // Extremely simple version - extract domains directly from links
+            const originalText = node.innerText;
+            
+            // Get all link elements
+            const links = Array.from(node.querySelectorAll('a[href*="t.co/"]'));
+            
+            // Extract domains and their URLs
+            const extractedLinks = links.map(link => {
+                // Get only the visible text directly - explicitly avoid the hidden http:// prefix
+                let domainName = "";
+                
+                // Manually extract text nodes, skipping the hidden prefix span
+                for (const child of link.childNodes) {
+                    // Include only text nodes and non-hidden elements
+                    if (child.nodeType === 3) { // Text node
+                        domainName += child.textContent;
+                    } else if (child.nodeType === 1 && 
+                              !child.classList.contains('r-qlhcfr') &&
+                              getComputedStyle(child).display !== 'none') {
+                        domainName += child.textContent;
+                    }
+                }
+                
+                domainName = domainName.trim();
+                
+                return {
+                    domain: domainName,
+                    url: link.href
+                };
+            });
+            
+            // Start with the complete original text
+            let result = originalText;
+            
+            // Build the markdown links, replacing original URLs
+            for (const link of extractedLinks) {
+                // Skip if no domain text was found
+                if (!link.domain) continue;
+                
+                // Create the markdown link and replace in the text
+                const markdownLink = `[${link.domain}](${link.url})`;
+                
+                // Replace the domain text with the markdown link
+                // Only replace exact domain text to avoid partial matches
+                result = result.replace(
+                    new RegExp(`\\b${link.domain}\\b`, 'g'),
+                    markdownLink
+                );
+            }
+            
+            return result;
+        }""")
+
+        # Remove any Twitter UI artifacts like "·" and "Show more"
+        if processed_content:
+            content = (
+                processed_content.split("·")[-1].strip().split("Show more")[0].strip()
             )
-            for node in nodes
-            if should_include_node(node)
-        ]
-        if text_parts:
-            content_parts.append(" ".join(text_parts))
+            content_parts.append(prefix + content)
 
-    content = " ".join(content_parts)
-    content = content.split("·")[-1].strip().split("Show more")[0].strip()
-
-    links = [
-        {"text": link.inner_text().strip(), "url": link.get_attribute("href")}
-        for link in element.query_selector_all("a[href]")
-        if (link.get_attribute("href") or "").startswith(("http://", "https://"))
-        and not link.query_selector('[data-testid="User-Name"]')
-    ]
+    final_content = "".join(content_parts)
 
     return {
-        "raw_html": element.inner_html(),
-        "content": content,
-        "links": links,
+        "raw_html": raw_html,
+        "content": final_content,
     }
 
 
@@ -154,7 +180,7 @@ def main() -> None:
         if not browser:
             return
 
-        page = open_new_tab(browser, "https://x.com/home")
+        page = open_new_tab(browser, TEST_URL)
         if not page:
             return
 
@@ -189,13 +215,6 @@ def main() -> None:
                         f"📸 {url}" for url in images
                     )
 
-                # Format links
-                links = text_data.get("links", [])
-                links_text = (
-                    "\n".join(f"{link['text']}\n→ {link['url']}" for link in links)
-                    or "No links"
-                )
-
                 # Format metrics
                 metrics = {
                     "replies": "💬",
@@ -211,7 +230,6 @@ def main() -> None:
                     {
                         "Author": author_text,
                         "Content": content,
-                        "Links": links_text,
                         "Time": post.get("timestamp", "No timestamp").split("T")[0],
                         "Metrics": metrics_text,
                     }
@@ -220,7 +238,7 @@ def main() -> None:
             display_items(
                 items=formatted_posts,
                 title="Tweets",
-                columns=["Author", "Content", "Links", "Time", "Metrics"],
+                columns=["Author", "Content", "Time", "Metrics"],
             )
             elapsed_time = time.time() - start_time
             tweets_per_minute = (len(posts) / elapsed_time) * 60
@@ -229,6 +247,18 @@ def main() -> None:
                 f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
             )
+
+            # Debug output for tweets with links
+            for post in posts:
+                text_data = post.get("text", {})
+                html = text_data.get("raw_html", "")
+                if (
+                    'href="https://t.co/' in html
+                ):  # Check for actual Twitter links in HTML
+                    console.print("\n[red]Tweet with links:[/red]")
+                    console.print(f"Content: {text_data.get('content', '')}")
+                    console.print(f"HTML: {html}")
+                    console.print("---")
         else:
             console.print("[yellow]No tweets found[/yellow]")
 

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Callable, Set, Tuple
+from typing import List, Dict, Any, Optional, Callable, Set, Tuple, cast
 from pydantic import BaseModel
 from rich.console import Console
 import random
@@ -9,7 +9,7 @@ import urllib.parse
 import re
 from dataclasses import dataclass
 from enum import Enum
-from playwright.sync_api import TimeoutError, Error as PlaywrightError
+from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
 
 console = Console()
 
@@ -190,17 +190,17 @@ def extract_field(element: Any, field: SchemaField, parent_key: str = "") -> Any
 
 
 def scrape_schema(
-    page: Any, schema: type[BaseModel], container_selector: str | None = None
+    page: Page, schema: type[BaseModel], container_selector: str
 ) -> List[Dict[str, Any]]:
     """Scrape data using a schema definition."""
     try:
         # Find container selector from schema if not provided
-        if container_selector is None:
+        if not container_selector:
             for field_name, field in schema.__dict__.items():
                 if isinstance(field, SchemaField) and field.is_container:
                     container_selector = field.selector
                     break
-            if container_selector is None:
+            if not container_selector:
                 raise ValueError("No container selector found in schema")
 
         containers = page.query_selector_all(container_selector)
@@ -241,7 +241,7 @@ def random_delay(base_delay: float, variation: float = 0.2) -> None:
     time.sleep(base_delay * random.uniform(1 - variation, 1 + variation))
 
 
-def human_scroll(page: Any, pattern: ScrollPattern) -> None:
+def human_scroll(page: Page, pattern: ScrollPattern) -> None:
     """Simulate human-like scrolling behavior."""
     viewport_height = page.evaluate("window.innerHeight")
 
@@ -276,7 +276,7 @@ def random_delay_with_jitter(
     time.sleep(final_delay)
 
 
-def extract_content_from_page(page: Any, options: DeepScrapeOptions) -> Optional[str]:
+def extract_content_from_page(page: Page, options: DeepScrapeOptions) -> Optional[str]:
     """Extract content from a page using the provided selector."""
     selector = options.content_selector.strip()
 
@@ -370,7 +370,7 @@ class FeedConfig(BaseModel):
 
 
 def handle_deep_scraping(
-    page: Any,
+    page: Page,
     item: Dict[str, Any],
     config: FeedConfig,
     item_position: int,
@@ -418,9 +418,9 @@ def handle_deep_scraping(
     ensure_original_page(page, original_url, config)
 
 
-def navigate_to_item(page: Any, config: FeedConfig, item_position: int) -> bool:
+def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool:
     """Navigate to a specific item's detail page."""
-    if not config.deep_scrape:
+    if not config.deep_scrape or not config.container_selector:
         return False
 
     visible_containers = page.query_selector_all(config.container_selector)
@@ -456,7 +456,7 @@ def navigate_to_item(page: Any, config: FeedConfig, item_position: int) -> bool:
 
 
 def extract_and_save_content(
-    page: Any, item: Dict[str, Any], config: FeedConfig
+    page: Page, item: Dict[str, Any], config: FeedConfig
 ) -> bool:
     """Extract and save content from the detail page."""
     if not config.deep_scrape:
@@ -484,7 +484,7 @@ def extract_and_save_content(
     return True
 
 
-def ensure_original_page(page: Any, original_url: str, config: FeedConfig) -> None:
+def ensure_original_page(page: Page, original_url: str, config: FeedConfig) -> None:
     """Ensure we're back at the original page."""
     if not config.deep_scrape:
         return
@@ -504,7 +504,7 @@ def ensure_original_page(page: Any, original_url: str, config: FeedConfig) -> No
 
 
 def handle_scrolling(
-    page: Any, new_items: int, consecutive_same_height: int, config: FeedConfig
+    page: Page, new_items: int, consecutive_same_height: int, config: FeedConfig
 ) -> Tuple[int, int]:
     """Handle scrolling logic and return updated metrics."""
     current_height = page.evaluate("document.documentElement.scrollHeight")
@@ -540,7 +540,7 @@ def handle_scrolling(
     return consecutive_same_height, last_height
 
 
-def scroll_and_extract(page: Any, config: FeedConfig) -> List[Dict[str, Any]]:
+def scroll_and_extract(page: Page, config: FeedConfig) -> List[Dict[str, Any]]:
     """Main function to scroll through a page and extract items."""
     try:
         if config.container_selector is None:
@@ -575,7 +575,7 @@ def scroll_and_extract(page: Any, config: FeedConfig) -> List[Dict[str, Any]]:
                 try:
                     if element.is_visible():
                         element.click()
-                        page.timeout(config.click_wait_timeout_ms)
+                        page.wait_for_timeout(config.click_wait_timeout_ms)
                 except Exception as e:
                     console.print(f"[red]Failed to expand element: {str(e)}[/red]")
 

@@ -1,8 +1,10 @@
 # brocc
 
-- browser-use
+- fix link parsing for tweets, no sep links field
+- normalize tweet + substack under shared type (maybe?)
+- contacts sync (twitter followers)
+- duckdb vs sqlite
 - cli login flow
-- proxy endpoint for browser-use
 
 # install
 
