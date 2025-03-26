@@ -1,5 +1,6 @@
 from rich.console import Console
 from rich.table import Table
+from rich.markdown import Markdown
 from typing import List, Dict, Any, Union, Tuple, Sequence
 
 console = Console()
@@ -56,7 +57,14 @@ def display_items(
         for col in columns:
             name = col[0] if isinstance(col, (tuple, list)) else col
             value = item.get(name, "")
-            row_data.append(str(value) if value is not None else "")
+
+            # For Content column, use Markdown renderer
+            if name == "Content" and value:
+                value = Markdown(value)
+            else:
+                value = str(value) if value is not None else ""
+
+            row_data.append(value)
 
         table.add_row(*row_data)
 

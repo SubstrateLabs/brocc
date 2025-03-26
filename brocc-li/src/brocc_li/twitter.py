@@ -13,10 +13,10 @@ console = Console()
 # Configuration flags
 MAX_ITEMS = 8
 TEST_URL = "https://x.com/i/bookmarks"
-DEBUG = True  # write results to debug dir
+DEBUG = False  # Set to True to enable debug logging
 
 
-class TwitterExtractSchema(DocumentExtractor):
+class TwitterFeedSchema(DocumentExtractor):
     container: ClassVar[ExtractField] = ExtractField(
         selector='article[data-testid="tweet"]', is_container=True
     )
@@ -218,11 +218,11 @@ def extract_tweet_text(element) -> Dict[str, Any]:
             if item["type"] == "image":
                 final_content += f"![image]({item['url']})\n"
             elif item["type"] == "video":
-                final_content += f"![video]({item['url']})\n"
+                final_content += f"[video]({item['url']})\n"
             elif item["type"] == "gif":
-                final_content += f"![gif]({item['url']})\n"
+                final_content += f"[gif]({item['url']})\n"
             else:
-                final_content += f"![media]({item['url']})\n"
+                final_content += f"[media]({item['url']})\n"
 
     return {
         "raw_html": raw_html,
@@ -272,10 +272,10 @@ def main() -> None:
         start_time = time.time()
 
         config = FeedConfig(
-            feed_schema=TwitterExtractSchema,
+            feed_schema=TwitterFeedSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
-            debug=DEBUG,
+            # debug=True,
         )
 
         extracted_data = scroll_and_extract(page=page, config=config)
@@ -326,7 +326,7 @@ def main() -> None:
             display_items(
                 items=formatted_posts,
                 title="Tweets",
-                columns=["Author", "Handle", "Content", "Time", "Metadata"],
+                columns=["Author", "Handle", "Content", "Created", "Metadata"],
             )
 
             # Print stats

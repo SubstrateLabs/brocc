@@ -16,6 +16,7 @@ from brocc_li.utils.timestamp import parse_timestamp
 
 console = Console()
 
+# Config flags for development (running main)
 MAX_ITEMS = 4
 DEBUG = True  # write results to debug dir
 TEST_URL = "https://substack.com/inbox"
