@@ -11,6 +11,7 @@ from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
 import json
 from datetime import datetime
 from brocc_li.types.extract_field import ExtractField
+from brocc_li.utils.slugify import slugify
 
 console = Console()
 
@@ -73,7 +74,7 @@ BOUNCE_SCROLL_PAUSE_MAX = 0.4
 
 # Constants for debug logging
 DEBUG_FOLDER = "debug"
-DEBUG_FILENAME_FORMAT = "brocc_debug_{timestamp}.jsonl"
+DEBUG_FILENAME_FORMAT = "brocc_debug_{source}_{location}.jsonl"
 
 
 class FeedConfig(BaseModel):
@@ -203,7 +204,6 @@ def scrape_schema(
         # Save feed page HTML if debug is enabled
         if config and config.debug:
             save_debug_log(
-                {},  # Empty item since this is page-level
                 page,
                 config,
                 "feed_page",
@@ -220,7 +220,6 @@ def scrape_schema(
                 # Save container HTML if debug is enabled
                 if config and config.debug:
                     save_debug_log(
-                        {},  # Empty item since this is container-level
                         page,
                         config,
                         "container",
@@ -243,7 +242,6 @@ def scrape_schema(
                 # Save extract results if debug is enabled
                 if config and config.debug:
                     save_debug_log(
-                        data,  # Use extracted data as item
                         page,
                         config,
                         "extract_result",
@@ -331,7 +329,6 @@ def extract_content_from_page(page: Page, options: DeepScrapeOptions) -> Optiona
 
 
 def save_debug_log(
-    item: Dict[str, Any],
     page: Page,
     config: FeedConfig,
     log_type: str,
@@ -340,7 +337,6 @@ def save_debug_log(
     """Save debug information to a JSONL file.
 
     Args:
-        item: The item being processed
         page: The current page
         config: Feed configuration
         log_type: Type of debug data (feed_page, container, deep_scrape, extract_result)
@@ -352,9 +348,22 @@ def save_debug_log(
     # Create debug file if it doesn't exist
     if not config.debug_file:
         os.makedirs(DEBUG_FOLDER, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Extract source from page URL
+        url = page.url
+        source = url.split("//")[-1].split("/")[0]  # Extract domain as source
+        source = slugify(source)
+
+        # Extract location (path) from URL
+        location = "/".join(url.split("//")[-1].split("/")[1:])
+        location = slugify(location)
+
+        # If location is empty, use 'home'
+        if not location:
+            location = "home"
+
         config.debug_file = os.path.join(
-            DEBUG_FOLDER, DEBUG_FILENAME_FORMAT.format(timestamp=timestamp)
+            DEBUG_FOLDER, DEBUG_FILENAME_FORMAT.format(source=source, location=location)
         )
 
     log_entry = {
@@ -383,7 +392,6 @@ def extract_and_save_content(
         # Save debug info for deep scrape
         if config.debug:
             save_debug_log(
-                item,
                 page,
                 config,
                 "deep_scrape",

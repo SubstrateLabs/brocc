@@ -17,6 +17,8 @@ from brocc_li.utils.timestamp import parse_timestamp
 console = Console()
 
 MAX_ITEMS = 4
+DEBUG = True  # write results to debug dir
+TEST_URL = "https://substack.com/inbox"
 
 
 class SubstackExtractSchema(DocumentExtractor):
@@ -110,7 +112,7 @@ def main() -> None:
         if not browser:
             return
 
-        source_url = "https://substack.com/inbox"
+        source_url = TEST_URL
         page = open_new_tab(browser, source_url)
         if not page:
             return
@@ -123,14 +125,13 @@ def main() -> None:
             content_timeout_ms=2000,
             min_delay_ms=1500,
             max_delay_ms=3000,
-            # save_markdown=False,  # save markdown to /debug
         )
 
         config = FeedConfig(
             feed_schema=SubstackExtractSchema,
             max_items=MAX_ITEMS,
             deep_scrape=deep_scrape_options,
-            # debug=True,
+            debug=DEBUG,
         )
 
         console.print(f"[cyan]Starting extraction of up to {MAX_ITEMS} posts...[/cyan]")

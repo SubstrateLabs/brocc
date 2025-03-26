@@ -13,7 +13,7 @@ console = Console()
 # Configuration flags
 MAX_ITEMS = 8
 TEST_URL = "https://x.com/i/bookmarks"
-DEBUG = False  # Set to True to enable debug logging
+DEBUG = True  # write results to debug dir
 
 
 class TwitterExtractSchema(DocumentExtractor):
@@ -218,11 +218,11 @@ def extract_tweet_text(element) -> Dict[str, Any]:
             if item["type"] == "image":
                 final_content += f"![image]({item['url']})\n"
             elif item["type"] == "video":
-                final_content += f"[video]({item['url']})\n"
+                final_content += f"![video]({item['url']})\n"
             elif item["type"] == "gif":
-                final_content += f"[gif]({item['url']})\n"
+                final_content += f"![gif]({item['url']})\n"
             else:
-                final_content += f"[media]({item['url']})\n"
+                final_content += f"![media]({item['url']})\n"
 
     return {
         "raw_html": raw_html,
@@ -275,7 +275,7 @@ def main() -> None:
             feed_schema=TwitterExtractSchema,
             max_items=MAX_ITEMS,
             expand_item_selector='[role="button"]:has-text("Show more")',
-            # debug=True,
+            debug=DEBUG,
         )
 
         extracted_data = scroll_and_extract(page=page, config=config)

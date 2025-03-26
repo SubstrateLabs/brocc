@@ -1,27 +1,7 @@
 # brocc
 
-- ingested_at
-- twitter metadata
-- unified approach for ingested_at, location, sub_location
 - store in duckdb schema
   - should we handle type of file? is that in the url?
-
-```sql
-CREATE TABLE documents (
-    id VARCHAR PRIMARY KEY,                  -- Generated unique ID (URL hash)
-    url VARCHAR NOT NULL,                    -- Original URL
-    title VARCHAR,                           -- Post title (null for tweets)
-    description VARCHAR,                     -- Short summary/preview of content
-    content TEXT,                            -- Main textual content with integrated media references
-    author_name VARCHAR,                     -- Author's display name
-    author_identifier VARCHAR,               -- Platform-specific author identifier
-    timestamp TIMESTAMP,                     -- Publication timestamp
-    source VARCHAR NOT NULL,                 -- 'twitter', 'substack', 'local file', etc
-    source_location VARCHAR,                 -- e.g. url where extraction occurred
-    metadata JSON,                           -- All platform-specific fields
-    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- When we scraped it
-);
-```
 
 in storage, help me design a consistent duckdb sql schema and utils that create this storage duckdb file in the right appdir
 i want all documents to be stored in a consisten schema in duckdb
