@@ -1,7 +1,8 @@
 # brocc
 
 - clean up extract
-  - continuation logic after turbo mode exits is not quite right (doesn't continue scrolling, just processes collected)
+- clean up logging to use logger that can be swallowed
+  - cursorrules: logging
 - chrome class
 - rework schemas for future
 

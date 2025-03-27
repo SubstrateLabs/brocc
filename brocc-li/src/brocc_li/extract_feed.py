@@ -1,85 +1,44 @@
-from typing import Any, Dict, List, Optional, Set, Tuple, Generator
-from pydantic import BaseModel
+from typing import Any, Dict, Optional, Set, Tuple, Generator
 from rich.console import Console
 import random
 import time
 from html_to_markdown import convert_to_markdown
-import os
-from dataclasses import dataclass
-from enum import Enum
 from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
-import json
 from datetime import datetime
+from brocc_li.utils.random_delay import random_delay, random_delay_with_jitter
 from brocc_li.types.extract_field import ExtractField
-from brocc_li.utils.slugify import slugify
+from brocc_li.extract.save_extract_log import save_extract_log
+from brocc_li.extract.extract_schema import extract_schema
+from brocc_li.extract.human_scroll import human_scroll
+from brocc_li.types.extract_feed_config import (
+    ScrollPattern,
+    ExtractFeedConfig,
+    NavigateOptions,
+)
 
 console = Console()
 
 
-class ScrollPattern(Enum):
-    NORMAL = "normal"
-    FAST = "fast"
-    SLOW = "slow"
-    BOUNCE = "bounce"
-
-
-@dataclass
-class ScrollConfig:
-    # Minimum delay in seconds between scrolls
-    min_delay: float = 0.5
-    # Maximum delay in seconds between scrolls
-    max_delay: float = 2.0
-    # Random variation factor applied to delays (0.3 = ±30% variation)
-    jitter_factor: float = 0.3
-    # How many scrolls without finding new items before stopping extraction
-    max_no_new_items: int = 3
-    # How many scrolls with same page height before trying aggressive scroll strategies
-    max_consecutive_same_height: int = 3
-    # Add a longer random pause after this many items (min, max range)
-    random_pause_interval: Tuple[int, int] = (15, 25)
-
-
-# Constants for deep scraping
 MARKDOWN_FIELD_NAME = "content"
 MARKDOWN_FOLDER = "debug"
 URL_FIELD = "url"
 PROGRESS_LABEL = "items"
 
-# Timeout constants (in milliseconds)
-# Maximum time to wait for initial feed containers to load before aborting
-INITIAL_LOAD_TIMEOUT_MS = 10000
-# Maximum time to wait for the article content selector to be found on a detail page
-CONTENT_EXTRACTION_TIMEOUT_MS = 3000
-# Brief delay after clicking expandable elements, allows UI to respond
-CLICK_WAIT_TIMEOUT_MS = 500
-# Time to wait for all network activity to finish when navigating between pages
-NETWORK_IDLE_TIMEOUT_MS = 5000
-
-# Delay constants (in milliseconds)
-# Default minimum delay between scraping actions for human-like behavior
-DEFAULT_MIN_DELAY_MS = 1000
-# Default maximum delay between scraping actions for human-like behavior
-DEFAULT_MAX_DELAY_MS = 3000
 # Factor to add random variation to delays (0.3 = ±30% variation)
 DEFAULT_JITTER_FACTOR = 0.3
 
-# Content extraction constants
 # Minimum character length to consider extracted content valid
 MIN_CONTENT_LENGTH = 100
-# Default CSS selector to locate article content on detail pages
-DEFAULT_CONTENT_SELECTOR = "article"
 # Fallback selector when specific content selectors fail
 DEFAULT_BODY_SELECTOR = "body"
 
-# Deep scraping retry constants
-# Maximum number of retry attempts when deep scraping fails for a single item
-DEEP_SCRAPE_MAX_RETRIES = 2
-# Minimum delay between retry attempts when deep scraping fails
-DEEP_SCRAPE_RETRY_DELAY_MIN_MS = 1000
-# Maximum delay between retry attempts when deep scraping fails
-DEEP_SCRAPE_RETRY_DELAY_MAX_MS = 2000
+# Maximum number of retry attempts when navigation fails for a single item
+NAVIGATE_MAX_RETRIES = 2
+# Minimum delay between retry attempts when navigation fails
+NAVIGATE_RETRY_DELAY_MIN_MS = 1000
+# Maximum delay between retry attempts when navigation fails
+NAVIGATE_RETRY_DELAY_MAX_MS = 2000
 
-# Rate limiting constants
 # Number of consecutive timeouts needed to trigger rate limit detection
 RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD = 2
 # Initial cooldown period (in ms) when rate limiting is detected
@@ -90,283 +49,9 @@ RATE_LIMIT_MAX_COOLDOWN_MS = 30000
 # Formula: cooldown = min(MAX_COOLDOWN, INITIAL_COOLDOWN * BACKOFF_FACTOR^(timeouts - threshold))
 RATE_LIMIT_BACKOFF_FACTOR = 2
 
-# Scroll constants
-# Multiplier ranges for viewport height when scrolling in different patterns
-# (min_multiplier, max_multiplier) - random value in this range * viewport height = scroll amount
-SCROLL_PATTERN_CONFIGS = {
-    ScrollPattern.NORMAL: (0.8, 1.2),  # Regular scrolling, ~1 viewport
-    ScrollPattern.FAST: (1.5, 2.5),  # Fast scrolling, 1.5-2.5 viewports at once
-    ScrollPattern.SLOW: (0.5, 0.8),  # Slow scrolling, less than 1 viewport
-    ScrollPattern.BOUNCE: (1.2, 1.5),  # Bounce scrolling, slightly more than 1 viewport
-}
-# For bounce pattern: min ratio of up-scroll compared to down-scroll
-BOUNCE_SCROLL_UP_RATIO_MIN = 0.3
-# For bounce pattern: max ratio of up-scroll compared to down-scroll
-BOUNCE_SCROLL_UP_RATIO_MAX = 0.5
-# For bounce pattern: min pause time (seconds) between down and up scroll
-BOUNCE_SCROLL_PAUSE_MIN = 0.2
-# For bounce pattern: max pause time (seconds) between down and up scroll
-BOUNCE_SCROLL_PAUSE_MAX = 0.4
-
-# Constants for debug logging
-DEBUG_FOLDER = "debug"
-DEBUG_FILENAME_FORMAT = "brocc_debug_{source}_{location}.jsonl"
-
-
-class FeedConfig(BaseModel):
-    """Unified configuration for feed extraction.
-
-    This class combines all configuration options needed for feed extraction,
-    including schema definition, deep scraping options, and runtime behavior.
-    """
-
-    # Schema definition
-    feed_schema: type[BaseModel]
-
-    # Deep scraping configuration
-    deep_scrape: Optional["DeepScrapeOptions"] = None
-
-    # Runtime behavior
-    max_items: Optional[int] = None
-    expand_item_selector: Optional[str] = None
-    container_selector: Optional[str] = None
-
-    # Source information (required)
-    source: str
-    source_location: str
-
-    # Scroll behavior
-    scroll_pattern: ScrollPattern = ScrollPattern.NORMAL
-    scroll_config: ScrollConfig = ScrollConfig()
-
-    # Timeouts (in milliseconds)
-    initial_load_timeout_ms: int = INITIAL_LOAD_TIMEOUT_MS
-    network_idle_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS
-    click_wait_timeout_ms: int = CLICK_WAIT_TIMEOUT_MS
-
-    # Storage options
-    use_storage: bool = False
-    storage_path: Optional[str] = None
-    continue_on_seen: bool = False
-
-    # Date cutoff options
-    stop_after_date: Optional[datetime] = None
-
-    # Debug options
-    debug: bool = False
-    debug_file: Optional[str] = None
-
-
-class DeepScrapeOptions(BaseModel):
-    """Configuration options for deep scraping content.
-
-    Provides a simple way to customize the behavior of deep scraping
-    when navigating to individual content pages.
-    """
-
-    # CSS selector to find the content element on the detail page
-    content_selector: str = DEFAULT_CONTENT_SELECTOR
-
-    # Whether to wait for network idle when navigating to pages
-    wait_networkidle: bool = True
-
-    # Maximum time in milliseconds to wait for content selector to appear
-    content_timeout_ms: int = CONTENT_EXTRACTION_TIMEOUT_MS
-
-    # Minimum delay in milliseconds between scraping actions
-    min_delay_ms: int = DEFAULT_MIN_DELAY_MS
-
-    # Maximum delay in milliseconds between scraping actions
-    max_delay_ms: int = DEFAULT_MAX_DELAY_MS
-
-
-def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> Any:
-    """Extract data from an element based on a schema field."""
-    if field.extract:
-        return field.extract(element, field)
-
-    if field.children:
-        container = (
-            element.query_selector(field.selector) if field.selector else element
-        )
-        if not container:
-            console.print(
-                f"[dim]No container found for {parent_key} with selector {field.selector}[/dim]"
-            )
-            return {}
-        return {
-            key: extract_field(container, child, f"{parent_key}.{key}")
-            for key, child in field.children.items()
-        }
-
-    if field.multiple:
-        elements = element.query_selector_all(field.selector)
-        results = []
-        for el in elements:
-            value = (
-                el.get_attribute(field.attribute)
-                if field.attribute
-                else el.inner_text()
-            )
-            if field.transform:
-                value = field.transform(value)
-            if value is not None:
-                results.append(value)
-        return results
-
-    element = element.query_selector(field.selector) if field.selector else element
-    if not element:
-        console.print(
-            f"[dim]No element found for {parent_key} with selector {field.selector}[/dim]"
-        )
-        return None
-
-    value = (
-        element.get_attribute(field.attribute)
-        if field.attribute
-        else element.inner_text()
-    )
-    return field.transform(value) if field.transform else value
-
-
-def scrape_schema(
-    page: Page,
-    schema: type[BaseModel],
-    container_selector: str,
-    config: Optional[FeedConfig] = None,
-) -> List[Dict[str, Any]]:
-    """Scrape data using a schema definition."""
-    try:
-        # Find container selector from schema if not provided
-        if not container_selector:
-            for field_name, field in schema.__dict__.items():
-                if isinstance(field, ExtractField) and field.is_container:
-                    container_selector = field.selector
-                    break
-            if not container_selector:
-                raise ValueError("No container selector found in schema")
-
-        containers = page.query_selector_all(container_selector)
-        console.print(f"[dim]Found {len(containers)} containers[/dim]")
-
-        # Save feed page HTML if debug is enabled
-        if config and config.debug:
-            save_debug_log(
-                page,
-                config,
-                "feed_page",
-                {"html": page.content()},
-            )
-
-        items = []
-        for i, container in enumerate(containers):
-            try:
-                if not container.is_visible():
-                    console.print(f"[dim]Container {i} is not visible, skipping[/dim]")
-                    continue
-
-                # Save container HTML if debug is enabled
-                if config and config.debug:
-                    save_debug_log(
-                        page,
-                        config,
-                        "container",
-                        {"html": container.inner_html(), "position": i},
-                    )
-
-                data = {}
-                for field_name, field in schema.__dict__.items():
-                    if field_name != "container" and isinstance(field, ExtractField):
-                        try:
-                            data[field_name] = extract_field(
-                                container, field, field_name
-                            )
-                        except Exception as e:
-                            console.print(
-                                f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
-                            )
-                            data[field_name] = None
-
-                # Save extract results if debug is enabled
-                if config and config.debug:
-                    save_debug_log(
-                        page,
-                        config,
-                        "extract_result",
-                        {"position": i, "fields": data},
-                    )
-
-                items.append(data)
-            except Exception as e:
-                console.print(f"[red]Failed to process container {i}: {str(e)}[/red]")
-                continue
-
-        return items
-    except Exception as e:
-        console.print(f"[red]Failed to scrape data: {str(e)}[/red]")
-        return []
-
-
-def random_delay(base_delay: float, variation: float = 0.2) -> None:
-    """Add random variation to delays."""
-    time.sleep(base_delay * random.uniform(1 - variation, 1 + variation))
-
-
-def human_scroll(
-    page: Page, pattern: ScrollPattern, seen_only_multiplier: float = 1.0
-) -> None:
-    """Simulate human-like scrolling behavior.
-
-    Args:
-        page: The current page
-        pattern: The scrolling pattern to use
-        seen_only_multiplier: Multiplier to increase scroll distance when only seen items are found
-    """
-    viewport_height = page.evaluate("window.innerHeight")
-
-    if pattern == ScrollPattern.BOUNCE:
-        down_amount = int(
-            viewport_height
-            * random.uniform(*SCROLL_PATTERN_CONFIGS[pattern])
-            * seen_only_multiplier
-        )
-        up_amount = int(
-            down_amount
-            * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
-        )
-        page.evaluate(f"window.scrollBy(0, {down_amount})")
-        time.sleep(random.uniform(BOUNCE_SCROLL_PAUSE_MIN, BOUNCE_SCROLL_PAUSE_MAX))
-        page.evaluate(f"window.scrollBy(0, -{up_amount})")
-    else:
-        scroll_amount = int(
-            viewport_height
-            * random.uniform(*SCROLL_PATTERN_CONFIGS[pattern])
-            * seen_only_multiplier
-        )
-        page.evaluate(f"window.scrollBy(0, {scroll_amount})")
-
-        # When using a large multiplier for aggressive scrolling, log it
-        if seen_only_multiplier > 1.5:
-            console.print(
-                f"[dim]Fast-scrolling with {seen_only_multiplier:.1f}x multiplier ({scroll_amount} pixels)[/dim]"
-            )
-
-
-def random_delay_with_jitter(
-    min_ms: int, max_ms: int, jitter_factor: float = 0.3
-) -> None:
-    """Add a random delay with jitter to make scraping more human-like."""
-    min_delay = min_ms / 1000
-    max_delay = max_ms / 1000
-    base_delay = random.uniform(min_delay, max_delay)
-    jitter = base_delay * jitter_factor * random.choice([-1, 1])
-    final_delay = min(max_delay, max(0.1, base_delay + jitter))
-    console.print(f"[dim]Waiting for {final_delay:.2f} seconds...[/dim]")
-    time.sleep(final_delay)
-
 
 def extract_content_from_page(
-    page: Page, options: DeepScrapeOptions, consecutive_timeouts: int = 0
+    page: Page, options: NavigateOptions, consecutive_timeouts: int = 0
 ) -> Tuple[Optional[str], int]:
     """Extract content from a page using the provided selector.
 
@@ -471,83 +156,37 @@ def extract_content_from_page(
     return None, 0  # Reset timeout counter by default
 
 
-def save_debug_log(
-    page: Page,
-    config: FeedConfig,
-    log_type: str,
-    data: Dict[str, Any],
-) -> None:
-    """Save debug information to a JSONL file.
-
-    Args:
-        page: The current page
-        config: Feed configuration
-        log_type: Type of debug data (feed_page, container, deep_scrape, extract_result)
-        data: The data to log
-    """
-    if not config.debug:
-        return
-
-    # Create debug file if it doesn't exist
-    if not config.debug_file:
-        os.makedirs(DEBUG_FOLDER, exist_ok=True)
-
-        # Extract source from page URL
-        url = page.url
-        source = url.split("//")[-1].split("/")[0]  # Extract domain as source
-        source = slugify(source)
-
-        # Extract location (path) from URL
-        location = "/".join(url.split("//")[-1].split("/")[1:])
-        location = slugify(location)
-
-        # If location is empty, use 'home'
-        if not location:
-            location = "home"
-
-        config.debug_file = os.path.join(
-            DEBUG_FOLDER, DEBUG_FILENAME_FORMAT.format(source=source, location=location)
-        )
-
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "type": log_type,
-        "url": page.url,
-        "data": data,
-    }
-
-    with open(config.debug_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry) + "\n")
-
-
 def extract_and_save_content(
-    page: Page, item: Dict[str, Any], config: FeedConfig, consecutive_timeouts: int = 0
+    page: Page,
+    item: Dict[str, Any],
+    config: ExtractFeedConfig,
+    consecutive_timeouts: int = 0,
 ) -> Tuple[bool, int]:
     """Extract and save content from the detail page."""
-    if not config.deep_scrape:
+    if not config.navigate_options:
         return False, 0
 
     # Check if schema defines a deep_content_selector and use it if available
     schema_selector = getattr(config.feed_schema, "deep_content_selector", None)
     if schema_selector is not None:  # Only use it if explicitly set (not None)
-        config.deep_scrape.content_selector = schema_selector
+        config.navigate_options.content_selector = schema_selector
 
     html_content, new_consecutive_timeouts = extract_content_from_page(
-        page, config.deep_scrape, consecutive_timeouts
+        page, config.navigate_options, consecutive_timeouts
     )
     if html_content:
         content = convert_to_markdown(html_content)
         item[MARKDOWN_FIELD_NAME] = content
 
-        # Save debug info for deep scrape
+        # Save debug info for navigate
         if config.debug:
-            save_debug_log(
+            save_extract_log(
                 page,
                 config,
-                "deep_scrape",
+                "navigate",
                 {
                     "html": page.content(),
-                    "content_selector": config.deep_scrape.content_selector,
+                    "content_selector": config.navigate_options.content_selector,
                 },
             )
 
@@ -584,10 +223,10 @@ def extract_and_save_content(
     return True, consecutive_timeouts
 
 
-def handle_deep_scraping(
+def handle_navigation(
     page: Page,
     item: Dict[str, Any],
-    config: FeedConfig,
+    config: ExtractFeedConfig,
     item_position: int,
     original_url: str,
     current_consecutive_timeouts: int = 0,
@@ -607,7 +246,7 @@ def handle_deep_scraping(
     Returns:
         The number of consecutive timeouts encountered (for rate limiting detection).
     """
-    if not config.deep_scrape:
+    if not config.navigate_options:
         return 0
 
     retry_count = 0
@@ -625,7 +264,7 @@ def handle_deep_scraping(
             item[MARKDOWN_FIELD_NAME] = "Error: Navigation failure before scraping"
             return consecutive_timeouts
 
-    while retry_count <= DEEP_SCRAPE_MAX_RETRIES and not content_found:
+    while retry_count <= NAVIGATE_MAX_RETRIES and not content_found:
         try:
             # Check if we're on an about:blank page, which indicates navigation issue
             if page.url == "about:blank" or not page.url:
@@ -643,7 +282,7 @@ def handle_deep_scraping(
 
             if retry_count > 0:
                 console.print(
-                    f"[yellow]Retry attempt {retry_count}/{DEEP_SCRAPE_MAX_RETRIES}[/yellow]"
+                    f"[yellow]Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}[/yellow]"
                 )
                 # Ensure we're back on the original page before retry
                 if not ensure_original_page(
@@ -656,8 +295,8 @@ def handle_deep_scraping(
                     continue
 
                 random_delay_with_jitter(
-                    config.deep_scrape.min_delay_ms,
-                    config.deep_scrape.max_delay_ms,
+                    config.navigate_options.min_delay_ms,
+                    config.navigate_options.max_delay_ms,
                     DEFAULT_JITTER_FACTOR,
                 )
 
@@ -680,12 +319,12 @@ def handle_deep_scraping(
         except Exception as e:
             console.print(f"[red]Error during deep scraping: {str(e)}[/red]")
             retry_count += 1
-            if retry_count <= DEEP_SCRAPE_MAX_RETRIES:
+            if retry_count <= NAVIGATE_MAX_RETRIES:
                 # Try to recover by ensuring we're back at the original page
                 ensure_original_page(page, original_url, config, scroll_position)
                 random_delay_with_jitter(
-                    config.deep_scrape.min_delay_ms,
-                    config.deep_scrape.max_delay_ms,
+                    config.navigate_options.min_delay_ms,
+                    config.navigate_options.max_delay_ms,
                     DEFAULT_JITTER_FACTOR,
                 )
             else:
@@ -718,13 +357,13 @@ def handle_deep_scraping(
     return consecutive_timeouts
 
 
-def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool:
+def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) -> bool:
     """Navigate to a specific item's detail page.
 
     Returns:
         bool: True if navigation was successful, False otherwise
     """
-    if not config.deep_scrape or not config.container_selector:
+    if not config.navigate_options or not config.container_selector:
         return False
 
     try:
@@ -777,7 +416,7 @@ def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool
         clickable.click()
 
         # Wait for navigation to complete
-        if config.deep_scrape.wait_networkidle:
+        if config.navigate_options.wait_networkidle:
             try:
                 page.wait_for_load_state(
                     "networkidle", timeout=config.network_idle_timeout_ms
@@ -791,8 +430,8 @@ def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool
 
         # Add a brief random delay to ensure page is ready
         random_delay_with_jitter(
-            DEEP_SCRAPE_RETRY_DELAY_MIN_MS,
-            DEEP_SCRAPE_RETRY_DELAY_MAX_MS,
+            NAVIGATE_RETRY_DELAY_MIN_MS,
+            NAVIGATE_RETRY_DELAY_MAX_MS,
             DEFAULT_JITTER_FACTOR,
         )
 
@@ -809,7 +448,7 @@ def navigate_to_item(page: Page, config: FeedConfig, item_position: int) -> bool
 
 
 def ensure_original_page(
-    page: Page, original_url: str, config: FeedConfig, scroll_position: int = 0
+    page: Page, original_url: str, config: ExtractFeedConfig, scroll_position: int = 0
 ) -> bool:
     """Ensure we're back at the original page and restore scroll position.
 
@@ -822,7 +461,7 @@ def ensure_original_page(
     Returns:
         bool: True if successfully returned to original page, False otherwise
     """
-    if not config.deep_scrape:
+    if not config.navigate_options:
         return True
 
     # If we're already at the original URL, nothing to do
@@ -838,7 +477,7 @@ def ensure_original_page(
             page.goto(
                 original_url,
                 wait_until="networkidle"
-                if config.deep_scrape.wait_networkidle
+                if config.navigate_options.wait_networkidle
                 else "domcontentloaded",
                 timeout=config.network_idle_timeout_ms
                 * 2,  # More generous timeout for recovery
@@ -881,7 +520,7 @@ def ensure_original_page(
         page.goto(
             original_url,
             wait_until="networkidle"
-            if config.deep_scrape.wait_networkidle
+            if config.navigate_options.wait_networkidle
             else "domcontentloaded",
             timeout=config.network_idle_timeout_ms
             * 2,  # More generous timeout for recovery
@@ -990,7 +629,7 @@ def handle_scrolling(
     page: Page,
     new_items: int,
     consecutive_same_height: int,
-    config: FeedConfig,
+    config: ExtractFeedConfig,
     all_items_seen: bool = False,
     consecutive_all_seen: int = 0,
     is_turbo_mode: bool = False,
@@ -1143,7 +782,7 @@ def handle_scrolling(
 
 
 def scroll_and_extract(
-    page: Page, config: FeedConfig
+    page: Page, config: ExtractFeedConfig
 ) -> Generator[Dict[str, Any], None, None]:
     """Generator function to scroll through a page and yield items as they're found.
 
@@ -1324,7 +963,7 @@ def scroll_and_extract(
                             f"[yellow]Processing {len(current_containers)} containers for new content[/yellow]"
                         )
                         # Process the current containers immediately to extract the unseen content
-                        normal_items = scrape_schema(
+                        normal_items = extract_schema(
                             page, config.feed_schema, config.container_selector, config
                         )
                         console.print(
@@ -1384,8 +1023,8 @@ def scroll_and_extract(
                             item_position = idx
 
                             # Process this unseen item
-                            if config.deep_scrape and url:
-                                new_consecutive_timeouts = handle_deep_scraping(
+                            if config.navigate_options and url:
+                                new_consecutive_timeouts = handle_navigation(
                                     page,
                                     item,
                                     config,
@@ -1480,7 +1119,7 @@ def scroll_and_extract(
                     continue
 
         # Normal extraction mode
-        current_items = scrape_schema(
+        current_items = extract_schema(
             page, config.feed_schema, config.container_selector, config
         )
         last_container_count = len(current_items)  # Update container count
@@ -1557,8 +1196,8 @@ def scroll_and_extract(
             )
 
             # Process this unseen item - but skip deep scraping in turbo mode
-            if should_do_deep_scraping and config.deep_scrape and url:
-                new_consecutive_timeouts = handle_deep_scraping(
+            if should_do_deep_scraping and config.navigate_options and url:
+                new_consecutive_timeouts = handle_navigation(
                     page,
                     item,
                     config,

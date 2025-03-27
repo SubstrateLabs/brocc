@@ -9,8 +9,8 @@ from brocc_li.chrome import connect_to_chrome, open_new_tab
 from brocc_li.extract import (
     ExtractField,
     scroll_and_extract,
-    DeepScrapeOptions,
-    FeedConfig,
+    NavigateOptions,
+    ExtractFeedConfig,
     ScrollConfig,
 )
 from brocc_li.display_result import display_items, ProgressTracker
@@ -63,7 +63,7 @@ class SubstackExtractSchema(DocumentExtractor):
     author_identifier: ClassVar[ExtractField] = ExtractField(
         selector="", transform=lambda x: ""
     )
-    # Use a simple placeholder for content that will be replaced during deep scrape
+    # Use a simple placeholder for content that will be replaced during navigate
     content: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
     metadata: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container",
@@ -78,10 +78,10 @@ class SubstackExtractSchema(DocumentExtractor):
     deep_content_selector: ClassVar[Optional[str]] = "article"
 
 
-SUBSTACK_CONFIG = FeedConfig(
+SUBSTACK_CONFIG = ExtractFeedConfig(
     feed_schema=SubstackExtractSchema,
     max_items=MAX_ITEMS,
-    deep_scrape=DeepScrapeOptions(
+    navigate_options=NavigateOptions(
         wait_networkidle=True,
         content_timeout_ms=2000,
         min_delay_ms=2000,

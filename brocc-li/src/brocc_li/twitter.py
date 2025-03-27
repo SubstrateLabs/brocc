@@ -4,7 +4,7 @@ from typing import Dict, Any, ClassVar, Optional
 import time
 from brocc_li.types.document import DocumentExtractor, Document, Source
 from brocc_li.chrome import connect_to_chrome, open_new_tab
-from brocc_li.extract import ExtractField, scroll_and_extract, FeedConfig
+from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.utils.storage import DocumentStorage
@@ -59,7 +59,7 @@ class TwitterFeedSchema(DocumentExtractor):
     )
 
 
-TWITTER_CONFIG = FeedConfig(
+TWITTER_CONFIG = ExtractFeedConfig(
     feed_schema=TwitterFeedSchema,
     max_items=MAX_ITEMS,
     expand_item_selector='[role="button"]:has-text("Show more")',
