@@ -1,6 +1,6 @@
-from brocc_li.app import BroccApp
+from brocc_li.cli.app import BroccApp
 
 
-def run():
+def start():
     app = BroccApp()
     app.run()

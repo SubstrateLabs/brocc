@@ -84,7 +84,7 @@ async function handleCustomFlow(request: NextRequest) {
     storeAuthToken(sessionId, authResponse.accessToken, authResponse.user.id, authResponse.user.email, apiKey);
 
     // Redirect to the console page
-    return NextResponse.redirect(new URL("/console", url.origin));
+    return NextResponse.redirect(new URL("/dashboard", url.origin));
   }
 
   // For non-CLI flows, redirect to home

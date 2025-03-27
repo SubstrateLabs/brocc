@@ -1,21 +1,19 @@
 # brocc
 
-- use polars
-- litellm + pydanticai
 - cli login flow
-- rework oauth to store in cli
+- rethink oauth token storage? localstorage instead of redis?
+- litellm + pydanticai
 - markdown chunking
 - investigate litellm and alternatives
 - store in lancedb with chunking approach
-- embedding endpoint
-- contact schema design
 - contacts sync: twitter, linkedin
-- transcription
 
 ## backlog
 
-- explore "reverse engineering" approach monitoring network tab agentically
+- explore "reverse engineering" approach monitoring network tab
 - fix emoji parsing in tweet content (currently dropped)
+- contacts sync?
+- live transcription?
 
 # notes
 
@@ -43,8 +41,6 @@ uv run brocc # textual
 % brocc
 ```
 
-# developing
-
 # publishing the cli
 
 ```sh
@@ -52,8 +48,3 @@ uv run brocc # textual
 hatch build
 hatch publish -u __token__ -a $PYPI_TOKEN
 ```
-
-# browser-use
-
-- sending email example: https://github.com/browser-use/browser-use/blob/main/examples/custom-functions/notification.py
-- controller = Controller(exclude_actions=['open_tab', 'search_google'])
