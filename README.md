@@ -1,7 +1,7 @@
 # brocc
 
 - cli login flow
-- rethink oauth token storage? localstorage instead of redis?
+- rework oauth token storage to not store in redis, store in cli
 - litellm + pydanticai
 - markdown chunking
 - investigate litellm and alternatives
