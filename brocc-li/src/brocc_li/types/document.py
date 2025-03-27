@@ -1,6 +1,5 @@
-from typing import ClassVar, Optional, Dict, Any
+from typing import ClassVar, Optional, Dict, Any, List
 from pydantic import BaseModel
-import hashlib
 import uuid
 from enum import Enum
 from datetime import datetime
@@ -40,36 +39,31 @@ class DocumentExtractor(BaseModel):
 
 
 class Document(BaseModel):
-    """Data model for a document.
-
-    This class represents the actual document data after extraction.
-    All platforms will produce this common document structure.
+    """
+    document writ large
     """
 
-    # Document identifier
     id: str
-
-    # Core document fields
-    url: str
-    title: Optional[str] = None
+    url: Optional[str] = None
+    title: Optional[str] = None  # title
     description: Optional[str] = None
-    content: Optional[str] = None
+    text_content: Optional[str] = None  # markdown or plaintext
+    image_data: Optional[str] = None  # base64 encoded image data
     author_name: Optional[str] = None
-    author_identifier: Optional[str] = None
-    created_at: Optional[str] = None
-    metadata: Dict[str, Any] = {}
-
-    # Document source information
+    author_identifier: Optional[str] = None  # e.g. handle, user id, email, phone
+    participant_names: Optional[List[str]] = None  # e.g. message participants
+    participant_identifiers: Optional[List[str]] = None
     source: Source
-    source_location: str
+    source_location_identifier: str  # e.g. url, channel id, etc.
+    source_location_name: Optional[str] = None  # e.g. url, channel id, etc.
     ingested_at: str = ""
+    metadata: Dict[str, Any] = {}  # source-specific metadata
+    created_at: Optional[str] = None
 
     @staticmethod
-    def generate_id(url: str) -> str:
+    def generate_id() -> str:
         """Generate a unique ID from a URL."""
-        if not url:
-            return str(uuid.uuid4())
-        return hashlib.sha256(url.encode()).hexdigest()[:16]
+        return str(uuid.uuid4())
 
     @staticmethod
     def format_date(dt: datetime) -> str:
@@ -78,10 +72,14 @@ class Document(BaseModel):
 
     @classmethod
     def from_extracted_data(
-        cls, data: Dict[str, Any], source: Source, source_location: str
+        cls,
+        data: Dict[str, Any],
+        source: Source,
+        source_location_identifier: str,
+        source_location_name: Optional[str] = None,
     ) -> "Document":
         """Create a document from extracted data."""
-        doc_id = cls.generate_id(data.get("url", ""))
+        doc_id = cls.generate_id()
 
         # Format ingestion timestamp consistently with our format
         ingested_at = cls.format_date(datetime.now())
@@ -92,7 +90,8 @@ class Document(BaseModel):
         return cls(
             id=doc_id,
             source=source,
-            source_location=source_location,
+            source_location_identifier=source_location_identifier,
+            source_location_name=source_location_name,
             ingested_at=ingested_at,
             **processed_data,
         )

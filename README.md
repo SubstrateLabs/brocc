@@ -1,22 +1,6 @@
 # brocc
 
-- chrome class
-- rework schemas for future
-
-```sh
-  title
-  description
-  text_content (markdown)
-  image_data (b64 image data for individual photos... maybe also screenshot each element scraped)
-  author_name
-  author_identifier
-  participant_names
-  participant_identifiers
-  url (optional, not primary key)
-  source
-  source_location
-```
-
+- use polars
 - litellm + pydanticai
 - cli login flow
 - rework oauth to store in cli

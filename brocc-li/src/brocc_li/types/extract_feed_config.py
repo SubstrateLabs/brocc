@@ -58,7 +58,8 @@ class ExtractFeedConfig(BaseModel):
 
     # Source information (required)
     source: str
-    source_location: str
+    source_location_identifier: str
+    source_location_name: Optional[str] = None
 
     # Scroll behavior
     scroll_pattern: ScrollPattern = ScrollPattern.NORMAL

@@ -28,10 +28,9 @@ from brocc_li.extract.rate_limit_backoff_s import (
 from brocc_li.types.extract_feed_config import ExtractFeedConfig
 from brocc_li.utils.logger import logger
 
-MARKDOWN_FIELD_NAME = "content"
-MARKDOWN_FOLDER = "debug"
+TEXT_CONTENT_FIELD = "text_content"
 URL_FIELD = "url"
-PROGRESS_LABEL = "items"
+DEFAULT_PROGRESS_LABEL = "items"
 
 
 # Fallback selector when specific content selectors fail
@@ -60,7 +59,7 @@ def extract_and_save_content(
         page, config.navigate_options, consecutive_timeouts
     )
     if content:
-        item[MARKDOWN_FIELD_NAME] = content
+        item[TEXT_CONTENT_FIELD] = content
 
         # Save debug info for navigate
         if config.debug:
@@ -87,16 +86,16 @@ def extract_and_save_content(
     if new_consecutive_timeouts > 0:
         # Return early if we're experiencing rate limiting
         if new_consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            item[MARKDOWN_FIELD_NAME] = "Rate limited - content extraction unsuccessful"
+            item[TEXT_CONTENT_FIELD] = "Rate limited - content extraction unsuccessful"
             return False, new_consecutive_timeouts
 
     # Fallback to body content
     content = extract_markdown(page, DEFAULT_BODY_SELECTOR)
     if content:
-        item[MARKDOWN_FIELD_NAME] = content
+        item[TEXT_CONTENT_FIELD] = content
         return True, adjust_timeout_counter(consecutive_timeouts, success=True)
 
-    item[MARKDOWN_FIELD_NAME] = "No content found"
+    item[TEXT_CONTENT_FIELD] = "No content found"
     # Maintain the timeout count even on failure
     return True, consecutive_timeouts
 
@@ -139,7 +138,7 @@ def handle_navigation(
             logger.error(
                 "Failed to establish starting page for deep scraping, skipping this item"
             )
-            item[MARKDOWN_FIELD_NAME] = "Error: Navigation failure before scraping"
+            item[TEXT_CONTENT_FIELD] = "Error: Navigation failure before scraping"
             return consecutive_timeouts
 
     while retry_count <= NAVIGATE_MAX_RETRIES and not content_found:
@@ -200,7 +199,7 @@ def handle_navigation(
                     DEFAULT_JITTER_FACTOR,
                 )
             else:
-                item[MARKDOWN_FIELD_NAME] = f"Error: {str(e)}"
+                item[TEXT_CONTENT_FIELD] = f"Error: {str(e)}"
 
     # Always attempt to return to the original page before exiting
     if not ensure_original_page(page, original_url, config, scroll_position):
@@ -405,16 +404,16 @@ def scroll_and_extract(
             config.container_selector, timeout=config.initial_load_timeout_ms
         )
     except Exception as e:
-        logger.error(f"Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}")
+        logger.error(f"Timeout waiting for {DEFAULT_PROGRESS_LABEL} to load: {str(e)}")
         return
 
     # Initialize storage if configured
     storage = None
     if config.use_storage:
         # Import here to avoid circular imports
-        from brocc_li.utils.storage import DocumentStorage
+        from brocc_li.utils.doc_db import DocDB
 
-        storage = DocumentStorage(config.storage_path)
+        storage = DocDB(config.storage_path)
         logger.debug(f"Using document storage: {storage.db_path}")
 
     # Get seen URLs if using storage
@@ -559,7 +558,10 @@ def scroll_and_extract(
                     source = Source.TWITTER  # Default fallback
 
                 doc = Document.from_extracted_data(
-                    data=item, source=source, source_location=config.source_location
+                    data=item,
+                    source=source,
+                    source_location_identifier=config.source_location_identifier,
+                    source_location_name=config.source_location_name,
                 )
                 doc_dict = doc.model_dump()
                 storage.store_document(doc_dict)

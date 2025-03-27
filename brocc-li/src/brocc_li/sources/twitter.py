@@ -6,7 +6,7 @@ from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.utils.storage import DocumentStorage
+from brocc_li.utils.doc_db import DocDB
 from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
@@ -39,7 +39,7 @@ class TwitterFeedSchema(DocumentExtractor):
         attribute="href",
         transform=lambda x: x.split("/")[1] if x else None,
     )
-    content: ClassVar[ExtractField] = ExtractField(
+    text_content: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="tweetText"]',
         extract=lambda element, field: extract_tweet_text(element),
     )
@@ -62,7 +62,7 @@ TWITTER_CONFIG = ExtractFeedConfig(
     feed_schema=TwitterFeedSchema,
     max_items=MAX_ITEMS,
     expand_item_selector='[role="button"]:has-text("Show more")',
-    source="twitter",
+    source=Source.TWITTER.value,
     source_location_identifier=URL,
     source_location_name=NAME,
     use_storage=USE_STORAGE,
@@ -291,7 +291,7 @@ def main() -> None:
         start_time = time.time()
 
         # Initialize storage
-        storage = DocumentStorage()
+        storage = DocDB()
         logger.debug(f"Using document storage at: {storage.db_path}")
 
         # Process items as they're streamed back

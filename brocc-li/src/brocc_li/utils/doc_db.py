@@ -1,6 +1,5 @@
 import duckdb
 import os
-import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
 from platformdirs import user_data_dir
@@ -23,7 +22,7 @@ def get_default_db_path() -> str:
     return os.path.join(data_dir, DEFAULT_DB_FILENAME)
 
 
-class DocumentStorage:
+class DocDB:
     """Handles storage and retrieval of documents using DuckDB."""
 
     def __init__(self, db_path: Optional[str] = None):
@@ -41,16 +40,20 @@ class DocumentStorage:
             conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     id VARCHAR PRIMARY KEY,
-                    url VARCHAR UNIQUE,
+                    url VARCHAR,
                     title VARCHAR,
                     description VARCHAR,
-                    content VARCHAR,
+                    text_content VARCHAR,
+                    image_data VARCHAR,
                     author_name VARCHAR,
                     author_identifier VARCHAR,
+                    participant_names VARCHAR[],
+                    participant_identifiers VARCHAR[],
                     created_at VARCHAR,
-                    metadata VARCHAR,  -- JSON string
+                    metadata JSON,  -- Native JSON type
                     source VARCHAR,
-                    source_location VARCHAR,
+                    source_location_identifier VARCHAR,
+                    source_location_name VARCHAR,
                     ingested_at VARCHAR,
                     last_updated VARCHAR
                 )
@@ -82,11 +85,39 @@ class DocumentStorage:
             df = conn.execute(query, params).df()
             return set(df["url"].dropna().tolist())
 
+    def get_documents_by_url(self, url: str) -> List[Dict[str, Any]]:
+        """Retrieve all documents with the given URL."""
+        if not url:
+            return []
+
+        with duckdb.connect(self.db_path) as conn:
+            # Use pandas for efficient memory handling
+            df = conn.execute(
+                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
+                [url],
+            ).df()
+
+            if df.empty:
+                return []
+
+            # Convert to list of dicts and handle special fields
+            documents = []
+            for _, row in df.iterrows():
+                document = row.to_dict()
+
+                # Convert None arrays to empty lists for consistency with the Document model
+                if document.get("participant_names") is None:
+                    document["participant_names"] = []
+
+                if document.get("participant_identifiers") is None:
+                    document["participant_identifiers"] = []
+
+                documents.append(document)
+
+            return documents
+
     def store_document(self, document: Dict[str, Any]) -> bool:
         """Store a document in the database, updating if it already exists."""
-        if not document.get("url"):
-            return False
-
         # Validate document structure using Pydantic model
         try:
             # Convert dict to Document model to validate
@@ -101,68 +132,113 @@ class DocumentStorage:
         if not document.get("ingested_at"):
             document["ingested_at"] = Document.format_date(datetime.now())
 
-        # Convert metadata to JSON string (it's always a dict)
-        if document.get("metadata"):
-            document["metadata"] = json.dumps(document["metadata"])
-
         # Convert enum values to strings
         for key, value in document.items():
             if hasattr(value, "value"):  # Check if it's an enum
                 document[key] = value.value
 
+        # Make a copy of the document for database operations
+        db_document = document.copy()
+
+        # Ensure array fields are properly handled - empty lists should be None for DuckDB arrays
+        if document.get("participant_names") == []:
+            db_document["participant_names"] = None
+
+        if document.get("participant_identifiers") == []:
+            db_document["participant_identifiers"] = None
+
         with duckdb.connect(self.db_path) as conn:
-            # Check if the document already exists
-            if self.url_exists(document["url"]):
+            # Determine if this is an update or insert
+            is_update = False
+            update_condition = None
+            update_param = None
+
+            # First priority: update by ID if exists
+            if document.get("id"):
+                existing_doc = self.get_document_by_id(document["id"])
+                if existing_doc:
+                    is_update = True
+                    update_condition = "id = ?"
+                    update_param = document["id"]
+
+            # Second priority: update by URL if ID doesn't exist or didn't match
+            if not is_update and document.get("url"):
+                # Check if any documents exist with this URL
+                matching_docs = self.get_documents_by_url(document["url"])
+                if matching_docs:
+                    # If there's just one match, update it
+                    if len(matching_docs) == 1:
+                        is_update = True
+                        update_condition = "url = ?"
+                        update_param = document["url"]
+                    # If multiple matches, set doc["id"] to the most recent matching doc's ID
+                    else:
+                        # Set the ID to the most recent one (returned first from get_documents_by_url)
+                        most_recent_id = matching_docs[0]["id"]
+                        # Use the existing ID for this update
+                        if not document.get("id"):
+                            document["id"] = most_recent_id
+                            db_document["id"] = most_recent_id
+
+                        is_update = True
+                        update_condition = "id = ?"
+                        update_param = most_recent_id
+
+            if is_update:
                 # Update the existing document
                 set_clauses = []
                 params = []
 
-                for key, value in document.items():
-                    if key != "url":  # Don't update the URL
+                for key, value in db_document.items():
+                    if key != "id":  # Don't update the ID
                         set_clauses.append(f"{key} = ?")
                         params.append(value)
 
-                # Add the URL as the last parameter for the WHERE clause
-                params.append(document["url"])
+                # Add the condition parameter
+                params.append(update_param)
 
                 conn.execute(
-                    f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE url = ?",
+                    f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE {update_condition}",
                     params,
                 )
             else:
+                # Ensure document has an ID
+                if not document.get("id"):
+                    db_document["id"] = Document.generate_id()
+
                 # Insert new document
-                columns = ", ".join(document.keys())
-                placeholders = ", ".join(["?"] * len(document))
+                columns = ", ".join(db_document.keys())
+                placeholders = ", ".join(["?"] * len(db_document))
                 conn.execute(
                     f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})",
-                    list(document.values()),
+                    list(db_document.values()),
                 )
 
         return True
 
-    def get_document_by_url(self, url: str) -> Optional[Dict[str, Any]]:
-        """Retrieve a document by its URL."""
-        if not url:
+    def get_document_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a document by its ID."""
+        if not doc_id:
             return None
 
         with duckdb.connect(self.db_path) as conn:
             # Use pandas for efficient memory handling
             df = conn.execute(
-                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ?", [url]
+                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]
             ).df()
 
             if df.empty:
                 return None
 
-            # Convert to dict and handle JSON fields
+            # Convert to dict and handle special fields
             document = df.iloc[0].to_dict()
 
-            # Parse JSON strings back to dicts
-            if document.get("metadata"):
-                try:
-                    document["metadata"] = json.loads(document["metadata"])
-                except json.JSONDecodeError:
-                    pass
+            # Convert None arrays to empty lists for consistency with the Document model
+            if document.get("participant_names") is None:
+                document["participant_names"] = []
+
+            if document.get("participant_identifiers") is None:
+                document["participant_identifiers"] = []
 
             return document
 
@@ -184,7 +260,7 @@ class DocumentStorage:
                 where_clauses.append("source = ?")
                 params.append(source)
             if source_location:
-                where_clauses.append("source_location = ?")
+                where_clauses.append("source_location_identifier = ?")
                 params.append(source_location)
 
             if where_clauses:
@@ -196,17 +272,17 @@ class DocumentStorage:
             # Use pandas for efficient memory handling
             df = conn.execute(query, params).df()
 
-            # Convert to list of dicts and handle JSON fields
+            # Convert to list of dicts and handle special fields
             documents = []
             for _, row in df.iterrows():
                 document = row.to_dict()
 
-                # Parse JSON strings back to dicts
-                if document.get("metadata"):
-                    try:
-                        document["metadata"] = json.loads(document["metadata"])
-                    except json.JSONDecodeError:
-                        pass
+                # Convert None arrays to empty lists for consistency with the Document model
+                if document.get("participant_names") is None:
+                    document["participant_names"] = []
+
+                if document.get("participant_identifiers") is None:
+                    document["participant_identifiers"] = []
 
                 documents.append(document)
 
@@ -241,7 +317,7 @@ class DocumentStorage:
 
 def launch_ui() -> None:
     """Launch the DuckDB UI for the documents database."""
-    storage = DocumentStorage()
+    storage = DocDB()
     storage.launch_ui()
 
 

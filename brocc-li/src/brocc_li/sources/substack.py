@@ -14,7 +14,7 @@ from brocc_li.types.extract_feed_config import (
 )
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.utils.storage import DocumentStorage
+from brocc_li.utils.doc_db import DocDB
 from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
@@ -63,7 +63,9 @@ class SubstackExtractSchema(DocumentExtractor):
         selector="", transform=lambda x: ""
     )
     # Use a simple placeholder for content that will be replaced during navigate
-    content: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
+    text_content: ClassVar[ExtractField] = ExtractField(
+        selector="", transform=lambda x: ""
+    )
     metadata: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container",
         extract=lambda element, field: {
@@ -86,7 +88,7 @@ SUBSTACK_CONFIG = ExtractFeedConfig(
         min_delay_ms=2000,
         max_delay_ms=4000,
     ),
-    source="substack",
+    source=Source.SUBSTACK.value,
     source_location_identifier=URL,
     source_location_name=NAME,
     use_storage=USE_STORAGE,
@@ -271,7 +273,7 @@ def main() -> None:
         # Initialize storage
         storage = None
         if USE_STORAGE:
-            storage = DocumentStorage()
+            storage = DocDB()
             logger.debug(f"Using document storage at: {storage.db_path}")
 
         if MAX_ITEMS:
@@ -294,7 +296,10 @@ def main() -> None:
         for item in extraction_generator:
             # Convert to Document object
             doc = Document.from_extracted_data(
-                data=item, source=Source.SUBSTACK, source_location_identifier=source_url
+                data=item,
+                source=Source.SUBSTACK,
+                source_location_identifier=source_url,
+                source_location_name=NAME,
             )
             docs.append(doc)
 

@@ -19,24 +19,29 @@ def test_document_from_twitter_data():
     }
 
     source_location = "https://x.com/i/bookmarks"
+    source_location_name = "Twitter Bookmarks"
 
     # Create document from the data
     doc = Document.from_extracted_data(
-        data=twitter_data, source=Source.TWITTER, source_location=source_location
+        data=twitter_data,
+        source=Source.TWITTER,
+        source_location_identifier=source_location,
+        source_location_name=source_location_name,
     )
 
     # Verify core fields
-    assert doc.id == Document.generate_id(twitter_data["url"])
+    assert doc.id == Document.generate_id()
     assert doc.url == twitter_data["url"]
     assert doc.author_name == twitter_data["author_name"]
     assert doc.author_identifier == twitter_data["author_identifier"]
     assert doc.created_at == twitter_data["created_at"]
-    assert doc.content == twitter_data["content"]
+    assert doc.text_content == twitter_data["content"]
     assert doc.metadata == twitter_data["metadata"]
 
     # Verify source information
     assert doc.source == Source.TWITTER
-    assert doc.source_location == source_location
+    assert doc.source_location_identifier == source_location
+    assert doc.source_location_name == source_location_name
     assert doc.ingested_at != ""  # Should have a timestamp
 
 
@@ -56,10 +61,13 @@ def test_document_from_substack_data():
     }
 
     source_location = "https://substack.com/inbox"
-
+    source_location_name = "Substack Inbox"
     # Create document from the data
     doc = Document.from_extracted_data(
-        data=substack_data, source=Source.SUBSTACK, source_location=source_location
+        data=substack_data,
+        source=Source.SUBSTACK,
+        source_location_identifier=source_location,
+        source_location_name=source_location_name,
     )
 
     # Verify core fields
@@ -69,36 +77,14 @@ def test_document_from_substack_data():
     assert doc.description == substack_data["description"]
     assert doc.author_name == substack_data["author_name"]
     assert doc.created_at == substack_data["created_at"]
-    assert doc.content == substack_data["content"]
+    assert doc.text_content == substack_data["content"]
     assert doc.metadata == substack_data["metadata"]
 
     # Verify source information
     assert doc.source == Source.SUBSTACK
-    assert doc.source_location == source_location
+    assert doc.source_location_identifier == source_location
+    assert doc.source_location_name == source_location_name
     assert doc.ingested_at != ""  # Should have a timestamp
-
-
-def test_document_id_generation():
-    """Test document ID generation from URLs."""
-    # Test with a valid URL
-    url = "https://example.com/article/12345"
-    doc_id = Document.generate_id(url)
-    assert len(doc_id) == 16
-    assert isinstance(doc_id, str)
-
-    # Test with the same URL - should produce the same ID
-    doc_id2 = Document.generate_id(url)
-    assert doc_id == doc_id2
-
-    # Test with different URL - should produce different ID
-    different_url = "https://example.com/article/67890"
-    different_id = Document.generate_id(different_url)
-    assert doc_id != different_id
-
-    # Test with empty URL - should generate a UUID
-    empty_url_id = Document.generate_id("")
-    assert len(empty_url_id) > 0  # UUID has more than 0 chars
-    assert empty_url_id != doc_id
 
 
 def test_document_date_formatting():
@@ -129,21 +115,22 @@ def test_document_with_missing_fields():
     doc = Document.from_extracted_data(
         data=minimal_data,
         source=Source.TWITTER,  # Source enum value required
-        source_location="https://example.com",
+        source_location_identifier="https://example.com",
     )
 
     # Verify required fields
-    assert doc.id == Document.generate_id(minimal_data["url"])
+    assert doc.id == Document.generate_id()
     assert doc.url == minimal_data["url"]
     assert doc.source == Source.TWITTER
-    assert doc.source_location == "https://example.com"
+    assert doc.source_location_identifier == "https://example.com"
 
     # Verify optional fields have default values
     assert doc.title is None
     assert doc.description is None
-    assert doc.content is None
+    assert doc.text_content is None
     assert doc.author_name is None
     assert doc.author_identifier is None
     assert doc.created_at is None
     assert doc.metadata == {}
     assert doc.ingested_at != ""
+    assert doc.source_location_name is None

@@ -3,7 +3,7 @@ import pytest
 import tempfile
 from datetime import datetime
 from brocc_li.types.document import Source, Document
-from brocc_li.utils.storage import DocumentStorage
+from brocc_li.utils.doc_db import DocDB
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def temp_db_path():
 @pytest.fixture
 def storage(temp_db_path):
     """Create a DocumentStorage instance with a temporary database."""
-    return DocumentStorage(db_path=temp_db_path)
+    return DocDB(db_path=temp_db_path)
 
 
 @pytest.fixture
@@ -38,13 +38,16 @@ def sample_document():
         "url": "https://example.com/test",
         "title": "Test Document",
         "description": "A document for testing",
-        "content": "This is the content of the test document.",
+        "text_content": "This is the content of the test document.",
         "author_name": "Test Author",
         "author_identifier": "author123",
+        "participant_names": ["Participant 1", "Participant 2"],
+        "participant_identifiers": ["p1", "p2"],
         "created_at": Document.format_date(now),
         "metadata": {"key": "value"},
         "source": Source.TWITTER,
-        "source_location": "https://example.com/test",
+        "source_location_identifier": "https://example.com/test",
+        "source_location_name": "Test Source Location",
         "ingested_at": Document.format_date(now),
     }
 
@@ -58,7 +61,8 @@ def test_initialize_db(storage, temp_db_path):
         "id": "test_init",
         "url": "https://example.com/init",
         "source": Source.TWITTER,
-        "source_location": "https://example.com/init",
+        "source_location_identifier": "https://example.com/init",
+        "source_location_name": "Test Source Location",
     }
     storage.store_document(doc)
     assert storage.url_exists("https://example.com/init")
@@ -70,12 +74,33 @@ def test_store_and_retrieve_document(storage, sample_document):
     result = storage.store_document(sample_document)
     assert result is True
 
-    # Retrieve the document
-    retrieved = storage.get_document_by_url(sample_document["url"])
+    # Retrieve the document by ID
+    retrieved = storage.get_document_by_id(sample_document["id"])
     assert retrieved is not None
     assert retrieved["id"] == sample_document["id"]
     assert retrieved["title"] == sample_document["title"]
     assert retrieved["metadata"]["key"] == "value"  # Test JSON conversion
+    assert retrieved["participant_names"] == ["Participant 1", "Participant 2"]
+    assert retrieved["participant_identifiers"] == ["p1", "p2"]
+
+
+def test_store_document_without_url(storage):
+    """Test storing and retrieving a document without a URL."""
+    doc = {
+        "id": "no_url_doc",
+        "title": "No URL Document",
+        "source": Source.TWITTER,
+        "source_location_identifier": "location1",
+        "source_location_name": "Test Source Location",
+    }
+
+    result = storage.store_document(doc)
+    assert result is True
+
+    retrieved = storage.get_document_by_id(doc["id"])
+    assert retrieved is not None
+    assert retrieved["id"] == doc["id"]
+    assert retrieved["url"] is None
 
 
 def test_update_document(storage, sample_document):
@@ -91,8 +116,8 @@ def test_update_document(storage, sample_document):
     result = storage.store_document(updated_doc)
     assert result is True
 
-    # Retrieve and verify the update
-    retrieved = storage.get_document_by_url(sample_document["url"])
+    # Retrieve and verify the update by ID
+    retrieved = storage.get_document_by_id(sample_document["id"])
     assert retrieved["title"] == "Updated Title"
     assert retrieved["description"] == "Updated description"
 
@@ -118,19 +143,28 @@ def test_get_seen_urls(storage):
             "id": "doc1",
             "url": "https://example.com/1",
             "source": Source.TWITTER,
-            "source_location": "location1",
+            "source_location_identifier": "location1",
+            "source_location_name": "Test Source Location",
         },
         {
             "id": "doc2",
             "url": "https://example.com/2",
             "source": Source.TWITTER,
-            "source_location": "location2",
+            "source_location_identifier": "location2",
+            "source_location_name": "Test Source Location",
         },
         {
             "id": "doc3",
             "url": "https://example.com/3",
             "source": Source.SUBSTACK,
-            "source_location": "location1",
+            "source_location_identifier": "location1",
+            "source_location_name": "Test Source Location",
+        },
+        {
+            "id": "doc4",
+            "source": Source.TWITTER,  # Document without URL
+            "source_location_identifier": "location3",
+            "source_location_name": "Test Source Location",
         },
     ]
 
@@ -160,22 +194,32 @@ def test_get_documents(storage):
             "id": "doc1",
             "url": "https://example.com/1",
             "source": Source.TWITTER,
-            "source_location": "location1",
+            "source_location_identifier": "location1",
+            "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:01+00:00",  # Oldest
         },
         {
             "id": "doc2",
             "url": "https://example.com/2",
             "source": Source.TWITTER,
-            "source_location": "location2",
+            "source_location_identifier": "location2",
+            "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:02+00:00",  # Middle
         },
         {
             "id": "doc3",
             "url": "https://example.com/3",
             "source": Source.SUBSTACK,
-            "source_location": "location1",
+            "source_location_identifier": "location1",
+            "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:03+00:00",  # Newest
+        },
+        {
+            "id": "doc4",
+            "source": Source.TWITTER,  # Document without URL
+            "source_location_identifier": "location3",
+            "source_location_name": "Test Source Location",
+            "ingested_at": "2024-01-01T00:00:04+00:00",  # Newest
         },
     ]
 
@@ -184,13 +228,14 @@ def test_get_documents(storage):
 
     # Get all documents
     all_docs = storage.get_documents()
-    assert len(all_docs) == 3
+    assert len(all_docs) == 4
 
     # Filter by source
     source1_docs = storage.get_documents(source="twitter")
-    assert len(source1_docs) == 2
+    assert len(source1_docs) == 3
     assert any(doc["id"] == "doc1" for doc in source1_docs)
     assert any(doc["id"] == "doc2" for doc in source1_docs)
+    assert any(doc["id"] == "doc4" for doc in source1_docs)
     assert not any(doc["id"] == "doc3" for doc in source1_docs)
 
     # Filter by source location
@@ -203,13 +248,13 @@ def test_get_documents(storage):
     # Test limit and offset with known order
     limited_docs = storage.get_documents(limit=2)
     assert len(limited_docs) == 2
-    assert limited_docs[0]["id"] == "doc3"  # Newest first
-    assert limited_docs[1]["id"] == "doc2"  # Second newest
+    assert limited_docs[0]["id"] == "doc4"  # Newest first
+    assert limited_docs[1]["id"] == "doc3"  # Second newest
 
     offset_docs = storage.get_documents(limit=2, offset=1)
     assert len(offset_docs) == 2
-    assert offset_docs[0]["id"] == "doc2"  # Second newest
-    assert offset_docs[1]["id"] == "doc1"  # Oldest
+    assert offset_docs[0]["id"] == "doc3"  # Second newest
+    assert offset_docs[1]["id"] == "doc2"  # Third newest
 
 
 def test_json_conversion(storage):
@@ -219,12 +264,13 @@ def test_json_conversion(storage):
         "id": "json_test1",
         "url": "https://example.com/json1",
         "metadata": {"key": "value", "nested": {"inner": "data"}},
-        "content": "plain text",
+        "text_content": "plain text",
         "source": Source.TWITTER,
-        "source_location": "https://example.com/json1",
+        "source_location_identifier": "https://example.com/json1",
+        "source_location_name": "Test Source Location",
     }
     storage.store_document(doc_with_dict)
-    retrieved = storage.get_document_by_url(doc_with_dict["url"])
+    retrieved = storage.get_document_by_id(doc_with_dict["id"])
     assert isinstance(retrieved["metadata"], dict)
     assert retrieved["metadata"]["key"] == "value"
     assert retrieved["metadata"]["nested"]["inner"] == "data"
@@ -234,11 +280,12 @@ def test_json_conversion(storage):
         "id": "json_test2",
         "url": "https://example.com/json2",
         "metadata": {"key": "value"},
-        "content": "plain text",
+        "text_content": "plain text",
         "source": Source.TWITTER,
-        "source_location": "https://example.com/json2",
+        "source_location_identifier": "https://example.com/json2",
+        "source_location_name": "Test Source Location",
     }
     storage.store_document(doc_with_simple_dict)
-    retrieved = storage.get_document_by_url(doc_with_simple_dict["url"])
+    retrieved = storage.get_document_by_id(doc_with_simple_dict["id"])
     assert isinstance(retrieved["metadata"], dict)
     assert retrieved["metadata"]["key"] == "value"
