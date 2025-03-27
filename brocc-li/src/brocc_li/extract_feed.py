@@ -550,14 +550,14 @@ def scroll_and_extract(
             # Store the item if using storage
             if storage:
                 # Convert to Document format for storage
-                from brocc_li.types.document import Document, Source
+                from brocc_li.types.doc import Doc, Source
 
                 try:
                     source = Source(config.source)
                 except ValueError:
                     source = Source.TWITTER  # Default fallback
 
-                doc = Document.from_extracted_data(
+                doc = Doc.from_extracted_data(
                     data=item,
                     source=source,
                     source_location_identifier=config.source_location_identifier,

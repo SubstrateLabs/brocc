@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Set, Union
 from platformdirs import user_data_dir
 from pathlib import Path
-from brocc_li.types.document import Document
+from brocc_li.types.doc import Doc
 import polars as pl
 
 # Define app information for appdirs
@@ -137,16 +137,16 @@ class DocDB:
         # Validate document structure using Pydantic model
         try:
             # Convert dict to Document model to validate
-            doc = Document(**document)
+            doc = Doc(**document)
             # Convert back to dict for storage
             document = doc.model_dump()
         except Exception as e:
             raise ValueError(f"Invalid document structure: {str(e)}")
 
         # Format timestamps consistently
-        document["last_updated"] = Document.format_date(datetime.now())
+        document["last_updated"] = Doc.format_date(datetime.now())
         if not document.get("ingested_at"):
-            document["ingested_at"] = Document.format_date(datetime.now())
+            document["ingested_at"] = Doc.format_date(datetime.now())
 
         # Convert enum values to strings
         for key, value in document.items():
@@ -162,6 +162,13 @@ class DocDB:
 
         if document.get("participant_identifiers") == []:
             db_document["participant_identifiers"] = None
+
+        # Convert metadata to JSON string for DuckDB
+        if "metadata" in db_document:
+            import json
+
+            # DuckDB expects a JSON string for its JSON type
+            db_document["metadata"] = json.dumps(db_document["metadata"])
 
         with duckdb.connect(self.db_path) as conn:
             # Determine if this is an update or insert
@@ -220,7 +227,7 @@ class DocDB:
             else:
                 # Ensure document has an ID
                 if not document.get("id"):
-                    db_document["id"] = Document.generate_id()
+                    db_document["id"] = Doc.generate_id()
 
                 # Insert new document
                 columns = ", ".join(db_document.keys())
@@ -259,6 +266,14 @@ class DocDB:
 
             if document.get("participant_identifiers") is None:
                 document["participant_identifiers"] = []
+
+            # DuckDB returns JSON as a string, parse it back to dict
+            if "metadata" in document and document["metadata"]:
+                import json
+
+                document["metadata"] = json.loads(document["metadata"])
+            else:
+                document["metadata"] = {}
 
             return document
 

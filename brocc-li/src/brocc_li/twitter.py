@@ -1,12 +1,12 @@
 from playwright.sync_api import sync_playwright
 from typing import Dict, Any, ClassVar, Optional
 import time
-from brocc_li.types.document import DocumentExtractor, Document, Source
+from brocc_li.types.doc import DocExtractor, Doc, Source
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.utils.storage import DocumentStorage
+from brocc_li.utils.doc_db import DocDB
 from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
@@ -19,7 +19,7 @@ USE_STORAGE = True  # Enable storage in duckdb
 CONTINUE_ON_SEEN = True  # Continue past seen URLs to get a complete feed
 
 
-class TwitterFeedSchema(DocumentExtractor):
+class TwitterFeedSchema(DocExtractor):
     container: ClassVar[ExtractField] = ExtractField(
         selector='article[data-testid="tweet"]', is_container=True
     )
@@ -291,7 +291,7 @@ def main() -> None:
         start_time = time.time()
 
         # Initialize storage
-        storage = DocumentStorage()
+        storage = DocDB()
         logger.debug(f"Using document storage at: {storage.db_path}")
 
         # Process items as they're streamed back
@@ -307,7 +307,7 @@ def main() -> None:
 
         for item in extraction_generator:
             # Convert to Document object
-            doc = Document.from_extracted_data(
+            doc = Doc.from_extracted_data(
                 data=item, source=Source.TWITTER, source_location_identifier=URL
             )
             docs.append(doc)

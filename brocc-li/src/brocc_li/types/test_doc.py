@@ -1,8 +1,8 @@
 from datetime import datetime
-from brocc_li.types.document import Document, Source
+from brocc_li.types.doc import Doc, Source
 
 
-def test_document_from_twitter_data():
+def test_doc_from_twitter_data():
     """Test creating Document from Twitter extracted data."""
     # Sample data that would be extracted from Twitter
     twitter_data = {
@@ -10,7 +10,7 @@ def test_document_from_twitter_data():
         "author_name": "Test Author",
         "author_identifier": "username",
         "created_at": "2023-05-01T12:34:56Z",
-        "content": "This is a test tweet",
+        "text_content": "This is a test tweet",
         "metadata": {
             "replies": "10",
             "retweets": "20",
@@ -22,7 +22,7 @@ def test_document_from_twitter_data():
     source_location_name = "Twitter Bookmarks"
 
     # Create document from the data
-    doc = Document.from_extracted_data(
+    doc = Doc.from_extracted_data(
         data=twitter_data,
         source=Source.TWITTER,
         source_location_identifier=source_location,
@@ -30,12 +30,13 @@ def test_document_from_twitter_data():
     )
 
     # Verify core fields
-    assert doc.id == Document.generate_id()
+    assert isinstance(doc.id, str)
+    assert len(doc.id) == 36  # UUID length
     assert doc.url == twitter_data["url"]
     assert doc.author_name == twitter_data["author_name"]
     assert doc.author_identifier == twitter_data["author_identifier"]
     assert doc.created_at == twitter_data["created_at"]
-    assert doc.text_content == twitter_data["content"]
+    assert doc.text_content == twitter_data["text_content"]
     assert doc.metadata == twitter_data["metadata"]
 
     # Verify source information
@@ -45,7 +46,7 @@ def test_document_from_twitter_data():
     assert doc.ingested_at != ""  # Should have a timestamp
 
 
-def test_document_from_substack_data():
+def test_doc_from_substack_data():
     """Test creating Document from Substack extracted data."""
     # Sample data that would be extracted from Substack
     substack_data = {
@@ -54,7 +55,7 @@ def test_document_from_substack_data():
         "description": "This is a test article description",
         "author_name": "Substack Author",
         "created_at": "2023-06-15T10:20:30Z",
-        "content": "Article content in markdown format",
+        "text_content": "Article content in markdown format",
         "metadata": {
             "publication": "Test Publication",
         },
@@ -63,7 +64,7 @@ def test_document_from_substack_data():
     source_location = "https://substack.com/inbox"
     source_location_name = "Substack Inbox"
     # Create document from the data
-    doc = Document.from_extracted_data(
+    doc = Doc.from_extracted_data(
         data=substack_data,
         source=Source.SUBSTACK,
         source_location_identifier=source_location,
@@ -71,13 +72,14 @@ def test_document_from_substack_data():
     )
 
     # Verify core fields
-    assert doc.id == Document.generate_id(substack_data["url"])
+    assert isinstance(doc.id, str)
+    assert len(doc.id) == 36  # UUID length
     assert doc.url == substack_data["url"]
     assert doc.title == substack_data["title"]
     assert doc.description == substack_data["description"]
     assert doc.author_name == substack_data["author_name"]
     assert doc.created_at == substack_data["created_at"]
-    assert doc.text_content == substack_data["content"]
+    assert doc.text_content == substack_data["text_content"]
     assert doc.metadata == substack_data["metadata"]
 
     # Verify source information
@@ -87,13 +89,13 @@ def test_document_from_substack_data():
     assert doc.ingested_at != ""  # Should have a timestamp
 
 
-def test_document_date_formatting():
+def test_doc_date_formatting():
     """Test document date formatting."""
     # Create a specific datetime
     dt = datetime(2023, 7, 15, 14, 30, 45)
 
     # Format it using the Document's method
-    formatted = Document.format_date(dt)
+    formatted = Doc.format_date(dt)
 
     # Verify format matches expectations
     assert "2023" in formatted
@@ -104,7 +106,7 @@ def test_document_date_formatting():
     assert "45" in formatted
 
 
-def test_document_with_missing_fields():
+def test_doc_with_missing_fields():
     """Test creating Document with missing optional fields."""
     # Minimal required data
     minimal_data = {
@@ -112,14 +114,15 @@ def test_document_with_missing_fields():
     }
 
     # Create document with minimal data
-    doc = Document.from_extracted_data(
+    doc = Doc.from_extracted_data(
         data=minimal_data,
         source=Source.TWITTER,  # Source enum value required
         source_location_identifier="https://example.com",
     )
 
     # Verify required fields
-    assert doc.id == Document.generate_id()
+    assert isinstance(doc.id, str)
+    assert len(doc.id) == 36  # UUID length
     assert doc.url == minimal_data["url"]
     assert doc.source == Source.TWITTER
     assert doc.source_location_identifier == "https://example.com"

@@ -3,7 +3,7 @@ from typing import ClassVar, Optional
 import time
 import re
 from datetime import datetime, timedelta
-from brocc_li.types.document import DocumentExtractor, Document, Source
+from brocc_li.types.doc import DocExtractor, Doc, Source
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract.extract_field import ExtractField
 from brocc_li.extract_feed import scroll_and_extract
@@ -33,7 +33,7 @@ CONTINUE_ON_SEEN = True  # Continue past seen URLs to get a complete feed
 STOP_AFTER_DATE = datetime.fromisoformat("2023-03-15")  # Change this to filter by date
 
 
-class SubstackExtractSchema(DocumentExtractor):
+class SubstackExtractSchema(DocExtractor):
     container: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container", is_container=True
     )
@@ -244,8 +244,8 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
         from dateutil.parser import parse
 
         return parse(date_str)
-    except:
-        logger.error(f"Could not parse date: {date_str}")
+    except Exception as e:
+        logger.error(f"Could not parse date {date_str}: {e}")
         return None
 
 
@@ -295,7 +295,7 @@ def main() -> None:
 
         for item in extraction_generator:
             # Convert to Document object
-            doc = Document.from_extracted_data(
+            doc = Doc.from_extracted_data(
                 data=item,
                 source=Source.SUBSTACK,
                 source_location_identifier=source_url,

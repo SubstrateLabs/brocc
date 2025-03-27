@@ -14,7 +14,7 @@ class Source(Enum):
     SUBSTACK = "substack"
 
 
-class DocumentExtractor(BaseModel):
+class DocExtractor(BaseModel):
     """Base schema defining how to extract document data.
 
     This class defines selectors and extraction methods for scraping.
@@ -38,7 +38,7 @@ class DocumentExtractor(BaseModel):
     navigate_content_selector: ClassVar[Optional[str]] = None
 
 
-class Document(BaseModel):
+class Doc(BaseModel):
     """
     document writ large
     """
@@ -77,7 +77,7 @@ class Document(BaseModel):
         source: Source,
         source_location_identifier: str,
         source_location_name: Optional[str] = None,
-    ) -> "Document":
+    ) -> "Doc":
         """Create a document from extracted data."""
         doc_id = cls.generate_id()
 

@@ -2,7 +2,7 @@ import os
 import pytest
 import tempfile
 from datetime import datetime
-from brocc_li.types.document import Source, Document
+from brocc_li.types.doc import Source, Doc
 from brocc_li.utils.doc_db import DocDB
 
 
@@ -43,12 +43,12 @@ def sample_document():
         "author_identifier": "author123",
         "participant_names": ["Participant 1", "Participant 2"],
         "participant_identifiers": ["p1", "p2"],
-        "created_at": Document.format_date(now),
+        "created_at": Doc.format_date(now),
         "metadata": {"key": "value"},
         "source": Source.TWITTER,
         "source_location_identifier": "https://example.com/test",
         "source_location_name": "Test Source Location",
-        "ingested_at": Document.format_date(now),
+        "ingested_at": Doc.format_date(now),
     }
 
 
