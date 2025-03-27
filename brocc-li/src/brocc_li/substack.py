@@ -3,6 +3,7 @@ from rich.console import Console
 from typing import ClassVar, Optional
 import time
 import re
+from datetime import datetime, timedelta
 from brocc_li.types.document import DocumentExtractor, Document, Source
 from brocc_li.chrome import connect_to_chrome, open_new_tab
 from brocc_li.extract import (
@@ -10,8 +11,9 @@ from brocc_li.extract import (
     scroll_and_extract,
     DeepScrapeOptions,
     FeedConfig,
+    ScrollConfig,
 )
-from brocc_li.display_result import display_items
+from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.utils.storage import DocumentStorage
 
@@ -19,8 +21,17 @@ console = Console()
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
-DEBUG = True  # write results to debug dir
-TEST_URL = "https://substack.com/inbox"
+URL = "https://substack.com/inbox"
+DEBUG = False  # Turn this on, disable storage, set max items lower. Writes debug jsonl to /debug
+USE_STORAGE = True  # Enable storage in duckdb
+CONTINUE_ON_SEEN = True  # Continue past seen URLs to get a complete feed
+
+# Set to a datetime value to stop extraction after reaching items older than this date
+# Examples:
+#   None - extract everything (default)
+#   datetime.now() - timedelta(days=7) - only get items from the last week
+#   datetime.fromisoformat("2023-11-01") - only get items on or after Nov 1, 2023
+STOP_AFTER_DATE = datetime.fromisoformat("2023-03-15")  # Change this to filter by date
 
 
 class SubstackExtractSchema(DocumentExtractor):
@@ -53,9 +64,7 @@ class SubstackExtractSchema(DocumentExtractor):
         selector="", transform=lambda x: ""
     )
     # Use a simple placeholder for content that will be replaced during deep scrape
-    content: ClassVar[ExtractField] = ExtractField(
-        selector="", extract=lambda element, field: {"content": ""}
-    )
+    content: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
     metadata: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container",
         extract=lambda element, field: {
@@ -67,6 +76,35 @@ class SubstackExtractSchema(DocumentExtractor):
 
     # Selector to use for markdown content during deep scraping
     deep_content_selector: ClassVar[Optional[str]] = "article"
+
+
+SUBSTACK_CONFIG = FeedConfig(
+    feed_schema=SubstackExtractSchema,
+    max_items=MAX_ITEMS,
+    deep_scrape=DeepScrapeOptions(
+        wait_networkidle=True,
+        content_timeout_ms=2000,
+        min_delay_ms=2000,
+        max_delay_ms=4000,
+    ),
+    source="substack",
+    source_location=URL,
+    use_storage=USE_STORAGE,
+    continue_on_seen=CONTINUE_ON_SEEN,
+    stop_after_date=STOP_AFTER_DATE,
+    debug=DEBUG,
+    scroll_config=ScrollConfig(
+        max_no_new_items=30,  # More persistent scrolling - higher value to keep going past seen items
+        max_consecutive_same_height=4,  # More aggressive handling of same-height detection
+        min_delay=0.3,  # Faster minimum delay
+        max_delay=1.0,  # Faster maximum delay
+        jitter_factor=0.2,  # Less random variation
+    ),
+    # Reduce timeouts for faster performance
+    initial_load_timeout_ms=8000,
+    network_idle_timeout_ms=3000,
+    click_wait_timeout_ms=300,
+)
 
 
 def merge_description_publication(element):
@@ -87,29 +125,126 @@ def parse_author(meta_text: str) -> Optional[str]:
     if not meta_text:
         return None
 
-    # Handle simple case: AUTHOR∙LENGTH format
+    # First, explicitly handle the exact "PAID" text case
+    if meta_text.strip() == "PAID":
+        return None  # Return None so we can detect and fix these later
+
+    # Clean up text by removing PAID indicator - handle more variants
+    meta_text = re.sub(r"\bPAID\b\s*", "", meta_text, flags=re.IGNORECASE).strip()
+
+    # Try to handle publication pattern: "Meta text · PUBLICATION"
+    # Check if it's just a publication name with "PUBLICATION" or "NEWSLETTER"
+    if re.match(r"^[A-Z\s]+$", meta_text) and any(
+        word in meta_text.upper()
+        for word in ["REVIEW", "COLLECTIVE", "NEWSLETTER", "PUBLICATION", "CLUB"]
+    ):
+        return meta_text  # This is likely a publication name acting as author
+
+    # Handle special cases with known multi-author formats
+    if "&" in meta_text or " AND " in meta_text.upper() or "," in meta_text:
+        # Likely a multi-author post, clean it up but keep all authors
+        text = re.sub(
+            r"\bPAID\b|\bSUBSCRIBE[RD]*\b", "", meta_text, flags=re.IGNORECASE
+        )
+        text = re.sub(r"\d+\s+MIN\s+(READ|LISTEN|WATCH)", "", text, flags=re.IGNORECASE)
+        # Remove any date patterns
+        text = re.sub(
+            r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}(?:,\s+\d{4})?",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        cleaned = text.replace("∙", " ").replace("|", " ").strip()
+        if cleaned and cleaned.lower() != "paid":
+            return cleaned
+
+    # Handle standard AUTHOR∙LENGTH format
     parts = meta_text.split("∙")
     if len(parts) >= 2:
-        # Use a simplified DATE_PATTERN check here
+        # Get the first part as potential author name
+        # But verify it's not a date or some other non-author text
+        first_part = parts[0].strip()
+
+        # Skip if it looks like a date
         if not re.search(
             r"(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)",
-            parts[0],
+            first_part,
             re.IGNORECASE,
         ):
-            return parts[0].strip()
+            # Check for other disqualifying patterns
+            if (
+                not re.search(r"\d+\s+MIN", first_part, re.IGNORECASE)
+                and first_part.lower() != "paid"
+            ):
+                return first_part
 
-    # Extract from complex formats
+    # Extract from complex formats - remove dates
     text = re.sub(
-        r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2})(?:,\s+(\d{4}))?",
+        r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}(?:,\s+\d{4})?",
         "",
         meta_text,
         flags=re.IGNORECASE,
     )
+    # Remove reading time indicators
     text = re.sub(r"\d+\s+MIN\s+(READ|LISTEN|WATCH)", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"PAID", "", text, flags=re.IGNORECASE)
+    # Remove "PAID" and subscription indicators more aggressively
+    text = re.sub(r"\bPAID\b|\bSUBSCRIBE[RD]*\b", "", text, flags=re.IGNORECASE)
 
+    # Clean up separators and whitespace
     cleaned = text.replace("∙", " ").replace("|", " ").strip()
-    return cleaned if cleaned else None
+
+    # Only return non-empty, non-PAID values
+    if cleaned and cleaned.lower() != "paid" and len(cleaned) > 1:
+        return cleaned
+
+    return None
+
+
+def parse_date_string(date_str: str) -> Optional[datetime]:
+    """Parse date string in various formats.
+
+    Args:
+        date_str: Date string (e.g., '2023-11-01', '1d', '1w', '1m')
+
+    Returns:
+        Parsed datetime object or None if parsing failed
+    """
+    if not date_str:
+        return None
+
+    # Check for relative dates (1d, 1w, 1m, etc.)
+    if re.match(r"^(\d+)([dwmy])$", date_str):
+        match = re.match(r"^(\d+)([dwmy])$", date_str)
+        if match:
+            value = int(match.group(1))
+            unit = match.group(2)
+
+            now = datetime.now()
+            if unit == "d":
+                return now - timedelta(days=value)
+            elif unit == "w":
+                return now - timedelta(weeks=value)
+            elif unit == "m":
+                # Approximate months as 30 days
+                return now - timedelta(days=value * 30)
+            elif unit == "y":
+                # Approximate years as 365 days
+                return now - timedelta(days=value * 365)
+
+    # Try direct parsing for absolute dates (YYYY-MM-DD)
+    try:
+        return datetime.fromisoformat(date_str)
+    except ValueError:
+        pass
+
+    # Try more flexible parsing
+    try:
+        from dateutil.parser import parse
+
+        return parse(date_str)
+    except:
+        console.print(f"[red]Could not parse date: {date_str}[/red]")
+        return None
 
 
 def main() -> None:
@@ -118,7 +253,7 @@ def main() -> None:
         if not browser:
             return
 
-        source_url = TEST_URL
+        source_url = URL
         page = open_new_tab(browser, source_url)
         if not page:
             return
@@ -126,34 +261,27 @@ def main() -> None:
         start_time = time.time()
 
         # Initialize storage
-        storage = DocumentStorage()
-        console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
+        storage = None
+        if USE_STORAGE:
+            storage = DocumentStorage()
+            console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
 
-        deep_scrape_options = DeepScrapeOptions(
-            wait_networkidle=True,
-            content_timeout_ms=2000,
-            min_delay_ms=1500,
-            max_delay_ms=3000,
-        )
-
-        config = FeedConfig(
-            feed_schema=SubstackExtractSchema,
-            max_items=MAX_ITEMS,
-            deep_scrape=deep_scrape_options,
-            # Enable storage options
-            use_storage=True,
-            continue_on_seen=True,  # Continue past seen URLs to get a complete feed
-            debug=DEBUG,
-        )
-
-        console.print(f"[cyan]Starting extraction of posts...[/cyan]")
         if MAX_ITEMS:
             console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
+
+        # Log date cutoff if active
+        if STOP_AFTER_DATE:
+            console.print(
+                f"[green]Will stop extraction after reaching items older than: {STOP_AFTER_DATE}[/green]"
+            )
+
+        # Initialize progress tracker
+        progress = ProgressTracker(label="posts", target=MAX_ITEMS)
 
         # Process items as they're streamed back
         docs = []
         formatted_posts = []
-        extraction_generator = scroll_and_extract(page=page, config=config)
+        extraction_generator = scroll_and_extract(page=page, config=SUBSTACK_CONFIG)
 
         for item in extraction_generator:
             # Convert to Document object
@@ -187,14 +315,15 @@ def main() -> None:
                 }
             )
 
-            # Show progress
-            progress_text = f"[green]Extracted post {len(docs)}"
-            if MAX_ITEMS:
-                progress_text += f"/{MAX_ITEMS}"
-            progress_text += f": {doc.title or 'Untitled'}[/green]"
-            console.print(progress_text)
+            # Update progress tracker with current count
+            progress.update(
+                item_info=f"Post: {doc.title or 'Untitled'} by {doc.author_name or 'Unknown'}"
+            )
 
+        # Final update to progress tracker with force display
         if docs:
+            progress.update(force_display=True)
+
             display_items(
                 items=formatted_posts,
                 title="Substack Posts",
@@ -215,8 +344,11 @@ def main() -> None:
                 f"\n[green]Successfully extracted {len(docs)} unique posts[/green]"
                 f"\n[blue]Collection rate: {posts_per_minute:.1f} posts/minute[/blue]"
                 f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
-                f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
             )
+            if storage:
+                console.print(
+                    f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
+                )
         else:
             console.print("[yellow]No posts found[/yellow]")
 

@@ -5,16 +5,18 @@ import time
 from brocc_li.types.document import DocumentExtractor, Document, Source
 from brocc_li.chrome import connect_to_chrome, open_new_tab
 from brocc_li.extract import ExtractField, scroll_and_extract, FeedConfig
-from brocc_li.display_result import display_items
+from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.utils.storage import DocumentStorage
 
 console = Console()
 
-# Configuration flags
+# Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
-TEST_URL = "https://x.com/i/bookmarks"
-DEBUG = False  # Set to True to enable debug logging
+URL = "https://x.com/i/bookmarks"
+DEBUG = False  # Turn this on, disable storage, set max items lower. Writes debug jsonl to /debug
+USE_STORAGE = True  # Enable storage in duckdb
+CONTINUE_ON_SEEN = False  # Continue past seen URLs to get a complete feed
 
 
 class TwitterFeedSchema(DocumentExtractor):
@@ -54,6 +56,18 @@ class TwitterFeedSchema(DocumentExtractor):
     description: ClassVar[ExtractField] = ExtractField(
         selector="", transform=lambda x: ""
     )
+
+
+TWITTER_CONFIG = FeedConfig(
+    feed_schema=TwitterFeedSchema,
+    max_items=MAX_ITEMS,
+    expand_item_selector='[role="button"]:has-text("Show more")',
+    source="twitter",
+    source_location=URL,
+    use_storage=USE_STORAGE,
+    continue_on_seen=CONTINUE_ON_SEEN,  # Continue past seen URLs to get a complete feed
+    debug=DEBUG,
+)
 
 
 def extract_media(element) -> Optional[Dict[str, Any]]:
@@ -261,7 +275,7 @@ def main() -> None:
         if not browser:
             return
 
-        page = open_new_tab(browser, TEST_URL)
+        page = open_new_tab(browser, URL)
         if not page:
             return
 
@@ -271,29 +285,21 @@ def main() -> None:
         storage = DocumentStorage()
         console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
 
-        config = FeedConfig(
-            feed_schema=TwitterFeedSchema,
-            max_items=MAX_ITEMS,
-            expand_item_selector='[role="button"]:has-text("Show more")',
-            # Enable storage options
-            use_storage=True,
-            continue_on_seen=True,  # Continue past seen URLs to get a complete feed
-            # debug=True,
-        )
-
         # Process items as they're streamed back
         docs = []
         formatted_posts = []
-        extraction_generator = scroll_and_extract(page=page, config=config)
+        extraction_generator = scroll_and_extract(page=page, config=TWITTER_CONFIG)
 
-        console.print(f"\n[cyan]Extracting tweets...[/cyan]")
         if MAX_ITEMS:
             console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
+
+        # Initialize progress tracker
+        progress = ProgressTracker(label="tweets", target=MAX_ITEMS)
 
         for item in extraction_generator:
             # Convert to Document object
             doc = Document.from_extracted_data(
-                data=item, source=Source.TWITTER, source_location=TEST_URL
+                data=item, source=Source.TWITTER, source_location=URL
             )
             docs.append(doc)
 
@@ -322,14 +328,17 @@ def main() -> None:
                 }
             )
 
-            # Show progress
-            progress_text = f"[green]Extracted tweet {len(docs)}"
-            if MAX_ITEMS:
-                progress_text += f"/{MAX_ITEMS}"
-            progress_text += f" from @{author_identifier}[/green]"
-            console.print(progress_text)
+            # Update progress tracker
+            progress.update(
+                item_info=f"Tweet from @{author_identifier or 'unknown'} - {content[:50].replace('\n', ' ')}..."
+                if len(content) > 50
+                else content
+            )
 
+        # Final update to progress tracker with force display
         if docs:
+            progress.update(force_display=True)
+
             # Display the posts
             display_items(
                 items=formatted_posts,

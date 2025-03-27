@@ -1,7 +1,8 @@
 # brocc
 
-- duckdb cli explorer
-- clear db util
+- filter seen by source, not location (skip seen in diff locations)
+- clean up extract
+- kv storage option?
 - markdown chunking
 - store in lancedb with chunking approach
 - cli login flow
@@ -12,6 +13,14 @@
 ## backlog
 
 - fix emoji parsing in tweet content, autonomously?
+
+# notes
+
+```sh extracted all my twitter bookmarks in 2 minutes
+Successfully extracted 338 unique tweets
+Collection rate: 163.6 tweets/minute
+Time taken: 124.0 seconds
+```
 
 # dev
 
