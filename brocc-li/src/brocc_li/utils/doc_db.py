@@ -1,10 +1,23 @@
+"""
+Document database using DuckDB + Polars + PyArrow
+- Zero-copy Arrow format: Direct memory sharing between DuckDB and Polars without serialization/deserialization
+- Columnar storage: Data stored in columns rather than rows, enabling vectorized operations and better cache utilization
+- polars vs. pandas:
+  * Rust backend for memory safety and performance
+  * Lazy evaluation for query optimization
+  * Native Arrow integration
+  * Better memory efficiency with zero-copy operations
+  * Type-safe operations with strict typing
+"""
+
 import duckdb
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, Union
 from platformdirs import user_data_dir
 from pathlib import Path
 from brocc_li.types.document import Document
+import polars as pl
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -76,14 +89,14 @@ class DocDB:
             query = f"SELECT url FROM {DOCUMENTS_TABLE}"
             params = []
 
-            # Add optional source filter only
             if source:
                 query += " WHERE source = ?"
                 params.append(source)
 
-            # Use pandas for efficient memory handling
-            df = conn.execute(query, params).df()
-            return set(df["url"].dropna().tolist())
+            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
+                conn.execute(query, params).arrow()
+            )
+            return set(df["url"].drop_nulls().to_list())
 
     def get_documents_by_url(self, url: str) -> List[Dict[str, Any]]:
         """Retrieve all documents with the given URL."""
@@ -91,28 +104,31 @@ class DocDB:
             return []
 
         with duckdb.connect(self.db_path) as conn:
-            # Use pandas for efficient memory handling
-            df = conn.execute(
-                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
-                [url],
-            ).df()
+            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
+                conn.execute(
+                    f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
+                    [url],
+                ).arrow()
+            )
 
-            if df.empty:
+            if df.is_empty():
                 return []
 
             # Convert to list of dicts and handle special fields
             documents = []
-            for _, row in df.iterrows():
-                document = row.to_dict()
+            if isinstance(df, pl.DataFrame):
+                for row in df.to_dicts():
+                    # Convert None arrays to empty lists for consistency with the Document model
+                    if row.get("participant_names") is None:
+                        row["participant_names"] = []
 
-                # Convert None arrays to empty lists for consistency with the Document model
-                if document.get("participant_names") is None:
-                    document["participant_names"] = []
+                    if row.get("participant_identifiers") is None:
+                        row["participant_identifiers"] = []
 
-                if document.get("participant_identifiers") is None:
-                    document["participant_identifiers"] = []
-
-                documents.append(document)
+                    documents.append(row)
+            else:
+                # Handle Series case
+                documents.append(df.item())
 
             return documents
 
@@ -222,16 +238,20 @@ class DocDB:
             return None
 
         with duckdb.connect(self.db_path) as conn:
-            # Use pandas for efficient memory handling
-            df = conn.execute(
-                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]
-            ).df()
+            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
+                conn.execute(
+                    f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]
+                ).arrow()
+            )
 
-            if df.empty:
+            if df.is_empty():
                 return None
 
             # Convert to dict and handle special fields
-            document = df.iloc[0].to_dict()
+            if isinstance(df, pl.DataFrame):
+                document = df.to_dicts()[0]
+            else:
+                document = df.item()
 
             # Convert None arrays to empty lists for consistency with the Document model
             if document.get("participant_names") is None:
@@ -269,22 +289,25 @@ class DocDB:
             # Add limit and offset
             query += f" ORDER BY ingested_at DESC LIMIT {limit} OFFSET {offset}"
 
-            # Use pandas for efficient memory handling
-            df = conn.execute(query, params).df()
+            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
+                conn.execute(query, params).arrow()
+            )
 
             # Convert to list of dicts and handle special fields
             documents = []
-            for _, row in df.iterrows():
-                document = row.to_dict()
+            if isinstance(df, pl.DataFrame):
+                for row in df.to_dicts():
+                    # Convert None arrays to empty lists for consistency with the Document model
+                    if row.get("participant_names") is None:
+                        row["participant_names"] = []
 
-                # Convert None arrays to empty lists for consistency with the Document model
-                if document.get("participant_names") is None:
-                    document["participant_names"] = []
+                    if row.get("participant_identifiers") is None:
+                        row["participant_identifiers"] = []
 
-                if document.get("participant_identifiers") is None:
-                    document["participant_identifiers"] = []
-
-                documents.append(document)
+                    documents.append(row)
+            else:
+                # Handle Series case
+                documents.append(df.item())
 
             return documents
 
