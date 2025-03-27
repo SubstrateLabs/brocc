@@ -3,7 +3,7 @@ import os
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
-from appdirs import user_data_dir
+from platformdirs import user_data_dir
 from pathlib import Path
 from brocc_li.types.document import Document
 
@@ -259,3 +259,20 @@ def delete_db(db_path: Optional[str] = None) -> bool:
             return False
     print("Database file not found")
     return False
+
+
+def open_db_folder() -> None:
+    """Open the application data directory in the system's file browser."""
+    data_dir = user_data_dir(APP_NAME, APP_AUTHOR)
+    os.makedirs(data_dir, exist_ok=True)
+
+    # Use webbrowser module for cross-platform support
+    try:
+        import webbrowser
+
+        url = f"file://{data_dir}"
+        webbrowser.open(url)
+        print(f"Opened data directory: {data_dir}")
+    except Exception as e:
+        print(f"Failed to open data directory: {e}")
+        print(f"Data directory path: {data_dir}")

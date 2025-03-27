@@ -1439,8 +1439,8 @@ def scroll_and_extract(
                             )
                             # We'll break out of the main loop on the next iteration when it checks date_cutoff_reached
 
-                        # Now break so we don't do turbo mode scrolling and go back to normal extraction
-                        break
+                        # Continue with the next iteration of the main loop to resume normal extraction
+                        continue
 
                 # If we're still in turbo mode, continue scrolling
                 if is_turbo_mode:

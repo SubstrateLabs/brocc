@@ -1,18 +1,37 @@
 # brocc
 
-- filter seen by source, not location (skip seen in diff locations)
 - clean up extract
-- kv storage option?
-- markdown chunking
-- store in lancedb with chunking approach
+  - continuation logic after turbo mode exits is not quite right (doesn't continue scrolling, just processes collected)
+- chrome class
+- rework schemas for future
+
+```sh
+  title
+  description
+  text_content (markdown)
+  image_data (b64 image data for individual photos... maybe also screenshot each element scraped)
+  author_name
+  author_identifier
+  participant_names
+  participant_identifiers
+  url (optional, not primary key)
+  source
+  source_location
+```
+
 - cli login flow
+- rework oauth to store in cli
+- markdown chunking
+- investigate litellm and alternatives
+- store in lancedb with chunking approach
 - embedding endpoint
+- contact schema design
 - contacts sync: twitter, linkedin
 - transcription
 
 ## backlog
 
-- fix emoji parsing in tweet content, autonomously?
+- fix emoji parsing in tweet content
 
 # notes
 

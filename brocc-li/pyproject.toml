@@ -20,11 +20,11 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-    "appdirs>=1.4.4",
     "duckdb>=1.2.1",
     "html-to-markdown>=1.2.0",
     "numpy>=2.2.4",
     "pandas>=2.2.3",
+    "platformdirs>=4.3.7",
     "playwright>=1.51.0",
     "psutil>=7.0.0",
     "pydantic>=2.10.6",
@@ -43,6 +43,7 @@ chrome = "brocc_li.chrome:main"
 twitter = "brocc_li.twitter:main"
 substack = "brocc_li.substack:main"
 dbui = "brocc_li.utils.storage:launch_ui"
+dbfolder = "brocc_li.utils.storage:open_db_folder"
 # dbdelete = "brocc_li.utils.storage:delete_db"
 
 [tool.hatch.envs.default]
