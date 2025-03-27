@@ -74,8 +74,8 @@ class SubstackExtractSchema(DocumentExtractor):
         },
     )
 
-    # Selector to use for markdown content during deep scraping
-    deep_content_selector: ClassVar[Optional[str]] = "article"
+    # Selector to use for markdown content of navigated pages
+    navigate_content_selector: ClassVar[Optional[str]] = "article"
 
 
 SUBSTACK_CONFIG = ExtractFeedConfig(

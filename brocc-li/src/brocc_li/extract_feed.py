@@ -1,7 +1,6 @@
-from typing import Any, Dict, Optional, Set, Tuple, Generator, List, Union
+from typing import Any, Dict, Set, Tuple, Generator
 from rich.console import Console
 import random
-import time
 from playwright.sync_api import (
     TimeoutError,
     Error as PlaywrightError,
@@ -13,24 +12,21 @@ from brocc_li.types.extract_field import ExtractField
 from brocc_li.extract.save_extract_log import save_extract_log
 from brocc_li.extract.extract_schema import extract_schema
 from brocc_li.extract.extract_markdown import extract_markdown
-from brocc_li.extract.human_scroll import human_scroll
 from brocc_li.extract.is_valid_page import is_valid_page
 from brocc_li.extract.find_container import find_container
 from brocc_li.extract.find_element import find_element
+from brocc_li.extract.restore_scroll import restore_scroll_position
+from brocc_li.extract.scroll_strategies import perform_adaptive_scroll
+from brocc_li.extract.extract_navigate_content import extract_navigate_content
 from brocc_li.extract.wait_for_navigation import (
     wait_for_navigation,
     DEFAULT_JITTER_FACTOR,
 )
 from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
 from brocc_li.extract.rate_limit_backoff_s import (
-    rate_limit_backoff_s,
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
 )
-from brocc_li.types.extract_feed_config import (
-    ScrollPattern,
-    ExtractFeedConfig,
-    NavigateOptions,
-)
+from brocc_li.types.extract_feed_config import ExtractFeedConfig
 
 console = Console()
 
@@ -48,71 +44,6 @@ DEFAULT_BODY_SELECTOR = "body"
 NAVIGATE_MAX_RETRIES = 2
 
 
-def extract_content_from_page(
-    page: Page, options: NavigateOptions, consecutive_timeouts: int = 0
-) -> Tuple[Optional[str], int]:
-    """Extract content from a page using the provided selector.
-
-    Returns:
-        Tuple containing the extracted content (or None) and the number of consecutive timeouts.
-    """
-    selector = options.content_selector.strip()
-
-    try:
-        # If we've hit consecutive timeouts, implement a cooldown
-        if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            cooldown_s = rate_limit_backoff_s(consecutive_timeouts)
-            console.print(
-                f"[yellow]Rate limit detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
-            )
-            time.sleep(cooldown_s)
-
-        page.wait_for_selector(selector, timeout=options.content_timeout_ms)
-        console.print(f"[green]Found content with selector: '{selector}'[/green]")
-
-        # Extract and convert content
-        html_content = extract_markdown(page, selector)
-        if html_content:
-            return html_content, adjust_timeout_counter(
-                consecutive_timeouts, success=True
-            )
-        else:
-            return None, adjust_timeout_counter(consecutive_timeouts, success=False)
-
-    except TimeoutError as e:
-        # Increment timeout counter for rate limiting detection
-        consecutive_timeouts = adjust_timeout_counter(
-            consecutive_timeouts, success=False, timeout_occurred=True
-        )
-        console.print(
-            f"[yellow]Timeout error with selector '{selector}': {str(e)}[/yellow]"
-        )
-
-        # Apply adaptive cooldown based on consecutive timeouts
-        cooldown_s = rate_limit_backoff_s(consecutive_timeouts)
-
-        if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            console.print(
-                f"[yellow]Multiple timeouts detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
-            )
-        else:
-            console.print(
-                f"[yellow]Timeout detected, brief cooldown for {cooldown_s:.1f} seconds...[/yellow]"
-            )
-
-        time.sleep(cooldown_s)
-
-        if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            console.print(
-                f"[yellow]Detected {consecutive_timeouts} consecutive timeouts, possible rate limiting[/yellow]"
-            )
-        return None, consecutive_timeouts
-    except Exception as e:
-        console.print(f"[yellow]Error with selector '{selector}': {str(e)}[/yellow]")
-        # For non-timeout errors, still be a bit cautious if we've had timeouts before
-        return None, adjust_timeout_counter(consecutive_timeouts, success=False)
-
-
 def extract_and_save_content(
     page: Page,
     item: Dict[str, Any],
@@ -123,12 +54,12 @@ def extract_and_save_content(
     if not config.navigate_options:
         return False, 0
 
-    # Check if schema defines a deep_content_selector and use it if available
-    schema_selector = getattr(config.feed_schema, "deep_content_selector", None)
+    # Check if schema defines a navigate_content_selector and use it if available
+    schema_selector = getattr(config.feed_schema, "navigate_content_selector", None)
     if schema_selector is not None:  # Only use it if explicitly set (not None)
         config.navigate_options.content_selector = schema_selector
 
-    content, new_consecutive_timeouts = extract_content_from_page(
+    content, new_consecutive_timeouts = extract_navigate_content(
         page, config.navigate_options, consecutive_timeouts
     )
     if content:
@@ -414,7 +345,7 @@ def ensure_original_page(
                 console.print("[green]Successfully returned to original page[/green]")
                 # Restore scroll position with verification
                 if scroll_position > 0:
-                    _restore_scroll_with_verification(page, scroll_position)
+                    restore_scroll_position(page, scroll_position)
                 return True
             else:
                 console.print(
@@ -437,7 +368,7 @@ def ensure_original_page(
         if page.url == original_url:
             # Restore scroll position with verification
             if scroll_position > 0:
-                _restore_scroll_with_verification(page, scroll_position)
+                restore_scroll_position(page, scroll_position)
             return True
 
         # Otherwise try direct navigation
@@ -458,7 +389,7 @@ def ensure_original_page(
             console.print("[green]Successfully returned to original page[/green]")
             # Restore scroll position with verification
             if scroll_position > 0:
-                _restore_scroll_with_verification(page, scroll_position)
+                restore_scroll_position(page, scroll_position)
             return True
         else:
             console.print(
@@ -469,243 +400,6 @@ def ensure_original_page(
     except (TimeoutError, PlaywrightError) as e:
         console.print(f"[red]Failed all navigation attempts: {str(e)}[/red]")
         return False
-
-
-def _restore_scroll_with_verification(
-    page: Page, target_position: int, max_attempts: int = 3
-) -> None:
-    """Restore scroll position with verification and fallbacks.
-
-    Args:
-        page: The current page
-        target_position: Target scroll position in pixels
-        max_attempts: Maximum number of attempts to restore scroll position
-    """
-    # First attempt: standard scrollTo
-    page.evaluate(f"window.scrollTo(0, {target_position})")
-    console.print(
-        f"[dim]Attempted to restore scroll position: {target_position}px[/dim]"
-    )
-    time.sleep(0.3)  # Brief delay for scroll to take effect
-
-    # Verify if scroll position was actually restored
-    current_position = page.evaluate("window.scrollY")
-
-    if abs(current_position - target_position) < 500:  # Allow small differences
-        console.print(
-            f"[green]Verified scroll position restored: {current_position}px[/green]"
-        )
-        return
-
-    # If scroll position wasn't restored correctly, try alternative approaches
-    console.print(
-        f"[yellow]Scroll position not restored correctly. Got {current_position}px, expected ~{target_position}px[/yellow]"
-    )
-
-    for attempt in range(max_attempts):
-        if attempt == 0:
-            # Try smooth scrolling
-            console.print("[dim]Trying smooth scroll restoration...[/dim]")
-            page.evaluate(f"""
-                window.scrollTo({{
-                    top: {target_position},
-                    left: 0,
-                    behavior: 'smooth'
-                }})
-            """)
-        elif attempt == 1:
-            # Try scrolling in steps
-            console.print("[dim]Trying step-by-step scroll restoration...[/dim]")
-            step_size = target_position / 4
-            for step in range(1, 5):
-                page.evaluate(f"window.scrollTo(0, {int(step_size * step)})")
-                time.sleep(0.1)
-        else:
-            # Last resort: scroll to bottom then partially back up
-            console.print(
-                "[dim]Force-scrolling to bottom of page then adjusting...[/dim]"
-            )
-            # First scroll all the way to bottom
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(0.3)
-
-            # If target is not at the very bottom, adjust up slightly
-            if target_position < page.evaluate("document.body.scrollHeight"):
-                # Scroll back up 20% from the bottom if needed
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
-
-        time.sleep(0.3)  # Wait for scroll to take effect
-        current_position = page.evaluate("window.scrollY")
-
-        if abs(current_position - target_position) < 500:  # Allow small differences
-            console.print(
-                f"[green]Scroll position restored on attempt {attempt + 1}: {current_position}px[/green]"
-            )
-            return
-
-    console.print(
-        "[yellow]Could not precisely restore scroll position after multiple attempts[/yellow]"
-    )
-    # As a last resort, just make sure we're not at the top of the page
-    if current_position < 500:
-        console.print("[yellow]Emergency scroll to middle/bottom of page[/yellow]")
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
-
-
-def handle_scrolling(
-    page: Page,
-    new_items: int,
-    consecutive_same_height: int,
-    config: ExtractFeedConfig,
-    all_items_seen: bool = False,
-    consecutive_all_seen: int = 0,
-    is_turbo_mode: bool = False,
-) -> Tuple[int, int, int, bool]:
-    """Handle scrolling logic and return updated metrics.
-
-    Args:
-        page: The current page
-        new_items: Number of new items found in this iteration
-        consecutive_same_height: Number of consecutive scrolls with same page height
-        config: Feed configuration
-        all_items_seen: Whether all items in the current view were already seen
-        consecutive_all_seen: Number of consecutive scrolls where all items were seen
-        is_turbo_mode: Whether turbo mode is currently active
-
-    Returns:
-        Tuple containing updated consecutive_same_height, last_height, consecutive_all_seen, and is_turbo_mode
-    """
-    current_height = page.evaluate("document.documentElement.scrollHeight")
-    last_height = page.evaluate("document.documentElement.scrollHeight")
-
-    # Turbo mode - after many consecutive scrolls with only seen items and continuously finding more
-    # containers, enter a super-fast mode to get to the bottom as quickly as possible
-    if is_turbo_mode:
-        console.print(
-            "[yellow]Continuing turbo mode to reach unseen content faster...[/yellow]"
-        )
-        # In turbo mode, use more aggressive scrolling - jump directly to the very bottom
-        # with a larger scroll to ensure we're going far down the page
-        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
-
-        # Also do a second aggressive scroll after a minimal delay
-        time.sleep(0.1)  # Ultra-minimal delay
-        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
-
-        # Use minimal delay and skip additional wait times
-        time.sleep(0.2)
-        return 0, current_height, consecutive_all_seen, True  # Keep turbo mode active
-
-    # Activate turbo mode after seeing only seen items for several consecutive scrolls
-    if all_items_seen and consecutive_all_seen >= 5:
-        console.print(
-            "[yellow]Entering turbo mode to reach unseen content faster...[/yellow]"
-        )
-        # Initial turbo mode - multiple aggressive scrolls
-        # First scroll to the very bottom
-        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
-        time.sleep(0.1)
-        # Then do another aggressive scroll to ensure we're going as far as possible
-        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
-        # Use minimal delay
-        time.sleep(0.2)
-        return 0, current_height, consecutive_all_seen, True  # Activate turbo mode
-
-    # Jump directly to bottom after several consecutive all-seen scrolls
-    if all_items_seen and consecutive_all_seen >= 3:
-        console.print(
-            "[yellow]Multiple scrolls with only seen items, jumping to bottom of page...[/yellow]"
-        )
-        # Scroll to very bottom of page
-        page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
-        time.sleep(0.5)  # Reduced wait time from 1.0 to 0.5
-
-        # Check if we reached actual bottom by seeing if scroll position is near page height
-        scroll_pos = page.evaluate("window.scrollY")
-        page_height = page.evaluate("document.documentElement.scrollHeight")
-        viewport_height = page.evaluate("window.innerHeight")
-
-        if (page_height - (scroll_pos + viewport_height)) < 200:  # We're at the bottom
-            # Use shorter wait times when we've been in this mode a while
-            wait_time = 1.0 if consecutive_all_seen < 6 else 0.3
-            console.print(
-                f"[green]Reached bottom of page, waiting {wait_time}s for new content to load...[/green]"
-            )
-            time.sleep(wait_time)
-
-            # Scroll up slightly and back down to trigger possible lazy loading
-            # Only do this occasionally to speed up the loop
-            if consecutive_all_seen % 3 == 0:
-                page.evaluate(f"window.scrollBy(0, -{viewport_height / 3})")
-                time.sleep(0.2)
-                page.evaluate(
-                    "window.scrollTo(0, document.documentElement.scrollHeight)"
-                )
-                time.sleep(0.2)
-
-        return (
-            0,
-            page_height,
-            consecutive_all_seen,
-            False,
-        )  # Reset consecutive_same_height
-
-    # Calculate scroll multiplier based on how many consecutive scrolls had all seen items
-    scroll_multiplier = 1.0
-    if all_items_seen:
-        # Exponentially increase scroll distance when we keep seeing only seen items
-        # Start with 1.5x, then 2.0x, 2.5x, 3.0x, etc. up to 5x
-        scroll_multiplier = min(5.0, 1.5 + (consecutive_all_seen * 0.5))
-
-    if current_height == last_height:
-        consecutive_same_height += 1
-        if consecutive_same_height >= config.scroll_config.max_consecutive_same_height:
-            if consecutive_same_height % 2 == 0:
-                # When stuck at same height for a while, try a dramatic jump to bottom
-                console.print(
-                    "[dim]Stuck at same height, jumping to bottom of page...[/dim]"
-                )
-                # Instead of scrolling up and down, go directly to bottom
-                page.evaluate(
-                    "window.scrollTo(0, document.documentElement.scrollHeight)"
-                )
-                random_delay(0.5, 0.2)  # Reduced delay from 1.0 to 0.5
-            else:
-                human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
-            consecutive_same_height = 0
-        else:
-            # When all items are seen, prefer faster scrolling patterns
-            if all_items_seen and consecutive_all_seen > 1:
-                human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
-            else:
-                human_scroll(
-                    page, random.choice(list(ScrollPattern)), scroll_multiplier
-                )
-    else:
-        consecutive_same_height = 0
-        if all_items_seen and consecutive_all_seen > 2:
-            # Page height changed but still all seen - scroll faster toward bottom
-            console.print(
-                "[dim]Page height changed, continuing fast scroll to bottom...[/dim]"
-            )
-            human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
-        else:
-            human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
-
-    # Adaptive delays - much shorter when we're continually seeing already seen items
-    if new_items > 0:
-        random_delay(0.3, 0.2)  # Normal delay when finding new items
-    elif all_items_seen:
-        # Use progressively shorter delays the longer we've been seeing only seen items
-        delay_base = max(0.05, 0.2 - (consecutive_all_seen * 0.02))
-        time.sleep(delay_base)  # Minimal delay for repeated all-seen cases
-    elif consecutive_same_height > 0:
-        random_delay(0.5, 0.2)  # Reduced from 1.0 to 0.5
-    else:
-        random_delay(0.3, 0.2)  # Reduced from 0.5 to 0.3
-
-    # Return updated metrics and turbo mode state (stays False here)
-    return consecutive_same_height, last_height, consecutive_all_seen, False
 
 
 def scroll_and_extract(
@@ -765,9 +459,6 @@ def scroll_and_extract(
     last_scroll_position = 0  # Track last scroll position to restore after navigation
     date_cutoff_reached = False  # Track if we've reached the date cutoff
     is_turbo_mode = False  # Track if we're in turbo mode
-    last_container_count = (
-        0  # Track the last container count for turbo mode optimization
-    )
 
     while (
         (config.max_items is None or items_yielded < config.max_items)
@@ -797,259 +488,10 @@ def scroll_and_extract(
                 except Exception as e:
                     console.print(f"[red]Failed to expand element: {str(e)}[/red]")
 
-        # In turbo mode, use a simpler extraction approach - just check how many containers we have
-        # but don't process them individually yet - speeds up the loop significantly
-        if is_turbo_mode:
-            # Just get the container count in turbo mode without full extraction
-            current_containers = page.query_selector_all(config.container_selector)
-            current_container_count = len(current_containers)
-
-            if current_container_count > last_container_count:
-                console.print(
-                    f"[dim]Turbo mode: Found {current_container_count} containers (vs {last_container_count} previously)[/dim]"
-                )
-                last_container_count = current_container_count
-                consecutive_same_height = (
-                    0  # Reset same height counter when finding more containers
-                )
-
-                # Periodically check for unseen content - check every 50 containers or when growth is slow
-                should_check_content = (
-                    current_container_count % 50 == 0  # Check periodically
-                    or (current_container_count - last_container_count)
-                    < 10  # Growth slowing down
-                )
-
-                if should_check_content:
-                    console.print(
-                        f"[yellow]Turbo mode: Checking for unseen content at {current_container_count} containers[/yellow]"
-                    )
-                    # Extract a sample of the latest containers to check for unseen URLs
-                    # Take the 10 most recent containers to check
-                    sample_containers = (
-                        current_containers[-10:]
-                        if len(current_containers) > 10
-                        else current_containers
-                    )
-
-                    # Check if any of these containers have unseen URLs
-                    for container in sample_containers:
-                        try:
-                            # Find URL element using the schema's URL field selector
-                            url_field = next(
-                                (
-                                    field
-                                    for field_name, field in config.feed_schema.__dict__.items()
-                                    if isinstance(field, ExtractField)
-                                    and field_name == URL_FIELD
-                                ),
-                                None,
-                            )
-
-                            if url_field and url_field.selector:
-                                url_element = container.query_selector(
-                                    url_field.selector
-                                )
-                                if url_element:
-                                    if url_field.attribute:
-                                        url = url_element.get_attribute(
-                                            url_field.attribute
-                                        )
-                                    else:
-                                        url = url_element.inner_text()
-
-                                    # Apply transform if available
-                                    if url_field.transform and url:
-                                        url = url_field.transform(url)
-
-                                    # Check if this URL is unseen
-                                    if url and url not in seen_urls:
-                                        console.print(
-                                            f"[green]Found unseen URL in turbo mode: {url}[/green]"
-                                        )
-                                        console.print(
-                                            "[green]Exiting turbo mode to process new content[/green]"
-                                        )
-                                        is_turbo_mode = False
-
-                                        # Instead of just breaking out, let's force a full content extraction now
-                                        console.print(
-                                            "[yellow]Performing full extraction of current content[/yellow]"
-                                        )
-                                        # Don't break - instead continue checking other containers to find all unseen content
-
-                        except Exception as e:
-                            # Just log and continue if there's an error extracting URL
-                            console.print(
-                                f"[dim]Error checking container URL in turbo mode: {str(e)}[/dim]"
-                            )
-
-                    # If we've exited turbo mode, fully process the current containers
-                    if not is_turbo_mode:
-                        console.print(
-                            f"[yellow]Processing {len(current_containers)} containers for new content[/yellow]"
-                        )
-                        # Process the current containers immediately to extract the unseen content
-                        normal_items = extract_schema(
-                            page, config.feed_schema, config.container_selector, config
-                        )
-                        console.print(
-                            f"[green]Found {len(normal_items)} items to process[/green]"
-                        )
-
-                        last_container_count = len(normal_items)
-                        new_items = 0
-                        skipped_items = 0
-
-                        # Process these items
-                        for idx, item in enumerate(normal_items):
-                            # Check if this item's date is past our cutoff - same check as in main loop
-                            if (
-                                config.stop_after_date
-                                and "created_at" in item
-                                and item["created_at"]
-                            ):
-                                try:
-                                    item_date = item["created_at"]
-                                    # Handle both string dates and datetime objects
-                                    if isinstance(item_date, str):
-                                        # Try parsing from ISO format first
-                                        try:
-                                            item_date = datetime.fromisoformat(
-                                                item_date.replace("Z", "+00:00")
-                                            )
-                                        except ValueError:
-                                            # Fall back to more flexible parsing if needed
-                                            from dateutil.parser import parse
-
-                                            item_date = parse(item_date)
-
-                                    if item_date < config.stop_after_date:
-                                        console.print(
-                                            f"[yellow]Reached date cutoff: item from {item_date} is older than {config.stop_after_date}[/yellow]"
-                                        )
-                                        date_cutoff_reached = True
-                                        break
-                                except Exception as e:
-                                    console.print(
-                                        f"[yellow]Error parsing date: {str(e)}[/yellow]"
-                                    )
-
-                            url = item.get(URL_FIELD)
-                            if not url:
-                                continue
-
-                            # Skip already seen URLs
-                            if url in seen_urls:
-                                skipped_items += 1
-                                total_skipped += 1
-                                continue
-
-                            # Add to seen URLs to avoid duplicates
-                            seen_urls.add(url)
-                            item_position = idx
-
-                            # Process this unseen item
-                            if config.navigate_options and url:
-                                new_consecutive_timeouts = handle_navigation(
-                                    page,
-                                    item,
-                                    config,
-                                    item_position,
-                                    original_url,
-                                    consecutive_timeouts,
-                                    last_scroll_position,
-                                )
-                                consecutive_timeouts = new_consecutive_timeouts
-
-                            # Store the item if using storage
-                            if storage:
-                                # Convert to Document format for storage
-                                from brocc_li.types.document import Document, Source
-
-                                try:
-                                    source = Source(config.source)
-                                except ValueError:
-                                    source = Source.TWITTER  # Default fallback
-
-                                doc = Document.from_extracted_data(
-                                    data=item,
-                                    source=source,
-                                    source_location=config.source_location,
-                                )
-                                doc_dict = doc.model_dump()
-                                storage.store_document(doc_dict)
-
-                            # Yield the item
-                            yield item
-                            items_yielded += 1
-                            new_items += 1
-
-                        if new_items > 0:
-                            console.print(
-                                f"[green]Successfully extracted {new_items} new items after exiting turbo mode[/green]"
-                            )
-                        elif skipped_items > 0:
-                            console.print(
-                                f"[yellow]All {skipped_items} items were already seen[/yellow]"
-                            )
-                        else:
-                            console.print(
-                                "[yellow]No items found in the current containers[/yellow]"
-                            )
-
-                        # If we've reached date cutoff, we should exit the entire extraction loop
-                        if date_cutoff_reached:
-                            console.print(
-                                f"[yellow]Stopping extraction as date cutoff {config.stop_after_date} has been reached[/yellow]"
-                            )
-                            # We'll break out of the main loop on the next iteration when it checks date_cutoff_reached
-
-                        # Continue with the next iteration of the main loop to resume normal extraction
-                        continue
-
-                # If we're still in turbo mode, continue scrolling
-                if is_turbo_mode:
-                    # Use super aggressive scrolling in turbo mode
-                    page.evaluate(
-                        "window.scrollTo(0, document.documentElement.scrollHeight * 2)"
-                    )
-                    time.sleep(0.5)
-
-                    # Do a second scroll for even faster movement
-                    page.evaluate(
-                        "window.scrollTo(0, document.documentElement.scrollHeight * 2)"
-                    )
-                    time.sleep(1)
-
-                    continue  # Skip the rest of the loop in turbo mode
-            else:
-                # No new containers found
-                consecutive_same_height += 1
-                if consecutive_same_height >= 5:
-                    # Only exit turbo mode if we've tried multiple times with no progress
-                    console.print(
-                        f"[yellow]No progress in turbo mode after {consecutive_same_height} attempts, checking for content...[/yellow]"
-                    )
-                    # Don't exit turbo mode yet, just proceed to content examination
-                else:
-                    # Try again with even more aggressive scrolling
-                    console.print(
-                        f"[yellow]No new containers in turbo mode, trying more aggressive scrolling (attempt {consecutive_same_height}/5)[/yellow]"
-                    )
-                    # Use increasingly aggressive scrolling based on attempt number
-                    scroll_multiplier = 2 + consecutive_same_height
-                    page.evaluate(
-                        f"window.scrollTo(0, document.documentElement.scrollHeight * {scroll_multiplier})"
-                    )
-                    time.sleep(1)
-                    continue
-
         # Normal extraction mode
         current_items = extract_schema(
             page, config.feed_schema, config.container_selector, config
         )
-        last_container_count = len(current_items)  # Update container count
         new_items = 0
         skipped_items = 0
 
@@ -1200,14 +642,9 @@ def scroll_and_extract(
         # NEW: Track container count to detect when we've truly reached the end of the feed
         previous_container_count = len(current_items)
 
-        # Handle scrolling when not in turbo mode
-        if not is_turbo_mode:
-            (
-                consecutive_same_height,
-                last_height,
-                consecutive_all_seen,
-                should_enter_turbo,
-            ) = handle_scrolling(
+        # Perform adaptive scrolling based on context
+        consecutive_same_height, last_height, consecutive_all_seen, is_turbo_mode = (
+            perform_adaptive_scroll(
                 page,
                 new_items,
                 consecutive_same_height,
@@ -1216,17 +653,9 @@ def scroll_and_extract(
                 consecutive_all_seen,
                 is_turbo_mode,
             )
+        )
 
-            # Only enter turbo mode if handle_scrolling suggests it and we're continuously seeing only seen items
-            if should_enter_turbo and not is_turbo_mode and all_items_seen:
-                is_turbo_mode = True
-                consecutive_same_height = 0
-                console.print(
-                    "[yellow]Entering turbo mode to reach unseen content faster...[/yellow]"
-                )
-        # When in turbo mode, we manage scrolling directly in the turbo mode section
-
-        # NEW: Check if we've reached the true end of the feed by seeing if more containers appear
+        # Check if we've reached the true end of the feed by seeing if more containers appear
         # If we're in "continue_on_seen" mode, we track total containers, not just new items
         if config.continue_on_seen and total_skipped > 0 and not is_turbo_mode:
             # After scrolling, check if we're getting new containers
