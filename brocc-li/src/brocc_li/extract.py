@@ -1183,12 +1183,10 @@ def scroll_and_extract(
     # Get seen URLs if using storage
     seen_urls: Set[str] = set()
     if storage:
-        # Always load the seen URLs so we can detect them, but only for this source + source_location
-        seen_urls = storage.get_seen_urls(
-            source=config.source, source_location=config.source_location
-        )
+        # Always load the seen URLs that have been seen for this source (across all locations)
+        seen_urls = storage.get_seen_urls(source=config.source)
         console.print(
-            f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}/{config.source_location}[/dim]"
+            f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}[/dim]"
         )
 
     items_yielded = 0

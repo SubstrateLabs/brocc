@@ -67,25 +67,16 @@ class DocumentStorage:
             ).fetchone()
             return result is not None and result[0] > 0
 
-    def get_seen_urls(
-        self, source: Optional[str] = None, source_location: Optional[str] = None
-    ) -> Set[str]:
+    def get_seen_urls(self, source: Optional[str] = None) -> Set[str]:
         """Get a set of URLs that have already been seen."""
         with duckdb.connect(self.db_path) as conn:
             query = f"SELECT url FROM {DOCUMENTS_TABLE}"
             params = []
 
-            # Add optional filters
-            where_clauses = []
+            # Add optional source filter only
             if source:
-                where_clauses.append("source = ?")
+                query += " WHERE source = ?"
                 params.append(source)
-            if source_location:
-                where_clauses.append("source_location = ?")
-                params.append(source_location)
-
-            if where_clauses:
-                query += " WHERE " + " AND ".join(where_clauses)
 
             # Use pandas for efficient memory handling
             df = conn.execute(query, params).df()

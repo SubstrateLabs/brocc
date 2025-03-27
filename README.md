@@ -16,11 +16,12 @@
 
 # notes
 
-```sh extracted all my twitter bookmarks in 2 minutes
-Successfully extracted 338 unique tweets
-Collection rate: 163.6 tweets/minute
-Time taken: 124.0 seconds
-```
+- twitter bookmarks (300 or so) in 2 minutes
+- twitter likes (thousands) in 20 minutes
+  - Successfully extracted 2717 unique tweets
+    Collection rate: 160.6 tweets/minute
+    Time taken: 1015.4 seconds
+- substack inbox (up to march 2024) in like 20 minutes
 
 # dev
 

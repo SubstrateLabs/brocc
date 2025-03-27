@@ -13,10 +13,11 @@ console = Console()
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
-URL = "https://x.com/i/bookmarks"
+# URL = "https://x.com/i/bookmarks"
+URL = "https://x.com/0thernet/likes"
 DEBUG = False  # Turn this on, disable storage, set max items lower. Writes debug jsonl to /debug
 USE_STORAGE = True  # Enable storage in duckdb
-CONTINUE_ON_SEEN = False  # Continue past seen URLs to get a complete feed
+CONTINUE_ON_SEEN = True  # Continue past seen URLs to get a complete feed
 
 
 class TwitterFeedSchema(DocumentExtractor):

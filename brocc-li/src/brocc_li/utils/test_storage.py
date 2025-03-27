@@ -151,18 +151,6 @@ def test_get_seen_urls(storage):
     assert "https://example.com/2" in source1_urls
     assert "https://example.com/3" not in source1_urls
 
-    # Filter by source location
-    location1_urls = storage.get_seen_urls(source_location="location1")
-    assert len(location1_urls) == 2
-    assert "https://example.com/1" in location1_urls
-    assert "https://example.com/2" not in location1_urls
-    assert "https://example.com/3" in location1_urls
-
-    # Filter by both source and location
-    filtered_urls = storage.get_seen_urls(source="twitter", source_location="location1")
-    assert len(filtered_urls) == 1
-    assert "https://example.com/1" in filtered_urls
-
 
 def test_get_documents(storage):
     """Test retrieving multiple documents with filtering."""
