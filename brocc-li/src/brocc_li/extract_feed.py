@@ -1,15 +1,31 @@
-from typing import Any, Dict, Optional, Set, Tuple, Generator
+from typing import Any, Dict, Optional, Set, Tuple, Generator, List, Union
 from rich.console import Console
 import random
 import time
-from html_to_markdown import convert_to_markdown
-from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
+from playwright.sync_api import (
+    TimeoutError,
+    Error as PlaywrightError,
+    Page,
+)
 from datetime import datetime
 from brocc_li.utils.random_delay import random_delay, random_delay_with_jitter
 from brocc_li.types.extract_field import ExtractField
 from brocc_li.extract.save_extract_log import save_extract_log
 from brocc_li.extract.extract_schema import extract_schema
+from brocc_li.extract.extract_markdown import extract_markdown
 from brocc_li.extract.human_scroll import human_scroll
+from brocc_li.extract.is_valid_page import is_valid_page
+from brocc_li.extract.find_container import find_container
+from brocc_li.extract.find_element import find_element
+from brocc_li.extract.wait_for_navigation import (
+    wait_for_navigation,
+    DEFAULT_JITTER_FACTOR,
+)
+from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
+from brocc_li.extract.rate_limit_backoff_s import (
+    rate_limit_backoff_s,
+    RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
+)
 from brocc_li.types.extract_feed_config import (
     ScrollPattern,
     ExtractFeedConfig,
@@ -24,30 +40,12 @@ MARKDOWN_FOLDER = "debug"
 URL_FIELD = "url"
 PROGRESS_LABEL = "items"
 
-# Factor to add random variation to delays (0.3 = ±30% variation)
-DEFAULT_JITTER_FACTOR = 0.3
 
-# Minimum character length to consider extracted content valid
-MIN_CONTENT_LENGTH = 100
 # Fallback selector when specific content selectors fail
 DEFAULT_BODY_SELECTOR = "body"
 
 # Maximum number of retry attempts when navigation fails for a single item
 NAVIGATE_MAX_RETRIES = 2
-# Minimum delay between retry attempts when navigation fails
-NAVIGATE_RETRY_DELAY_MIN_MS = 1000
-# Maximum delay between retry attempts when navigation fails
-NAVIGATE_RETRY_DELAY_MAX_MS = 2000
-
-# Number of consecutive timeouts needed to trigger rate limit detection
-RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD = 2
-# Initial cooldown period (in ms) when rate limiting is detected
-RATE_LIMIT_INITIAL_COOLDOWN_MS = 5000
-# Maximum cooldown period (in ms) regardless of consecutive timeouts
-RATE_LIMIT_MAX_COOLDOWN_MS = 30000
-# Exponential factor for increasing cooldown time with each additional timeout
-# Formula: cooldown = min(MAX_COOLDOWN, INITIAL_COOLDOWN * BACKOFF_FACTOR^(timeouts - threshold))
-RATE_LIMIT_BACKOFF_FACTOR = 2
 
 
 def extract_content_from_page(
@@ -63,18 +61,7 @@ def extract_content_from_page(
     try:
         # If we've hit consecutive timeouts, implement a cooldown
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            # Calculate exponential backoff cooldown time
-            cooldown_ms = min(
-                RATE_LIMIT_MAX_COOLDOWN_MS,
-                RATE_LIMIT_INITIAL_COOLDOWN_MS
-                * (
-                    RATE_LIMIT_BACKOFF_FACTOR
-                    ** (
-                        consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-                    )
-                ),
-            )
-            cooldown_s = cooldown_ms / 1000
+            cooldown_s = rate_limit_backoff_s(consecutive_timeouts)
             console.print(
                 f"[yellow]Rate limit detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
             )
@@ -83,55 +70,32 @@ def extract_content_from_page(
         page.wait_for_selector(selector, timeout=options.content_timeout_ms)
         console.print(f"[green]Found content with selector: '{selector}'[/green]")
 
-        content_elements = page.query_selector_all(selector)
-        if not content_elements:
-            # Be more cautious when we've had timeouts before
-            if consecutive_timeouts > 0:
-                return None, max(0, consecutive_timeouts - 1)
-            return None, 0  # Only fully reset if we haven't had timeouts
-
-        largest_content = max(
-            (el.inner_html() for el in content_elements), key=len, default=""
-        )
-
-        if len(largest_content) > MIN_CONTENT_LENGTH:
-            console.print(
-                f"[green]Selected content from '{selector}' ({len(largest_content)} chars)[/green]"
+        # Extract and convert content
+        html_content = extract_markdown(page, selector)
+        if html_content:
+            return html_content, adjust_timeout_counter(
+                consecutive_timeouts, success=True
             )
-            # On success, decrease the timeout counter but don't fully reset
-            # This ensures we remain cautious if we've had multiple timeouts
-            if consecutive_timeouts > 0:
-                return largest_content, max(0, consecutive_timeouts - 1)
-            return largest_content, 0
+        else:
+            return None, adjust_timeout_counter(consecutive_timeouts, success=False)
 
     except TimeoutError as e:
         # Increment timeout counter for rate limiting detection
-        consecutive_timeouts += 1
+        consecutive_timeouts = adjust_timeout_counter(
+            consecutive_timeouts, success=False, timeout_occurred=True
+        )
         console.print(
             f"[yellow]Timeout error with selector '{selector}': {str(e)}[/yellow]"
         )
 
-        # Adaptive cooldown - apply a brief cooldown even on first timeout
-        # Scale from 0.5s for first timeout up to full exponential backoff
+        # Apply adaptive cooldown based on consecutive timeouts
+        cooldown_s = rate_limit_backoff_s(consecutive_timeouts)
+
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            # Use existing exponential backoff for multiple timeouts
-            cooldown_ms = min(
-                RATE_LIMIT_MAX_COOLDOWN_MS,
-                RATE_LIMIT_INITIAL_COOLDOWN_MS
-                * (
-                    RATE_LIMIT_BACKOFF_FACTOR
-                    ** (
-                        consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-                    )
-                ),
-            )
-            cooldown_s = cooldown_ms / 1000
             console.print(
                 f"[yellow]Multiple timeouts detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
             )
         else:
-            # For early timeouts, scale cooldown gradually
-            cooldown_s = 0.5 + (consecutive_timeouts - 1) * 0.5
             console.print(
                 f"[yellow]Timeout detected, brief cooldown for {cooldown_s:.1f} seconds...[/yellow]"
             )
@@ -146,14 +110,7 @@ def extract_content_from_page(
     except Exception as e:
         console.print(f"[yellow]Error with selector '{selector}': {str(e)}[/yellow]")
         # For non-timeout errors, still be a bit cautious if we've had timeouts before
-        if consecutive_timeouts > 0:
-            return None, max(0, consecutive_timeouts - 1)
-        return None, 0  # Reset timeout counter on non-timeout errors
-
-    # Apply the same conservative logic for the default return
-    if consecutive_timeouts > 0:
-        return None, max(0, consecutive_timeouts - 1)
-    return None, 0  # Reset timeout counter by default
+        return None, adjust_timeout_counter(consecutive_timeouts, success=False)
 
 
 def extract_and_save_content(
@@ -171,11 +128,10 @@ def extract_and_save_content(
     if schema_selector is not None:  # Only use it if explicitly set (not None)
         config.navigate_options.content_selector = schema_selector
 
-    html_content, new_consecutive_timeouts = extract_content_from_page(
+    content, new_consecutive_timeouts = extract_content_from_page(
         page, config.navigate_options, consecutive_timeouts
     )
-    if html_content:
-        content = convert_to_markdown(html_content)
+    if content:
         item[MARKDOWN_FIELD_NAME] = content
 
         # Save debug info for navigate
@@ -191,14 +147,13 @@ def extract_and_save_content(
             )
 
         # Even on success, maintain some of the timeout count if it's high
-        if consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            return True, max(
-                1, consecutive_timeouts - 2
-            )  # Reduce but don't reset completely
-        elif consecutive_timeouts > 0:
-            return True, max(0, consecutive_timeouts - 1)  # Decrease by 1
-
-        return True, 0  # Only fully reset on success if we haven't had many timeouts
+        return True, adjust_timeout_counter(
+            consecutive_timeouts,
+            success=True,
+            aggressive=(
+                consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
+            ),
+        )
 
     # Track consecutive timeouts
     if new_consecutive_timeouts > 0:
@@ -208,15 +163,10 @@ def extract_and_save_content(
             return False, new_consecutive_timeouts
 
     # Fallback to body content
-    body_element = page.query_selector(DEFAULT_BODY_SELECTOR)
-    if body_element:
-        body_html = body_element.inner_html()
-        item[MARKDOWN_FIELD_NAME] = convert_to_markdown(body_html)
-
-        # Even with fallback success, be cautious if we've had timeouts
-        if consecutive_timeouts > 0:
-            return True, max(0, consecutive_timeouts - 1)
-        return True, 0
+    content = extract_markdown(page, DEFAULT_BODY_SELECTOR)
+    if content:
+        item[MARKDOWN_FIELD_NAME] = content
+        return True, adjust_timeout_counter(consecutive_timeouts, success=True)
 
     item[MARKDOWN_FIELD_NAME] = "No content found"
     # Maintain the timeout count even on failure
@@ -367,21 +317,13 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         return False
 
     try:
-        # First check if we can find the containers
-        visible_containers = page.query_selector_all(config.container_selector)
-
-        # Log what we found for debugging
-        console.print(
-            f"[dim]Found {len(visible_containers)} containers to navigate[/dim]"
+        # Find the container at the specified position
+        container = find_container(
+            page, config.container_selector, item_position, "container to navigate"
         )
 
-        if not visible_containers or item_position >= len(visible_containers):
-            console.print(
-                f"[yellow]Container at position {item_position} not found (total: {len(visible_containers)})[/yellow]"
-            )
+        if not container:
             return False
-
-        container = visible_containers[item_position]
 
         # Get the URL field from the schema
         url_field = next(
@@ -398,11 +340,14 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
             return False
 
         # Find the clickable element
-        clickable = container.query_selector(url_field.selector)
+        clickable = find_element(
+            container,
+            url_field.selector,
+            required=True,
+            description=f"clickable element ({URL_FIELD})",
+        )
+
         if not clickable:
-            console.print(
-                f"[yellow]Clickable element not found with selector: {url_field.selector}[/yellow]"
-            )
             return False
 
         # Log that we're about to navigate
@@ -415,29 +360,11 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         # Perform the click
         clickable.click()
 
-        # Wait for navigation to complete
-        if config.navigate_options.wait_networkidle:
-            try:
-                page.wait_for_load_state(
-                    "networkidle", timeout=config.network_idle_timeout_ms
-                )
-            except TimeoutError:
-                # If networkidle times out, check if we at least have domcontentloaded
-                page.wait_for_load_state("domcontentloaded", timeout=2000)
-        else:
-            # At minimum, wait for domcontentloaded to ensure page is usable
-            page.wait_for_load_state("domcontentloaded", timeout=5000)
-
-        # Add a brief random delay to ensure page is ready
-        random_delay_with_jitter(
-            NAVIGATE_RETRY_DELAY_MIN_MS,
-            NAVIGATE_RETRY_DELAY_MAX_MS,
-            DEFAULT_JITTER_FACTOR,
-        )
-
-        # Verify we're not at about:blank (which would indicate navigation failure)
-        if page.url == "about:blank" or not page.url:
-            console.print("[yellow]Navigation resulted in about:blank page[/yellow]")
+        # Wait for navigation to complete with proper error handling
+        if not wait_for_navigation(page, config):
+            console.print(
+                "[yellow]Navigation failed or resulted in invalid page[/yellow]"
+            )
             return False
 
         return True
@@ -468,10 +395,10 @@ def ensure_original_page(
     if page.url == original_url:
         return True
 
-    # Handle about:blank case explicitly
-    if page.url == "about:blank" or not page.url:
+    # Handle invalid page state explicitly
+    if not is_valid_page(page):
         console.print(
-            "[yellow]Detected about:blank page, navigating directly to original URL[/yellow]"
+            "[yellow]Detected invalid page state, navigating directly to original URL[/yellow]"
         )
         try:
             page.goto(
