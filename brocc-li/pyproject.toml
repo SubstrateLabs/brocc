@@ -39,7 +39,7 @@ dev = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.scripts]
 brocc = "brocc_li.entry_points:main"
-chrome = "brocc_li.chrome:main"
+chrome_manager = "brocc_li.chrome_manager:main"
 twitter = "brocc_li.twitter:main"
 substack = "brocc_li.substack:main"
 dbui = "brocc_li.utils.storage:launch_ui"

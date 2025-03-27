@@ -4,10 +4,7 @@ from brocc_li.types.extract_feed_config import (
 from playwright.sync_api import Page
 import random
 import time
-from rich.console import Console
-
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 
 # Multiplier ranges for viewport height when scrolling in different patterns
@@ -63,6 +60,6 @@ def human_scroll(
 
         # When using a large multiplier for aggressive scrolling, log it
         if seen_only_multiplier > 1.5:
-            console.print(
-                f"[dim]Fast-scrolling with {seen_only_multiplier:.1f}x multiplier ({scroll_amount} pixels)[/dim]"
+            logger.debug(
+                f"Fast-scrolling with {seen_only_multiplier:.1f}x multiplier ({scroll_amount} pixels)"
             )

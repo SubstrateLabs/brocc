@@ -3,14 +3,11 @@ from pydantic import BaseModel
 from playwright.sync_api import Page
 from brocc_li.types.extract_field import ExtractField
 from typing import Optional, List, Dict, Any
-from rich.console import Console
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
 )
 from brocc_li.extract.save_extract_log import save_extract_log
-
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 
 def extract_schema(
@@ -31,7 +28,7 @@ def extract_schema(
                 raise ValueError("No container selector found in schema")
 
         containers = page.query_selector_all(container_selector)
-        console.print(f"[dim]Found {len(containers)} containers[/dim]")
+        logger.debug(f"Found {len(containers)} containers")
 
         # Save feed page HTML if debug is enabled
         if config and config.debug:
@@ -46,7 +43,7 @@ def extract_schema(
         for i, container in enumerate(containers):
             try:
                 if not container.is_visible():
-                    console.print(f"[dim]Container {i} is not visible, skipping[/dim]")
+                    logger.debug(f"Container {i} is not visible, skipping")
                     continue
 
                 # Save container HTML if debug is enabled
@@ -66,8 +63,8 @@ def extract_schema(
                                 container, field, field_name
                             )
                         except Exception as e:
-                            console.print(
-                                f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
+                            logger.error(
+                                f"Failed to extract field {field_name}: {str(e)}"
                             )
                             data[field_name] = None
 
@@ -82,10 +79,10 @@ def extract_schema(
 
                 items.append(data)
             except Exception as e:
-                console.print(f"[red]Failed to process container {i}: {str(e)}[/red]")
+                logger.error(f"Failed to process container {i}: {str(e)}")
                 continue
 
         return items
     except Exception as e:
-        console.print(f"[red]Failed to scrape data: {str(e)}[/red]")
+        logger.error(f"Failed to scrape data: {str(e)}")
         return []

@@ -1,8 +1,6 @@
 from typing import Optional, Union
 from playwright.sync_api import Page, ElementHandle
-from rich.console import Console
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 
 def find_element(
@@ -27,11 +25,15 @@ def find_element(
         if element:
             return element
 
-        log_level = "red" if required else "yellow"
-        console.print(
-            f"[{log_level}]{description.capitalize()} not found with selector: '{selector}'[/{log_level}]"
-        )
+        if required:
+            logger.error(
+                f"{description.capitalize()} not found with selector: '{selector}'"
+            )
+        else:
+            logger.warning(
+                f"{description.capitalize()} not found with selector: '{selector}'"
+            )
         return None
     except Exception as e:
-        console.print(f"[red]Error finding {description}: {str(e)}[/red]")
+        logger.error(f"Error finding {description}: {str(e)}")
         return None

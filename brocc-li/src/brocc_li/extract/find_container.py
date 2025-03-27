@@ -1,8 +1,6 @@
 from typing import Optional
 from playwright.sync_api import Page, ElementHandle
-from rich.console import Console
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 
 def find_container(
@@ -23,22 +21,18 @@ def find_container(
         containers = page.query_selector_all(selector)
 
         if not containers:
-            console.print(
-                f"[yellow]No {description}s found with selector: '{selector}'[/yellow]"
-            )
+            logger.warning(f"No {description}s found with selector: '{selector}'")
             return None
 
-        console.print(f"[dim]Found {len(containers)} {description}s[/dim]")
+        logger.debug(f"Found {len(containers)} {description}s")
 
         if index >= len(containers):
-            console.print(
-                f"[yellow]{description.capitalize()} at position {index} not found (total: {len(containers)})[/yellow]"
+            logger.warning(
+                f"{description.capitalize()} at position {index} not found (total: {len(containers)})"
             )
             return None
 
         return containers[index]
     except Exception as e:
-        console.print(
-            f"[red]Error finding {description} at index {index}: {str(e)}[/red]"
-        )
+        logger.error(f"Error finding {description} at index {index}: {str(e)}")
         return None

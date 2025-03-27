@@ -1,5 +1,4 @@
 from playwright.sync_api import Page
-from rich.console import Console
 import random
 import time
 from brocc_li.extract.human_scroll import human_scroll
@@ -10,8 +9,7 @@ from brocc_li.extract.restore_scroll import (
 from brocc_li.utils.random_delay import random_delay
 from brocc_li.types.extract_feed_config import ScrollPattern, ExtractFeedConfig
 from typing import Tuple
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 # Threshold for determining when we're at the bottom of the page (in pixels)
 BOTTOM_THRESHOLD = 200
@@ -26,9 +24,7 @@ def execute_turbo_scroll(page: Page) -> None:
     Args:
         page: The page to scroll
     """
-    console.print(
-        "[yellow]Executing turbo scroll to reach unseen content faster...[/yellow]"
-    )
+    logger.warning("Executing turbo scroll to reach unseen content faster...")
 
     # First aggressive scroll
     scroll_to_bottom(page, aggressive=True)
@@ -49,7 +45,7 @@ def execute_bottom_jump(page: Page, consecutive_all_seen: int = 0) -> bool:
     Returns:
         Whether we reached the actual bottom of the page
     """
-    console.print("[yellow]Jumping to bottom of page...[/yellow]")
+    logger.warning("Jumping to bottom of page...")
 
     # Scroll to bottom
     scroll_to_bottom(page)
@@ -66,8 +62,8 @@ def execute_bottom_jump(page: Page, consecutive_all_seen: int = 0) -> bool:
     if at_bottom:
         # Shorter wait for consecutive seen content
         wait_time = 1.0 if consecutive_all_seen < 6 else 0.3
-        console.print(
-            f"[green]Reached bottom of page, waiting {wait_time}s for new content to load...[/green]"
+        logger.success(
+            f"Reached bottom of page, waiting {wait_time}s for new content to load..."
         )
         time.sleep(wait_time)
 
@@ -168,9 +164,7 @@ def handle_stuck_at_same_height(
     if consecutive_same_height >= config.scroll_config.max_consecutive_same_height:
         if consecutive_same_height % 2 == 0:
             # When stuck at same height for a while, try a dramatic jump to bottom
-            console.print(
-                "[dim]Stuck at same height, jumping to bottom of page...[/dim]"
-            )
+            logger.debug("Stuck at same height, jumping to bottom of page...")
             # Instead of scrolling up and down, go directly to bottom
             scroll_to_bottom(page)
             random_delay(0.5, 0.2)  # Reduced delay from 1.0 to 0.5
@@ -214,17 +208,13 @@ def perform_adaptive_scroll(
 
     # Turbo mode - super-fast scrolling to quickly traverse lots of seen content
     if is_turbo_mode:
-        console.print(
-            "[yellow]Continuing turbo mode to reach unseen content faster...[/yellow]"
-        )
+        logger.warning("Continuing turbo mode to reach unseen content faster...")
         execute_turbo_scroll(page)
         return 0, current_height, consecutive_all_seen, True  # Keep turbo mode active
 
     # Activate turbo mode after many consecutive scrolls with only seen items
     if all_items_seen and consecutive_all_seen >= 5:
-        console.print(
-            "[yellow]Entering turbo mode to reach unseen content faster...[/yellow]"
-        )
+        logger.warning("Entering turbo mode to reach unseen content faster...")
         execute_turbo_scroll(page)
         return 0, current_height, consecutive_all_seen, True  # Activate turbo mode
 
@@ -264,9 +254,7 @@ def perform_adaptive_scroll(
         consecutive_same_height = 0
         if all_items_seen and consecutive_all_seen > 2:
             # Page height changed but still all seen - scroll faster toward bottom
-            console.print(
-                "[dim]Page height changed, continuing fast scroll to bottom...[/dim]"
-            )
+            logger.debug("Page height changed, continuing fast scroll to bottom...")
             human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
         else:
             human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)

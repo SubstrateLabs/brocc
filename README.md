@@ -1,8 +1,5 @@
 # brocc
 
-- clean up extract
-- clean up logging to use logger that can be swallowed
-  - cursorrules: logging
 - chrome class
 - rework schemas for future
 
@@ -20,6 +17,7 @@
   source_location
 ```
 
+- litellm + pydanticai
 - cli login flow
 - rework oauth to store in cli
 - markdown chunking
@@ -32,7 +30,8 @@
 
 ## backlog
 
-- fix emoji parsing in tweet content
+- explore "reverse engineering" approach monitoring network tab agentically
+- fix emoji parsing in tweet content (currently dropped)
 
 # notes
 

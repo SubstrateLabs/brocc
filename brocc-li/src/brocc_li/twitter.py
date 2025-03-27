@@ -1,15 +1,13 @@
 from playwright.sync_api import sync_playwright
-from rich.console import Console
 from typing import Dict, Any, ClassVar, Optional
 import time
 from brocc_li.types.document import DocumentExtractor, Document, Source
-from brocc_li.chrome import connect_to_chrome, open_new_tab
+from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.utils.storage import DocumentStorage
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
@@ -272,19 +270,27 @@ def convert_metric(text: str) -> str:
 
 def main() -> None:
     with sync_playwright() as p:
-        browser = connect_to_chrome(p)
+        # Use ChromeManager
+        chrome_manager = ChromeManager()
+        browser = chrome_manager.connect(
+            p
+        )  # Connect (will handle launch/relaunch/connect logic)
+
         if not browser:
+            logger.error("Could not establish connection with Chrome.")
             return
 
-        page = open_new_tab(browser, URL)
+        # Use the manager's open_new_tab method
+        page = chrome_manager.open_new_tab(browser, URL)
         if not page:
+            # No need to close browser here, as it's managed externally
             return
 
         start_time = time.time()
 
         # Initialize storage
         storage = DocumentStorage()
-        console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
+        logger.debug(f"Using document storage at: {storage.db_path}")
 
         # Process items as they're streamed back
         docs = []
@@ -292,7 +298,7 @@ def main() -> None:
         extraction_generator = scroll_and_extract(page=page, config=TWITTER_CONFIG)
 
         if MAX_ITEMS:
-            console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
+            logger.debug(f"Maximum items: {MAX_ITEMS}")
 
         # Initialize progress tracker
         progress = ProgressTracker(label="tweets", target=MAX_ITEMS)
@@ -350,16 +356,16 @@ def main() -> None:
             # Print stats
             elapsed_time = time.time() - start_time
             tweets_per_minute = (len(docs) / elapsed_time) * 60
-            console.print(
-                f"\n[green]Successfully extracted {len(docs)} unique tweets[/green]"
-                f"\n[blue]Collection rate: {tweets_per_minute:.1f} tweets/minute[/blue]"
-                f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
-                f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
-            )
+            logger.success(f"Successfully extracted {len(docs)} unique tweets")
+            logger.info(f"Collection rate: {tweets_per_minute:.1f} tweets/minute")
+            logger.debug(f"Time taken: {elapsed_time:.1f} seconds")
+            logger.debug(f"Documents stored in database: {storage.db_path}")
         else:
-            console.print("[yellow]No tweets found[/yellow]")
+            logger.warning("No tweets found")
 
-        page.close()
+        # Close the specific page when done
+        if page and not page.is_closed():
+            page.close()
 
 
 if __name__ == "__main__":

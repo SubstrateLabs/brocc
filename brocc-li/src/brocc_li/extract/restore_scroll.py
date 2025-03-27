@@ -1,8 +1,6 @@
 from playwright.sync_api import Page
-from rich.console import Console
+from brocc_li.utils.logger import logger
 import time
-
-console = Console()
 
 # Threshold for considering scroll position "close enough" to target (in pixels)
 SCROLL_POSITION_THRESHOLD = 500
@@ -31,9 +29,7 @@ def restore_scroll_position(
     try:
         # First attempt: standard scrollTo
         page.evaluate(f"window.scrollTo(0, {target_position})")
-        console.print(
-            f"[dim]Attempted to restore scroll position: {target_position}px[/dim]"
-        )
+        logger.debug(f"Attempted to restore scroll position: {target_position}px")
         time.sleep(0.3)  # Brief delay for scroll to take effect
 
         # Verify if scroll position was actually restored
@@ -42,20 +38,18 @@ def restore_scroll_position(
         if (
             abs(current_position - target_position) < SCROLL_POSITION_THRESHOLD
         ):  # Allow small differences
-            console.print(
-                f"[green]Verified scroll position restored: {current_position}px[/green]"
-            )
+            logger.success(f"Verified scroll position restored: {current_position}px")
             return
 
         # If scroll position wasn't restored correctly, try alternative approaches
-        console.print(
-            f"[yellow]Scroll position not restored correctly. Got {current_position}px, expected ~{target_position}px[/yellow]"
+        logger.warning(
+            f"Scroll position not restored correctly. Got {current_position}px, expected ~{target_position}px"
         )
 
         for attempt in range(max_attempts):
             if attempt == 0:
                 # Try smooth scrolling
-                console.print("[dim]Trying smooth scroll restoration...[/dim]")
+                logger.debug("Trying smooth scroll restoration...")
                 page.evaluate(f"""
                     window.scrollTo({{
                         top: {target_position},
@@ -65,16 +59,14 @@ def restore_scroll_position(
                 """)
             elif attempt == 1:
                 # Try scrolling in steps
-                console.print("[dim]Trying step-by-step scroll restoration...[/dim]")
+                logger.debug("Trying step-by-step scroll restoration...")
                 step_size = target_position / 4
                 for step in range(1, 5):
                     page.evaluate(f"window.scrollTo(0, {int(step_size * step)})")
                     time.sleep(0.1)
             else:
                 # Last resort: scroll to bottom then partially back up
-                console.print(
-                    "[dim]Force-scrolling to bottom of page then adjusting...[/dim]"
-                )
+                logger.debug("Force-scrolling to bottom of page then adjusting...")
                 # First scroll all the way to bottom
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(0.3)
@@ -90,25 +82,25 @@ def restore_scroll_position(
             current_position = page.evaluate("window.scrollY")
 
             if abs(current_position - target_position) < SCROLL_POSITION_THRESHOLD:
-                console.print(
-                    f"[green]Scroll position restored on attempt {attempt + 1}: {current_position}px[/green]"
+                logger.success(
+                    f"Scroll position restored on attempt {attempt + 1}: {current_position}px"
                 )
                 return
 
-        console.print(
-            "[yellow]Could not precisely restore scroll position after multiple attempts[/yellow]"
+        logger.warning(
+            "Could not precisely restore scroll position after multiple attempts"
         )
         # As a last resort, just make sure we're not at the top of the page
         if current_position < 500:
-            console.print("[yellow]Emergency scroll to middle/bottom of page[/yellow]")
+            logger.warning("Emergency scroll to middle/bottom of page")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
     except Exception as e:
-        console.print(f"[red]Error restoring scroll position: {str(e)}[/red]")
+        logger.error(f"Error restoring scroll position: {str(e)}")
         # Make a final best-effort attempt if there was an error
         try:
             page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
         except Exception as e:
-            console.print(f"[yellow]Error in final scroll attempt: {str(e)}[/red]")
+            logger.error(f"Error in final scroll attempt: {str(e)}")
 
 
 def get_current_scroll_position(page: Page) -> int:
@@ -123,7 +115,7 @@ def get_current_scroll_position(page: Page) -> int:
     try:
         return page.evaluate("window.scrollY")
     except Exception as e:
-        console.print(f"[red]Error getting scroll position: {str(e)}[/red]")
+        logger.error(f"Error getting scroll position: {str(e)}")
         return 0
 
 
@@ -143,4 +135,4 @@ def scroll_to_bottom(page: Page, aggressive: bool = False) -> None:
         else:
             page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
     except Exception as e:
-        console.print(f"[red]Error scrolling to bottom: {str(e)}[/red]")
+        logger.error(f"Error scrolling to bottom: {str(e)}")

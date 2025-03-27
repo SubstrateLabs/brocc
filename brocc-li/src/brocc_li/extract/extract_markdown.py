@@ -1,10 +1,7 @@
 from playwright.sync_api import Page
 from typing import Optional
 from html_to_markdown import convert_to_markdown
-from rich.console import Console
-
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 # Minimum character length to consider extracted content valid
 MIN_CONTENT_LENGTH = 100
@@ -27,9 +24,7 @@ def extract_markdown(
         # Find all matching elements
         elements = page.query_selector_all(selector)
         if not elements:
-            console.print(
-                f"[yellow]No elements found with selector: '{selector}'[/yellow]"
-            )
+            logger.warning(f"No elements found with selector: '{selector}'")
             return None
 
         # Get the largest content (by length)
@@ -37,20 +32,18 @@ def extract_markdown(
 
         # Validate content length
         if len(largest_content) < min_length:
-            console.print(
-                f"[yellow]Content too short ({len(largest_content)} chars) with selector: '{selector}'[/yellow]"
+            logger.warning(
+                f"Content too short ({len(largest_content)} chars) with selector: '{selector}'"
             )
             return None
 
         # Convert to markdown
         content = convert_to_markdown(largest_content)
-        console.print(
-            f"[green]Successfully extracted content from '{selector}' ({len(largest_content)} chars)[/green]"
+        logger.success(
+            f"Successfully extracted content from '{selector}' ({len(largest_content)} chars)"
         )
         return content
 
     except Exception as e:
-        console.print(
-            f"[yellow]Error extracting content with selector '{selector}': {str(e)}[/yellow]"
-        )
+        logger.warning(f"Error extracting content with selector '{selector}': {str(e)}")
         return None

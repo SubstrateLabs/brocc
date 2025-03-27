@@ -1,14 +1,13 @@
 from playwright.sync_api import sync_playwright
-from rich.console import Console
 from typing import ClassVar, Optional
 import time
 import re
 from datetime import datetime, timedelta
 from brocc_li.types.document import DocumentExtractor, Document, Source
-from brocc_li.chrome import connect_to_chrome, open_new_tab
-from brocc_li.extract import (
-    ExtractField,
-    scroll_and_extract,
+from brocc_li.chrome_manager import ChromeManager
+from brocc_li.extract.extract_field import ExtractField
+from brocc_li.extract_feed import scroll_and_extract
+from brocc_li.types.extract_feed_config import (
     NavigateOptions,
     ExtractFeedConfig,
     ScrollConfig,
@@ -16,8 +15,7 @@ from brocc_li.extract import (
 from brocc_li.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.utils.storage import DocumentStorage
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
@@ -243,19 +241,27 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
 
         return parse(date_str)
     except:
-        console.print(f"[red]Could not parse date: {date_str}[/red]")
+        logger.error(f"Could not parse date: {date_str}")
         return None
 
 
 def main() -> None:
     with sync_playwright() as p:
-        browser = connect_to_chrome(p)
+        # Use ChromeManager
+        chrome_manager = ChromeManager()
+        browser = chrome_manager.connect(
+            p
+        )  # Connect (will handle launch/relaunch/connect logic)
+
         if not browser:
+            logger.error("Could not establish connection with Chrome.")
             return
 
         source_url = URL
-        page = open_new_tab(browser, source_url)
+        # Use the manager's open_new_tab method
+        page = chrome_manager.open_new_tab(browser, source_url)
         if not page:
+            # No need to close browser here
             return
 
         start_time = time.time()
@@ -264,15 +270,15 @@ def main() -> None:
         storage = None
         if USE_STORAGE:
             storage = DocumentStorage()
-            console.print(f"[dim]Using document storage at: {storage.db_path}[/dim]")
+            logger.debug(f"Using document storage at: {storage.db_path}")
 
         if MAX_ITEMS:
-            console.print(f"[dim]Maximum items: {MAX_ITEMS}[/dim]")
+            logger.debug(f"Maximum items: {MAX_ITEMS}")
 
         # Log date cutoff if active
         if STOP_AFTER_DATE:
-            console.print(
-                f"[green]Will stop extraction after reaching items older than: {STOP_AFTER_DATE}[/green]"
+            logger.success(
+                f"Will stop extraction after reaching items older than: {STOP_AFTER_DATE}"
             )
 
         # Initialize progress tracker
@@ -340,19 +346,21 @@ def main() -> None:
 
             elapsed_time = time.time() - start_time
             posts_per_minute = (len(docs) / elapsed_time) * 60
-            console.print(
-                f"\n[green]Successfully extracted {len(docs)} unique posts[/green]"
-                f"\n[blue]Collection rate: {posts_per_minute:.1f} posts/minute[/blue]"
-                f"\n[dim]Time taken: {elapsed_time:.1f} seconds[/dim]"
-            )
+            logger.success(f"Successfully extracted {len(docs)} unique posts")
+            logger.info(f"Collection rate: {posts_per_minute:.1f} posts/minute")
+            logger.debug(f"Time taken: {elapsed_time:.1f} seconds")
             if storage:
-                console.print(
-                    f"\n[dim]Documents stored in database: {storage.db_path}[/dim]"
-                )
+                logger.debug(f"Documents stored in database: {storage.db_path}")
         else:
-            console.print("[yellow]No posts found[/yellow]")
+            logger.warning("No posts found")
 
-        page.close()
+        # No need to close browser here
+        # if browser and browser.is_connected():
+        #     browser.close() # Don't close the externally managed browser
+
+        # Close the specific page when done
+        if page and not page.is_closed():
+            page.close()
 
 
 if __name__ == "__main__":

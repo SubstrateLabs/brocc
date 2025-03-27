@@ -1,0 +1,8 @@
+---
+description: 
+globs: brocc-li/src/brocc_li/*.py
+alwaysApply: false
+---
+Use [logger.py](mdc:brocc-li/src/brocc_li/utils/logger.py) to add logs. Logs should be:
+1. Focused (do not log in a redundant or overly noisy way. The signal to noise ratio should be high).
+2. Concise and well-formatted (pretty-format JSON, use newlines to wrap long content, truncate potentially long values injected into format strings)

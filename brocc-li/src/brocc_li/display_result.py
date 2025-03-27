@@ -1,11 +1,9 @@
-from rich.console import Console
 from rich.table import Table
 from rich.markdown import Markdown
 from typing import List, Dict, Any, Union, Tuple, Sequence, Optional
 import time
 from rich.text import Text
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 # Default styles for different types of content
 DEFAULT_STYLES = {
@@ -163,11 +161,11 @@ class ProgressTracker:
             status.append("Calculating...", style="dim")
 
         # Print the status line, overwriting the previous one
-        console.print(status)
+        logger.print(status)
 
         # If item info is provided, print it on a new line
         if item_info:
-            console.print(f"  → {item_info}", style="dim")
+            logger.print(f"  → {item_info}", style="dim")
 
 
 def display_items(
@@ -237,7 +235,7 @@ def display_items(
         show_header=True,
         header_style="bold magenta",
         show_lines=True,
-        width=console.width,
+        width=logger.console.width,
     )
 
     # Add columns with smart defaults
@@ -296,4 +294,4 @@ def display_items(
 
             table.add_row(*row_data)
 
-    console.print(table)
+    logger.print(table)

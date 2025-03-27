@@ -1,5 +1,4 @@
 from typing import Any, Dict, Set, Tuple, Generator
-from rich.console import Console
 import random
 from playwright.sync_api import (
     TimeoutError,
@@ -27,9 +26,7 @@ from brocc_li.extract.rate_limit_backoff_s import (
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
 )
 from brocc_li.types.extract_feed_config import ExtractFeedConfig
-
-console = Console()
-
+from brocc_li.utils.logger import logger
 
 MARKDOWN_FIELD_NAME = "content"
 MARKDOWN_FOLDER = "debug"
@@ -139,8 +136,8 @@ def handle_navigation(
     # First ensure we're on the correct starting page before attempting to navigate
     if page.url != original_url:
         if not ensure_original_page(page, original_url, config, scroll_position):
-            console.print(
-                "[red]Failed to establish starting page for deep scraping, skipping this item[/red]"
+            logger.error(
+                "Failed to establish starting page for deep scraping, skipping this item"
             )
             item[MARKDOWN_FIELD_NAME] = "Error: Navigation failure before scraping"
             return consecutive_timeouts
@@ -149,29 +146,25 @@ def handle_navigation(
         try:
             # Check if we're on an about:blank page, which indicates navigation issue
             if page.url == "about:blank" or not page.url:
-                console.print(
-                    "[yellow]About:blank detected, attempting to recover...[/yellow]"
-                )
+                logger.warning("About:blank detected, attempting to recover...")
                 if not ensure_original_page(
                     page, original_url, config, scroll_position
                 ):
                     retry_count += 1
-                    console.print(
-                        "[red]Failed to recover from about:blank, trying next retry[/red]"
+                    logger.error(
+                        "Failed to recover from about:blank, trying next retry"
                     )
                     continue
 
             if retry_count > 0:
-                console.print(
-                    f"[yellow]Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}[/yellow]"
-                )
+                logger.warning(f"Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}")
                 # Ensure we're back on the original page before retry
                 if not ensure_original_page(
                     page, original_url, config, scroll_position
                 ):
                     retry_count += 1
-                    console.print(
-                        "[red]Failed to return to original page for retry, continuing[/red]"
+                    logger.error(
+                        "Failed to return to original page for retry, continuing"
                     )
                     continue
 
@@ -185,9 +178,7 @@ def handle_navigation(
             navigation_success = navigate_to_item(page, config, item_position)
             if not navigation_success:
                 retry_count += 1
-                console.print(
-                    "[yellow]Failed to navigate to item, attempting retry[/yellow]"
-                )
+                logger.warning("Failed to navigate to item, attempting retry")
                 # Ensure we're back at the original page for the next attempt
                 ensure_original_page(page, original_url, config, scroll_position)
                 continue
@@ -198,7 +189,7 @@ def handle_navigation(
             consecutive_timeouts = new_consecutive_timeouts
 
         except Exception as e:
-            console.print(f"[red]Error during deep scraping: {str(e)}[/red]")
+            logger.error(f"Error during deep scraping: {str(e)}")
             retry_count += 1
             if retry_count <= NAVIGATE_MAX_RETRIES:
                 # Try to recover by ensuring we're back at the original page
@@ -215,9 +206,7 @@ def handle_navigation(
     if not ensure_original_page(page, original_url, config, scroll_position):
         # If we couldn't get back to the original page, try a more aggressive approach
         try:
-            console.print(
-                "[yellow]Final attempt to return to original page...[/yellow]"
-            )
+            logger.warning("Final attempt to return to original page...")
             page.goto(
                 original_url, wait_until="domcontentloaded"
             )  # Less strict wait condition
@@ -225,15 +214,13 @@ def handle_navigation(
                 # Try to restore scroll position one last time
                 if scroll_position > 0:
                     page.evaluate(f"window.scrollTo(0, {scroll_position})")
-                    console.print(
-                        f"[dim]Restored scroll position: {scroll_position}px[/dim]"
-                    )
+                    logger.debug(f"Restored scroll position: {scroll_position}px")
             else:
-                console.print(
-                    f"[red]Failed to return to original page after all attempts. Currently at: {page.url}[/red]"
+                logger.error(
+                    f"Failed to return to original page after all attempts. Currently at: {page.url}"
                 )
         except Exception as e:
-            console.print(f"[red]Fatal navigation error: {str(e)}[/red]")
+            logger.error(f"Fatal navigation error: {str(e)}")
 
     return consecutive_timeouts
 
@@ -267,7 +254,7 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         )
 
         if not url_field:
-            console.print("[yellow]URL field not found in schema[/yellow]")
+            logger.warning("URL field not found in schema")
             return False
 
         # Find the clickable element
@@ -284,24 +271,22 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         # Log that we're about to navigate
         try:
             href = clickable.get_attribute("href")
-            console.print(f"[dim]Navigating to: {href}[/dim]")
+            logger.debug(f"Navigating to: {href}")
         except Exception as e:
-            console.print(f"[dim]Navigating to item (href not available): {e}[/dim]")
+            logger.debug(f"Navigating to item (href not available): {e}")
 
         # Perform the click
         clickable.click()
 
         # Wait for navigation to complete with proper error handling
         if not wait_for_navigation(page, config):
-            console.print(
-                "[yellow]Navigation failed or resulted in invalid page[/yellow]"
-            )
+            logger.warning("Navigation failed or resulted in invalid page")
             return False
 
         return True
 
     except Exception as e:
-        console.print(f"[yellow]Navigation error: {str(e)}[/yellow]")
+        logger.warning(f"Navigation error: {str(e)}")
         return False
 
 
@@ -328,8 +313,8 @@ def ensure_original_page(
 
     # Handle invalid page state explicitly
     if not is_valid_page(page):
-        console.print(
-            "[yellow]Detected invalid page state, navigating directly to original URL[/yellow]"
+        logger.warning(
+            "Detected invalid page state, navigating directly to original URL"
         )
         try:
             page.goto(
@@ -342,25 +327,23 @@ def ensure_original_page(
             )
             # Verify we're actually back at the original URL
             if page.url == original_url:
-                console.print("[green]Successfully returned to original page[/green]")
+                logger.success("Successfully returned to original page")
                 # Restore scroll position with verification
                 if scroll_position > 0:
                     restore_scroll_position(page, scroll_position)
                 return True
             else:
-                console.print(
-                    f"[red]Failed to return to original page. Currently at: {page.url}[/red]"
+                logger.error(
+                    f"Failed to return to original page. Currently at: {page.url}"
                 )
                 return False
         except (TimeoutError, PlaywrightError) as e:
-            console.print(f"[red]Failed navigation to original URL: {str(e)}[/red]")
+            logger.error(f"Failed navigation to original URL: {str(e)}")
             return False
 
     # Try using browser history first
     try:
-        console.print(
-            "[dim]Attempting to use browser history to return to original page...[/dim]"
-        )
+        logger.debug("Attempting to use browser history to return to original page...")
         page.go_back()
         random_delay(0.5, 0.1)  # Brief delay to let the navigation complete
 
@@ -372,9 +355,7 @@ def ensure_original_page(
             return True
 
         # Otherwise try direct navigation
-        console.print(
-            "[yellow]Browser history navigation failed, trying direct navigation...[/yellow]"
-        )
+        logger.warning("Browser history navigation failed, trying direct navigation...")
         page.goto(
             original_url,
             wait_until="networkidle"
@@ -386,19 +367,17 @@ def ensure_original_page(
 
         # Verify we're actually back at the original URL
         if page.url == original_url:
-            console.print("[green]Successfully returned to original page[/green]")
+            logger.success("Successfully returned to original page")
             # Restore scroll position with verification
             if scroll_position > 0:
                 restore_scroll_position(page, scroll_position)
             return True
         else:
-            console.print(
-                f"[red]Failed to return to original page. Currently at: {page.url}[/red]"
-            )
+            logger.error(f"Failed to return to original page. Currently at: {page.url}")
             return False
 
     except (TimeoutError, PlaywrightError) as e:
-        console.print(f"[red]Failed all navigation attempts: {str(e)}[/red]")
+        logger.error(f"Failed all navigation attempts: {str(e)}")
         return False
 
 
@@ -426,9 +405,7 @@ def scroll_and_extract(
             config.container_selector, timeout=config.initial_load_timeout_ms
         )
     except Exception as e:
-        console.print(
-            f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]"
-        )
+        logger.error(f"Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}")
         return
 
     # Initialize storage if configured
@@ -438,16 +415,14 @@ def scroll_and_extract(
         from brocc_li.utils.storage import DocumentStorage
 
         storage = DocumentStorage(config.storage_path)
-        console.print(f"[dim]Using document storage: {storage.db_path}[/dim]")
+        logger.debug(f"Using document storage: {storage.db_path}")
 
     # Get seen URLs if using storage
     seen_urls: Set[str] = set()
     if storage:
         # Always load the seen URLs that have been seen for this source (across all locations)
         seen_urls = storage.get_seen_urls(source=config.source)
-        console.print(
-            f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}[/dim]"
-        )
+        logger.debug(f"Found {len(seen_urls)} previously seen URLs for {config.source}")
 
     items_yielded = 0
     no_new_items_count = 0
@@ -467,16 +442,14 @@ def scroll_and_extract(
     ):
         # If we've experienced significant rate limiting, abort the extraction
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD * 2:
-            console.print(
-                f"[red]Aborting extraction due to persistent rate limiting ({consecutive_timeouts} timeouts)[/red]"
+            logger.error(
+                f"Aborting extraction due to persistent rate limiting ({consecutive_timeouts} timeouts)"
             )
             return
 
         # Log the current consecutive timeouts count if it's non-zero
         if consecutive_timeouts > 0:
-            console.print(
-                f"[yellow]Current consecutive timeouts: {consecutive_timeouts}[/yellow]"
-            )
+            logger.warning(f"Current consecutive timeouts: {consecutive_timeouts}")
 
         # Skip expandable elements in turbo mode to speed things up
         if not is_turbo_mode and config.expand_item_selector:
@@ -486,7 +459,7 @@ def scroll_and_extract(
                         element.click()
                         page.wait_for_timeout(config.click_wait_timeout_ms)
                 except Exception as e:
-                    console.print(f"[red]Failed to expand element: {str(e)}[/red]")
+                    logger.error(f"Failed to expand element: {str(e)}")
 
         # Normal extraction mode
         current_items = extract_schema(
@@ -523,13 +496,13 @@ def scroll_and_extract(
                             item_date = parse(item_date)
 
                     if item_date < config.stop_after_date:
-                        console.print(
-                            f"[yellow]Reached date cutoff: item from {item_date} is older than {config.stop_after_date}[/yellow]"
+                        logger.warning(
+                            f"Reached date cutoff: item from {item_date} is older than {config.stop_after_date}"
                         )
                         date_cutoff_reached = True
                         break
                 except Exception as e:
-                    console.print(f"[yellow]Error parsing date: {str(e)}[/yellow]")
+                    logger.warning(f"Error parsing date: {str(e)}")
 
             url = item.get(URL_FIELD)
             if not url:
@@ -542,10 +515,8 @@ def scroll_and_extract(
 
                 # If continue_on_seen is False, we should STOP extraction when we hit a seen URL
                 if not config.continue_on_seen:
-                    console.print(f"[yellow]Found already seen URL: {url}[/yellow]")
-                    console.print(
-                        "[yellow]Stopping extraction as continue_on_seen is False[/yellow]"
-                    )
+                    logger.warning(f"Found already seen URL: {url}")
+                    logger.warning("Stopping extraction as continue_on_seen is False")
                     return  # Stop the generator immediately
 
                 # Otherwise, skip this item and continue
@@ -553,8 +524,8 @@ def scroll_and_extract(
 
             # Found an unseen URL - if we're in turbo mode, exit it to process content properly
             if is_turbo_mode:
-                console.print(
-                    "[green]Found unseen content, exiting turbo mode to process it properly[/green]"
+                logger.success(
+                    "Found unseen content, exiting turbo mode to process it properly"
                 )
                 is_turbo_mode = False
 
@@ -600,11 +571,11 @@ def scroll_and_extract(
 
             # If we've found some unseen content, exit turbo mode
             if new_items > 0 and is_turbo_mode:
-                console.print("[green]Found new items, exiting turbo mode[/green]")
+                logger.success("Found new items, exiting turbo mode")
                 is_turbo_mode = False
 
         if skipped_items > 0:
-            console.print(f"[dim]Skipped {skipped_items} already seen items[/dim]")
+            logger.debug(f"Skipped {skipped_items} already seen items")
 
         # Track if all items in this batch were already seen
         all_items_seen = skipped_items > 0 and skipped_items == len(current_items)
@@ -613,14 +584,14 @@ def scroll_and_extract(
         if all_items_seen:
             consecutive_all_seen += 1
             if consecutive_all_seen > 3 and not is_turbo_mode:
-                console.print(
-                    "[yellow]Multiple scrolls with only seen items, using fast-scroll mode...[/yellow]"
+                logger.warning(
+                    "Multiple scrolls with only seen items, using fast-scroll mode..."
                 )
         else:
             consecutive_all_seen = 0
             # If we find new items, exit turbo mode
             if new_items > 0 and is_turbo_mode:
-                console.print("[green]Found new items, exiting turbo mode[/green]")
+                logger.success("Found new items, exiting turbo mode")
                 is_turbo_mode = False
 
         # If we're continuing on seen items but still finding new ones,
@@ -635,8 +606,8 @@ def scroll_and_extract(
                 and total_skipped > 0
                 and no_new_items_count < config.scroll_config.max_no_new_items
             ):
-                console.print(
-                    "[dim]No new items this scroll, but continuing to look for unseen content...[/dim]"
+                logger.debug(
+                    "No new items this scroll, but continuing to look for unseen content..."
                 )
 
         # NEW: Track container count to detect when we've truly reached the end of the feed
@@ -668,15 +639,15 @@ def scroll_and_extract(
                 >= config.scroll_config.max_consecutive_same_height - 1
                 and no_new_items_count >= config.scroll_config.max_no_new_items - 1
             ):
-                console.print(
-                    f"[yellow]Reached end of feed: No new containers after {no_new_items_count} scrolls[/yellow]"
+                logger.warning(
+                    f"Reached end of feed: No new containers after {no_new_items_count} scrolls"
                 )
                 break  # Exit loop - we've truly reached the end
 
             # If we're getting more containers but they're all seen, be persistent and keep scrolling
             if len(new_containers) > previous_container_count:
-                console.print(
-                    f"[dim]Found more containers ({len(new_containers)} vs {previous_container_count}), continuing to scroll...[/dim]"
+                logger.debug(
+                    f"Found more containers ({len(new_containers)} vs {previous_container_count}), continuing to scroll..."
                 )
                 # Be more lenient with no_new_items_count when we're finding more containers
                 if no_new_items_count > 0 and skipped_items > 0:
@@ -693,7 +664,7 @@ def scroll_and_extract(
 
         # If we've reached the date cutoff, exit the loop
         if date_cutoff_reached:
-            console.print(
-                f"[yellow]Stopping extraction as items older than {config.stop_after_date} have been reached[/yellow]"
+            logger.warning(
+                f"Stopping extraction as items older than {config.stop_after_date} have been reached"
             )
             break

@@ -1,9 +1,6 @@
 from typing import Any
 from brocc_li.types.extract_field import ExtractField
-from rich.console import Console
-
-
-console = Console()
+from brocc_li.utils.logger import logger
 
 
 def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> Any:
@@ -16,8 +13,8 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
             element.query_selector(field.selector) if field.selector else element
         )
         if not container:
-            console.print(
-                f"[dim]No container found for {parent_key} with selector {field.selector}[/dim]"
+            logger.debug(
+                f"No container found for {parent_key} with selector {field.selector}"
             )
             return {}
         return {
@@ -42,8 +39,8 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
 
     element = element.query_selector(field.selector) if field.selector else element
     if not element:
-        console.print(
-            f"[dim]No element found for {parent_key} with selector {field.selector}[/dim]"
+        logger.debug(
+            f"No element found for {parent_key} with selector {field.selector}"
         )
         return None
 
