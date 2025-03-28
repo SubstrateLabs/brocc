@@ -1,5 +1,5 @@
 import type { RedisTokenStore } from "./redis-token-store";
-import type { CookieStore } from "./cookie-store";
+import type { NextCookieStore } from "./next-cookie-store";
 import { OAuth2RequestError, ArcticFetchError } from "arctic";
 import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { ValidateOAuthCodeFn } from "@/lib/oauth/provider-interface";
@@ -30,7 +30,7 @@ export async function handleCallback({
   domain: OauthProvider;
   userId: string;
   tokenStore: RedisTokenStore;
-  cookieStore: CookieStore;
+  cookieStore: NextCookieStore;
   code: string;
 }): Promise<HandleCallbackRes> {
   try {

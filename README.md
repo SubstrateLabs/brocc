@@ -1,6 +1,6 @@
 # 🥦 BROCCLI (brocc): BRowser Observation Content Collection Liquid Interface
 
-- oauth token route for cli
+- cli oauth implementation
 - rework scrape abstraction
 - entrypoint is "all tabs": basic scrape, or feed scrape if available (no scroll)
 - storage should _not_ update doc with same url... only update existing doc if content is identical

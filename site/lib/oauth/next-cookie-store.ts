@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
-import { CookieStore } from "./cookie-store";
 import { getEnvVar } from "@/lib/get-env-var";
 
-export class NextCookieStore extends CookieStore {
+export class NextCookieStore {
+  constructor() {}
+
   async setEphemeral({ name, value }: { name: string; value: string }): Promise<void> {
     const cookieStore = await cookies();
     const secureOpt = getEnvVar("NODE_ENV") === "production";
