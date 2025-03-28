@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { getEnvVar } from "@/lib/get-env-var";
 
-export class NextCookieStore {
+export class CookieStore {
   constructor() {}
 
   async setEphemeral({ name, value }: { name: string; value: string }): Promise<void> {

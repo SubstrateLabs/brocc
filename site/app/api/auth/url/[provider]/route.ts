@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { NextCookieStore } from "@/lib/oauth/next-cookie-store";
+import { CookieStore } from "@/lib/oauth/cookie-store";
 import { type OauthProvider, OAUTH_PROVIDERS } from "@/lib/oauth/providers/oauth-providers";
 
 // Provider-specific modules
@@ -9,7 +9,7 @@ import { createOAuthUrl as createSlackOAuthUrl, SlackScopes } from "@/lib/oauth/
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ): Promise<NextResponse> {
   const { provider } = await params;
   if (!OAUTH_PROVIDERS.includes(provider as OauthProvider)) {
@@ -17,7 +17,7 @@ export async function POST(
   }
   const body = await req.json().catch(() => ({}));
   const account = body.account || null;
-  const cookieStore = new NextCookieStore();
+  const cookieStore = new CookieStore();
 
   let oauthUrl;
   switch (provider) {

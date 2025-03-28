@@ -16,11 +16,10 @@ export interface TokenData {
   providerMetadata?: Record<string, unknown> | null;
 }
 
-
 const PREFIX = "oauth";
 const TOKEN_TTL = 3600; // 1 hour
 
-export class RedisTokenStore {
+export class TokenStore {
   private redis: Redis;
 
   constructor() {

@@ -1,5 +1,5 @@
-import type { RedisTokenStore } from "./redis-token-store";
-import type { NextCookieStore } from "./next-cookie-store";
+import type { TokenStore } from "./token-store";
+import type { CookieStore } from "./cookie-store";
 import { OAuth2RequestError, ArcticFetchError } from "arctic";
 import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { ValidateOAuthCodeFn } from "@/lib/oauth/provider-interface";
@@ -12,7 +12,6 @@ export const VALIDATE_FUNCTIONS: Record<string, ValidateOAuthCodeFn> = {
   google: validateGoogleOAuthCode,
   slack: validateSlackOAuthCode,
 };
-
 
 export enum HandleCallbackRes {
   Success = "success",
@@ -29,8 +28,8 @@ export async function handleCallback({
 }: {
   domain: OauthProvider;
   userId: string;
-  tokenStore: RedisTokenStore;
-  cookieStore: NextCookieStore;
+  tokenStore: TokenStore;
+  cookieStore: CookieStore;
   code: string;
 }): Promise<HandleCallbackRes> {
   try {
