@@ -32,7 +32,7 @@ async function main() {
     console.log("[DEBUG] Schema objects:", Object.keys(schema));
 
     // Order matters due to foreign key constraints
-    const tableNames = ["user_links", "global_links", "api_keys", "users"];
+    const tableNames = ["api_keys", "users"];
     console.log("[DEBUG] Detected tables:", tableNames);
     if (tableNames.length === 0) {
       console.warn("⚠️  No tables detected in schema!");
