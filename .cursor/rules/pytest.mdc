@@ -3,7 +3,6 @@ description:
 globs: *test_*.py
 alwaysApply: false
 ---
-
 # Python tests
 
 - Always use pytest to write tests

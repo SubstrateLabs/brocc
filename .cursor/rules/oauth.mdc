@@ -1,0 +1,20 @@
+---
+description: 
+globs: site/lib/oauth/**/*.ts
+alwaysApply: false
+---
+# Adding OAuth Providers
+
+## Overview
+- OAuth token data is stored in Redis with a short (1hr) TTL.
+- The CLI initiates the oauth flow, and stores tokens locally (retrieved from redis within the TTL)
+
+## Adding a new provider
+- Update [oauth-providers.ts](mdc:site/lib/oauth/providers/oauth-providers.ts) with the new provider slug
+- Add a provider to `lib/oauth/providers` following [provider-interface.ts](mdc:site/lib/oauth/provider-interface.ts)
+  - example: [slack.ts](mdc:site/lib/oauth/providers/slack.ts)
+- Update [handle-callback.ts](mdc:site/lib/oauth/handle-callback.ts) with the validate function
+- Update [route.ts](mdc:site/app/api/auth/url/[provider]/route.ts) with the oauth url function
+
+## API design notes
+- We don't handle "incremental auth". This adds complexity, as it would require storing scopes, and requesting old scopes along with new scopes. Only some providers (e.g. Google) support it. In general, we prioritize simplicity of adding new providers.
