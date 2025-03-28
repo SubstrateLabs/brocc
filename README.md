@@ -1,4 +1,4 @@
-# BROCCLI (brocc): Browser Observation Content Collection Liquid Interface
+# 🥦 BROCCLI (brocc): BRowser Observation Content Collection Liquid Interface
 
 - update apikeys to include openrouter + brocc
 - mint litellm api key in login flow
@@ -17,11 +17,7 @@
   REMOVE image
   keywords
 
-- remove redis dependency?
-- .env.EXAMPLE
-
-latest best academic paper scraping tool embeddable
-
+- research latest best academic paper scraping tool
 - litellm + pydanticai
 - markdown chunking
 - store in lancedb with chunking approach
