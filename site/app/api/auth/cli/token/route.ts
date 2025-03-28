@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthToken } from "@/lib/redis";
 
-// Endpoint for CLI to poll for token
+// Endpoint for CLI to poll for login token
 export async function GET(request: NextRequest) {
   try {
-    // Get session ID from query params
     const sessionId = request.nextUrl.searchParams.get("sessionId");
     if (!sessionId) {
       return NextResponse.json({ error: "Missing sessionId parameter" }, { status: 400 });

@@ -1,6 +1,3 @@
-/**
- * NOTE: currently unused, brought over from old dolly webscraping project
- */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { apiKeys } from "@/db/schema/api-keys";

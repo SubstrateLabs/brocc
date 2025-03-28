@@ -36,8 +36,8 @@ export async function handleCallback({
   try {
     const res = await VALIDATE_FUNCTIONS[domain]({ code, cookieStore });
     if (!res.refreshToken) {
-      // Potential issue if we don't have a saved refresh token
-      // but some providers (e.g. notion) don't support refresh tokens
+      // TODO: Potential issue if we don't have a saved refresh token add observability here
+      // note that some providers (e.g. notion) don't support refresh tokens
       console.warn("Missing refresh token");
     }
     await tokenStore.saveTokenData({
@@ -48,7 +48,7 @@ export async function handleCallback({
         refreshToken: res.refreshToken,
         providerMetadata: res.providerMetadata,
       },
-      workosUserId: userId,
+      userId: userId,
       account: res.account,
     });
     return HandleCallbackRes.Success;

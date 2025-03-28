@@ -34,27 +34,27 @@ export class RedisTokenStore {
     domain,
     data,
     account,
-    workosUserId,
+    userId,
   }: {
     domain: OauthProvider;
     data: TokenData;
     account: string;
-    workosUserId: string;
+    userId: string;
   }) {
-    const key = this.dataKey(domain, account, workosUserId);
+    const key = this.dataKey(domain, account, userId);
     await this.setData(key, data);
   }
 
   async getTokenData({
     domain,
     account,
-    workosUserId,
+    userId,
   }: {
     domain: OauthProvider;
     account: string;
-    workosUserId: string;
+    userId: string;
   }): Promise<TokenData | null> {
-    const key = this.dataKey(domain, account, workosUserId);
+    const key = this.dataKey(domain, account, userId);
     return await this.getData(key);
   }
 
@@ -67,7 +67,7 @@ export class RedisTokenStore {
     await this.redis.set(key, data, { ex: TOKEN_TTL });
   }
 
-  private readonly dataKey = (domain: OauthProvider, account: string, workosUserId: string): string => {
-    return `${PREFIX}.${domain}::${account}::${workosUserId}`;
+  private readonly dataKey = (domain: OauthProvider, account: string, userId: string): string => {
+    return `${PREFIX}.${domain}::${account}::${userId}`;
   };
 }

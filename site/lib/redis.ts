@@ -142,7 +142,7 @@ export async function setObject<T>(key: string, value: T, ttlSeconds?: number): 
 }
 
 /**
- * Caches a user ID for an API key
+ * Caches a user ID for an API key (db user id, not workos user id)
  */
 export async function cacheApiKeyUserId(apiKey: string, userId: string): Promise<void> {
   const cacheKey = buildKey(API_KEY_CACHE_PREFIX, apiKey);

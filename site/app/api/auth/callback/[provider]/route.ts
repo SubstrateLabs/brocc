@@ -4,6 +4,7 @@ import { RedisTokenStore } from "@/lib/oauth/redis-token-store";
 import { NextCookieStore } from "@/lib/oauth/next-cookie-store";
 import { handleCallback, HandleCallbackRes } from "@/lib/oauth/handle-callback";
 import { type OauthProvider, OAUTH_PROVIDERS } from "@/lib/oauth/providers/oauth-providers";
+import { getUser } from "@/lib/workos";
 
 export async function GET(
   request: Request,
@@ -21,9 +22,17 @@ export async function GET(
   const searchParams = url.searchParams;
   const code = searchParams.get("code") as string;
   
+  // Get the database user from the workos user ID
+  const dbUser = await getUser(user.id);
+  if (!dbUser) {
+    console.error(`No database user found for WorkOS user ID: ${user.id}`);
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  const userId = dbUser.id;
   const res = await handleCallback({
     domain: provider as OauthProvider,
-    userId: user.id,
+    userId,
     tokenStore,
     cookieStore,
     code,

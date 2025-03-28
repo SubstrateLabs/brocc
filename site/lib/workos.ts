@@ -1,7 +1,31 @@
 import { WorkOS } from "@workos-inc/node";
 import { getEnvVar } from "./get-env-var";
+import { db } from "@/db";
+import { getCachedUser, cacheUser, type CachedUser } from "./redis";
+import { users } from "@/db/schema/users";
+import { eq } from "drizzle-orm";
 
 const workos = new WorkOS(getEnvVar("WORKOS_API_KEY"));
+
+/**
+ * Get the user for a given workos user ID
+ * @param workosUserId - The workos user ID
+ * @returns The user or null if not found
+ */
+export async function getUser(workosUserId: string): Promise<CachedUser | null> {
+  const user = await getCachedUser(workosUserId);
+  if (!user) {
+    const dbUser = await db.query.users.findFirst({
+      where: eq(users.workosUserId, workosUserId),
+    });
+    if (dbUser) {
+      await cacheUser(workosUserId, dbUser);
+      return dbUser;
+    }
+    return null;
+  }
+  return user;
+}
 
 /**
  * Counts all WorkOS users
