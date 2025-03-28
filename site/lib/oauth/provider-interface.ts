@@ -1,4 +1,4 @@
-import type { TokenStore, TokenData } from "./token-store";
+import type { TokenData } from "./redis-token-store";
 import type { CookieStore } from "./cookie-store";
 
 /**
@@ -12,9 +12,7 @@ export interface ScopeInfo {
 
 /** Create an OAuth URL */
 export type CreateOAuthUrlFn = (params: {
-  tokenStore: TokenStore;
   cookieStore: CookieStore;
-  userId: string;
   scopes: string[];
   // some providers (e.g. notion) don't support specifying an account
   account?: string | null;

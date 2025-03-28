@@ -1,12 +1,42 @@
 /**
  * https://arcticjs.dev/providers/google
+ * TODO: split into multiple providers for specific google services
  */
 import { Google, generateState, generateCodeVerifier, decodeIdToken } from "arctic";
-import { incrementalAuthScopes } from "../incremental-auth";
 import type { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { oauthRedirectUri } from "../oauth-urls";
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { getEnvVar } from "@/lib/get-env-var";
+import { type ScopeInfo } from "../provider-interface";
+
+export enum GoogleScopeCategory {
+  Profile = "profile",
+  Sheets = "sheets",
+  Docs = "docs",
+}
+
+/**
+ * https://developers.google.com/identity/protocols/oauth2/scopes
+ */
+export const GoogleScopes: Record<string, ScopeInfo> = {
+  // Standard profile info – do not describe
+  openid: { category: GoogleScopeCategory.Profile },
+  profile: { category: GoogleScopeCategory.Profile },
+  email: { category: GoogleScopeCategory.Profile },
+  /**
+   * These are "sensitive" (not "restricted") scopes.
+   * Add here: https://console.cloud.google.com/auth/scopes?inv=1&invt=Abrx4g&project=broccolink-453420
+   */
+  "https://www.googleapis.com/auth/spreadsheets.readonly": {
+    description: "View Sheets",
+    category: GoogleScopeCategory.Sheets,
+  },
+  "https://www.googleapis.com/auth/documents.readonly": {
+    description: "View Docs",
+    category: GoogleScopeCategory.Docs,
+  },
+};
+
 
 const DOMAIN: OauthProvider = "google";
 const CLIENT_ID = getEnvVar("GOOGLE_OAUTH_CLIENT_ID");
@@ -18,23 +48,16 @@ function authClient(): Google {
   return new Google(CLIENT_ID, CLIENT_SECRET, redirectUri);
 }
 
-export const createOAuthUrl: CreateOAuthUrlFn = async ({ tokenStore, cookieStore, userId, scopes, account }) => {
+export const createOAuthUrl: CreateOAuthUrlFn = async ({ cookieStore, scopes, account }) => {
   try {
     const client = authClient();
-    const fullScopes = await incrementalAuthScopes({
-      store: tokenStore,
-      scopes,
-      domain: DOMAIN,
-      userId,
-      account,
-    });
-    const state = generateState();
+   const state = generateState();
     const codeVerifier = generateCodeVerifier();
     await cookieStore.setEphemeral({
       name: VERIFY_COOKIE,
       value: codeVerifier,
     });
-    const url = client.createAuthorizationURL(state, codeVerifier, fullScopes);
+    const url = client.createAuthorizationURL(state, codeVerifier, scopes);
     // get a refresh token, for offline data ingestion
     url.searchParams.set("access_type", "offline");
     // https://developers.google.com/identity/openid-connect/openid-connect#login-hint

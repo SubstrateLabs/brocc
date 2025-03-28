@@ -4,8 +4,21 @@
 import { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { Notion, generateState } from "arctic";
 import { oauthRedirectUri } from "../oauth-urls";
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { getEnvVar } from "../../get-env-var";
+import { type ScopeInfo } from "../provider-interface";
+
+/**
+ * https://developers.notion.com/reference/capabilities
+ * Notion scopes can only be configured in Integration settings.
+ */
+export const NotionScopes: Record<string, ScopeInfo> = {
+  // Read content
+  // Read comments on blocks and pages
+  // Read user information, including email addresses
+  // (unclear if this is all users in the workspace)
+};
+
 
 const DOMAIN: OauthProvider = "notion";
 const CLIENT_ID = getEnvVar("NOTION_OAUTH_CLIENT_ID");
@@ -21,9 +34,7 @@ function authClient(): Notion {
  * https://developers.notion.com/docs/authorization#step-1-navigate-the-user-to-the-integrations-authorization-url
  */
 export const createOAuthUrl: CreateOAuthUrlFn = async ({
-  tokenStore: _tokenStore, // unused because no scopes
   cookieStore,
-  userId: _userId,
   scopes: _scopes, // scopes can't be set
   account: _account, // account can't be specified
 }) => {

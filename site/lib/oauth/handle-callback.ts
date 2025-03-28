@@ -1,8 +1,18 @@
-import type { TokenStore } from "./token-store";
+import type { RedisTokenStore } from "./redis-token-store";
 import type { CookieStore } from "./cookie-store";
 import { OAuth2RequestError, ArcticFetchError } from "arctic";
-import { VALIDATE_FUNCTIONS } from "./all-validate-fns";
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
+import { ValidateOAuthCodeFn } from "@/lib/oauth/provider-interface";
+import { validateOAuthCode as validateNotionOAuthCode } from "@/lib/oauth/providers/notion";
+import { validateOAuthCode as validateGoogleOAuthCode } from "@/lib/oauth/providers/google";
+import { validateOAuthCode as validateSlackOAuthCode } from "@/lib/oauth/providers/slack";
+
+export const VALIDATE_FUNCTIONS: Record<string, ValidateOAuthCodeFn> = {
+  notion: validateNotionOAuthCode,
+  google: validateGoogleOAuthCode,
+  slack: validateSlackOAuthCode,
+};
+
 
 export enum HandleCallbackRes {
   Success = "success",
@@ -16,14 +26,12 @@ export async function handleCallback({
   tokenStore,
   cookieStore,
   code,
-  scope,
 }: {
   domain: OauthProvider;
   userId: string;
-  tokenStore: TokenStore;
+  tokenStore: RedisTokenStore;
   cookieStore: CookieStore;
   code: string;
-  scope: string;
 }): Promise<HandleCallbackRes> {
   try {
     const res = await VALIDATE_FUNCTIONS[domain]({ code, cookieStore });
@@ -42,8 +50,6 @@ export async function handleCallback({
       },
       workosUserId: userId,
       account: res.account,
-      // note: some providers (e.g. slack) don't return scope in validate response
-      scope,
     });
     return HandleCallbackRes.Success;
   } catch (error) {

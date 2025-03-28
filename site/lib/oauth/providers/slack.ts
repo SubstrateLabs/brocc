@@ -3,10 +3,46 @@
  */
 import { CreateOAuthUrlFn, ValidateOAuthCodeFn } from "../provider-interface";
 import { Slack, generateState, decodeIdToken } from "arctic";
-import { incrementalAuthScopes } from "../incremental-auth";
 import { oauthRedirectUri } from "@/lib/oauth/oauth-urls";
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { getEnvVar } from "@/lib/get-env-var";
+import { type ScopeInfo } from "../provider-interface";
+
+export enum SlackScopeCategory {
+  MessageInfo = "message_info", // e.g. bookmarks, pins, urls
+  PublicMessages = "public_messages",
+}
+
+/**
+ * https://api.slack.com/scopes?filter=user
+ */
+export const SlackScopes: Record<string, ScopeInfo> = {
+  /**
+   * Note: User permissions (not Bot or Legacy bot)
+   * https://api.slack.com/apps/A0834UYR7CK/oauth
+   */
+  "channels:history": {
+    description: "View public channel messages",
+    category: SlackScopeCategory.PublicMessages,
+  },
+  "channels:read": {
+    description: "View public channel info",
+    category: SlackScopeCategory.PublicMessages,
+  },
+  "bookmarks:read": {
+    description: "View bookmarks",
+    category: SlackScopeCategory.MessageInfo,
+  },
+  "links:read": {
+    description: "View URLs in messages",
+    category: SlackScopeCategory.MessageInfo,
+  },
+  "pins:read": {
+    description: "View pinned messages",
+    category: SlackScopeCategory.MessageInfo,
+  },
+};
+
 
 const DOMAIN: OauthProvider = "slack";
 const CLIENT_ID = getEnvVar("SLACK_OAUTH_CLIENT_ID");
@@ -21,17 +57,9 @@ function authClient(): Slack {
 /**
  * https://api.slack.com/authentication/oauth-v2#asking
  */
-export const createOAuthUrl: CreateOAuthUrlFn = async ({ tokenStore, cookieStore, userId, scopes, account }) => {
+export const createOAuthUrl: CreateOAuthUrlFn = async ({ cookieStore, scopes, account }) => {
   try {
-    const fullScopes = await incrementalAuthScopes({
-      store: tokenStore,
-      scopes,
-      domain: DOMAIN,
-      userId,
-      account,
-    });
-
-    const state = generateState();
+   const state = generateState();
     await cookieStore.setEphemeral({
       name: VERIFY_COOKIE,
       value: state,
@@ -42,7 +70,7 @@ export const createOAuthUrl: CreateOAuthUrlFn = async ({ tokenStore, cookieStore
     const url = new URL("https://slack.com/oauth/v2/authorize");
     url.searchParams.set("client_id", CLIENT_ID);
     // user_scope is required for regular API scopes
-    url.searchParams.set("user_scope", fullScopes.join(" "));
+    url.searchParams.set("user_scope", scopes.join(" "));
     url.searchParams.set("state", state);
     url.searchParams.set("redirect_uri", oauthRedirectUri({ domain: DOMAIN }));
 

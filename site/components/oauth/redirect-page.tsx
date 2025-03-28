@@ -1,6 +1,6 @@
 import { getProviderIcon } from "./provider-icon";
 import "@/lib/string-extensions";
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 
 export default function RedirectPage({ domain, error }: { domain: OauthProvider; error?: string | null }) {
   const icon = getProviderIcon(domain);

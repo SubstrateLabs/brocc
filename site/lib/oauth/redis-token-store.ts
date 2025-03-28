@@ -1,53 +1,73 @@
 import { Redis } from "@upstash/redis";
-import { TokenStore, type TokenAccount, type TokenData } from "./token-store";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 import { getEnvVar } from "../get-env-var";
 
-export class RedisTokenStore extends TokenStore {
+/**
+ * Some providers vend never-expiring access tokens.
+ * Others vend short-lived access tokens + refresh tokens.
+ * Remember to include provider-specific metadata.
+ * @field accessTokenExpiresAt: not all access tokens expire
+ * @field refreshToken: for refresh tokens + expiring access token
+ */
+export interface TokenData {
+  accessToken: string;
+  accessTokenExpiresAt?: string | null;
+  refreshToken?: string | null;
+  providerMetadata?: Record<string, unknown> | null;
+}
+
+
+const PREFIX = "oauth";
+const TOKEN_TTL = 3600; // 1 hour
+
+export class RedisTokenStore {
   private redis: Redis;
 
   constructor() {
-    super();
     this.redis = new Redis({
       url: getEnvVar("REDIS_URL"),
       token: getEnvVar("REDIS_TOKEN"),
     });
   }
 
-  protected async getAccounts(key: string): Promise<TokenAccount[]> {
-    const val = await this.redis.get(key);
-    return (val as TokenAccount[]) || [];
+  async saveTokenData({
+    domain,
+    data,
+    account,
+    workosUserId,
+  }: {
+    domain: OauthProvider;
+    data: TokenData;
+    account: string;
+    workosUserId: string;
+  }) {
+    const key = this.dataKey(domain, account, workosUserId);
+    await this.setData(key, data);
   }
 
-  protected async setAccounts(key: string, accounts: TokenAccount[]): Promise<void> {
-    await this.redis.set(key, accounts);
+  async getTokenData({
+    domain,
+    account,
+    workosUserId,
+  }: {
+    domain: OauthProvider;
+    account: string;
+    workosUserId: string;
+  }): Promise<TokenData | null> {
+    const key = this.dataKey(domain, account, workosUserId);
+    return await this.getData(key);
   }
 
-  protected async getData(key: string): Promise<TokenData | null> {
+  private async getData(key: string): Promise<TokenData | null> {
     const data = await this.redis.get(key);
     return data as TokenData | null;
   }
 
-  protected async setData(key: string, data: TokenData | null): Promise<void> {
-    await this.redis.set(key, data);
+  private async setData(key: string, data: TokenData | null): Promise<void> {
+    await this.redis.set(key, data, { ex: TOKEN_TTL });
   }
 
-  protected async removeData(key: string): Promise<void> {
-    await this.redis.del(key);
-  }
-
-  protected async updateAccount(key: string, account: string, update: Partial<TokenAccount>): Promise<void> {
-    const accounts = await this.getAccounts(key);
-    const accountIndex = accounts.findIndex((a) => a.account === account);
-
-    if (accountIndex === -1) {
-      throw new Error(`Account ${account} not found in ${key}`);
-    }
-
-    accounts[accountIndex] = {
-      ...accounts[accountIndex],
-      ...update,
-    };
-
-    await this.setAccounts(key, accounts);
-  }
+  private readonly dataKey = (domain: OauthProvider, account: string, workosUserId: string): string => {
+    return `${PREFIX}.${domain}::${account}::${workosUserId}`;
+  };
 }

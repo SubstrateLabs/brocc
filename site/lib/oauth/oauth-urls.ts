@@ -1,4 +1,4 @@
-import { type OauthProvider } from "@/lib/oauth/types";
+import { type OauthProvider } from "@/lib/oauth/providers/oauth-providers";
 
 export function oauthCreatePath({ domain, account }: { domain: OauthProvider; account?: string | null }): string {
   if (account) {
