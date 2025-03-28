@@ -64,7 +64,7 @@ async function handleCustomFlow(request: NextRequest) {
     existingUser = newUser;
   } else {
     // Ensure existing user has all required resources
-    await ensureUserResources(existingUser.id, db);
+    await ensureUserResources(existingUser, db);
   }
 
   // Get the user's API key for CLI flows
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
           console.log(`Created new user for WorkOS ID: ${user.id}`);
         } else {
           // Ensure existing user has all required resources
-          await ensureUserResources(existingUser.id, db);
+          await ensureUserResources(existingUser, db);
         }
       },
     });
