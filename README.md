@@ -1,12 +1,32 @@
-# brocc
+# BROCCLI (brocc): Browser Observation Content Collection Liquid Interface
 
-- cli login flow
+- update apikeys to include openrouter + brocc
+- mint litellm api key in login flow
 - rework oauth token storage to not store in redis, store in cli
+- rework scrape abstraction
+- entrypoint is "all tabs": basic scrape, or feed scrape if available (no scroll)
+- storage should _not_ update doc with same url... only update existing doc if content is identical
+- new schema:
+  author->
+  contact_name
+  contact_identifier
+  contact_metadata
+  participant_metadatas
+  embedded_at
+  source_type (document default, contact, conversation)
+  REMOVE image
+  keywords
+
+- remove redis dependency?
+- .env.EXAMPLE
+
+latest best academic paper scraping tool embeddable
+
 - litellm + pydanticai
 - markdown chunking
-- investigate litellm and alternatives
 - store in lancedb with chunking approach
-- contacts sync: twitter, linkedin
+- mdx site
+- shadcn sidebar site
 
 ## backlog
 

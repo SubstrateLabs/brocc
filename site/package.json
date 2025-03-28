@@ -7,9 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "schema-push": "drizzle-kit push"
+    "schema-push": "drizzle-kit push",
+    "clear-workos": "bun scripts/clear-workos.ts",
+    "clear-postgres": "bun scripts/clear-postgres.ts",
+    "clear-blob": "bun scripts/clear-blob.ts",
+    "clear-redis": "bun scripts/clear-redis.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.777.0",
     "@icons-pack/react-simple-icons": "^12.3.0",
     "@neondatabase/serverless": "^0.10.4",
     "@radix-ui/react-slot": "^1.1.2",

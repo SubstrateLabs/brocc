@@ -156,3 +156,22 @@ export async function getCachedApiKeyUserId(apiKey: string): Promise<string | nu
   const cacheKey = buildKey(API_KEY_CACHE_PREFIX, apiKey);
   return await getObject<string>(cacheKey);
 }
+
+// Dev utils
+/**
+ * Counts all entries in Redis
+ */
+export async function countRedisEntries(): Promise<number> {
+  const redis = await getRedis();
+  const count = await redis.dbsize();
+  return count;
+}
+
+/**
+ * Clears all entries in Redis
+ */
+export async function clearRedis(): Promise<void> {
+  const redis = await getRedis();
+  await redis.flushall();
+  console.log("[redis] ✨ Redis cleared successfully");
+}
