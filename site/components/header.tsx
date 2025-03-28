@@ -21,14 +21,14 @@ export function Header({ user, signInUrl }: HeaderProps) {
     <header className="w-full flex justify-between items-center border-b border-border p-2">
       <div>
         <Link href="/">
-          <Button variant="outline" size="sm" className="border-0 shadow-none">
+          <Button variant="outline" size="sm" className="border-0 shadow-none font-mono" style={{ fontFamily: 'Berkeley Mono Variable, monospace' }}>
             <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="" />
             brocc.
           </Button>
         </Link>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 font-mono" style={{ fontFamily: 'Berkeley Mono Variable, monospace' }}>
         {isOnHome && !user && (
           <Link href={signInUrl}>
             <Button variant="outline" size="sm">

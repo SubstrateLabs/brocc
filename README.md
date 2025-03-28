@@ -1,7 +1,5 @@
 # 🥦 BROCCLI (brocc): BRowser Observation Content Collection Liquid Interface
 
-- update apikeys to include openrouter + brocc
-- mint litellm api key in login flow
 - rework oauth token storage to not store in redis, store in cli
 - rework scrape abstraction
 - entrypoint is "all tabs": basic scrape, or feed scrape if available (no scroll)

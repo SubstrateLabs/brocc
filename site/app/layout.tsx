@@ -1,7 +1,7 @@
 import "./globals.css";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SWRConfig } from "swr";
@@ -12,11 +12,7 @@ const ibmPlexSans = IBM_Plex_Sans({
   weight: ["400", "500", "600", "700"],
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-ibm-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
+// Berkeley Mono Variable is loaded via @font-face in globals.css
 
 export const metadata: Metadata = {
   title: "brocc.",
@@ -50,8 +46,16 @@ export default async function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head />
-      <body className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} antialiased`}>
+      <head>
+        <link 
+          rel="preload" 
+          href="/BerkeleyMonoVariable.woff2" 
+          as="font" 
+          type="font/woff2" 
+          crossOrigin="anonymous" 
+        />
+      </head>
+      <body className={`${ibmPlexSans.variable} antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <AuthKitProvider>
             <SWRConfig
