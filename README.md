@@ -16,8 +16,8 @@
   keywords
 
 - research latest best academic paper scraping tool
-- litellm + pydanticai
-- markdown chunking
+- research latest markdown chunking techniques
+- pydanticai + openrouter setup
 - store in lancedb with chunking approach
 - mdx site
 - shadcn sidebar site

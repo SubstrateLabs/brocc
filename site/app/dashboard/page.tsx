@@ -1,6 +1,7 @@
 import { Header } from "@/components/header";
 import { getSignInUrl, withAuth } from "@workos-inc/authkit-nextjs";
-import { DashboardPageClient } from "./client";
+import { handleSignOut } from "./actions";
+import { Button } from "@/components/ui/button";
 
 export default async function Home() {
   const { user } = await withAuth({ ensureSignedIn: true });
@@ -8,13 +9,13 @@ export default async function Home() {
   return (
     <main className="h-screen flex flex-col">
       <Header user={user ? { ...user, id: user.id } : null} signInUrl={signInUrl} />
-      <DashboardPageClient
-        user={{
-          ...user,
-          id: user.id,
-        }}
-        signInUrl={signInUrl}
-      />
+      <div className="p-4">
+        <form action={handleSignOut}>
+          <Button variant="outline" type="submit">
+            Sign out
+          </Button>
+        </form>
+      </div>
     </main>
   );
 }
