@@ -1,3 +1,4 @@
+- mdx
 - cli oauth implementation
 - rework scrape abstraction
 - entrypoint is "all tabs": basic scrape, or feed scrape if available (no scroll)
@@ -12,6 +13,7 @@
   source_type (document default, contact, conversation)
   REMOVE image
   keywords
+  chunk_index
 
 - research latest best academic paper scraping tool
 - research latest markdown chunking techniques

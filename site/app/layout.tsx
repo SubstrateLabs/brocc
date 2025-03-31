@@ -1,10 +1,12 @@
 import "./globals.css";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
+import { getSignInUrl, withAuth } from "@workos-inc/authkit-nextjs";
 import type { Metadata } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SWRConfig } from "swr";
+import { Header } from "../components/header";
 
 const ibmPlexSans = IBM_Plex_Sans({
   variable: "--font-ibm-plex-sans",
@@ -15,8 +17,8 @@ const ibmPlexSans = IBM_Plex_Sans({
 // Berkeley Mono Variable is loaded via @font-face in globals.css
 
 export const metadata: Metadata = {
-  title: "brocc | know thyself",
-  description: "search your life",
+  title: "Brocc | Know thyself",
+  description: "Search your life",
   icons: {
     icon: [
       {
@@ -44,6 +46,9 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { user } = await withAuth();
+  const signInUrl = await getSignInUrl();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -58,7 +63,12 @@ export default async function RootLayout({
                 revalidateOnFocus: true,
               }}
             >
-              <div className="flex-1">{children}</div>
+              <div className="min-h-screen flex flex-col">
+                <Header user={user ? { ...user, id: user.id } : null} signInUrl={signInUrl} />
+                <div className="prose prose-headings:mt-8 prose-headings:font-semibold prose-headings:text-black prose-h1:text-5xl prose-h2:text-4xl prose-h3:text-3xl prose-h4:text-2xl prose-h5:text-xl prose-h6:text-lg dark:prose-headings:text-white">
+                  {children}
+                </div>
+              </div>
             </SWRConfig>
           </AuthKitProvider>
         </ThemeProvider>

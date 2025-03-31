@@ -18,7 +18,7 @@ export function Header({ user, signInUrl }: HeaderProps) {
   const isOnHome = pathname === "/";
 
   return (
-    <header className="w-full flex justify-between items-center border-b border-border p-2">
+    <header className="w-full flex justify-between items-center !border-b border-border p-2">
       <div>
         <Link href="/">
           <Button
@@ -27,7 +27,7 @@ export function Header({ user, signInUrl }: HeaderProps) {
             className="border-0 shadow-none font-mono font-bold text-lg tracking-tight"
           >
             <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="" />
-            brocc
+            Brocc
           </Button>
         </Link>
       </div>
