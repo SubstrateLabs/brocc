@@ -9,10 +9,10 @@ The name comes from our codename for the project, BrOCCLI: **Br**owser-**O**bser
 
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
-1. **Local-first**: Your data is stored on your machine. AI features may use cloud services, but Brocc _never_ logs or store your data remotely.
-2. **Source-visible**: You can verify Brocc's promise to never store your data.
-3. **Open-contribution**: Though Brocc isn't fully open-source (see the BSL [LICENSE](LICENSE.md)), we believe in open-contribution software (and may compensate top contributors).
-4. **Extensible + malleable**: Power users get an Interactive Computational Environment: Extensible Foundations, Malleable User Interfaces, and Ergonomic Client APIs.
+1. **Local-first**: AI features may use cloud services, but Brocc _never_ logs or stores your data remotely. **Your data is always stored on your machine**.
+2. **Source-visible**: You can **audit our promise to never store your data**.
+3. **Open-contribution**: Though Brocc isn't fully open-source (see the BSL [LICENSE](LICENSE.md)), we aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
+4. **Programmable**: Brocc is meant to be programmed by power-users. Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
 
 (see [PHILOSOPHY](._NOTES/PHILOSOPHY.md) for more background)
 
