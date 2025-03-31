@@ -2,7 +2,7 @@
 
 Brocc is a work-in-progress tool for searching and analyzing personal data. 
 
-The name is short for an early codename for the project, BrOCCLI: (**Br**owser-**O**bserver **C**ontent-**C**ollection **L**iquid-**I**nterface)
+The name comes from our codename for the project, BrOCCLI (**Br**owser-**O**bserver **C**ontent-**C**ollection **L**iquid-**I**nterface).
 
 
 ## Principles
