@@ -1,6 +1,11 @@
 # 🥦 Brocc
 
-Brocc is a work-in-progress tool for searching and analyzing personal data. 
+Brocc is a new way to index and explore your digital life.
+
+Try the beta by installing the CLI:
+
+1. `pipx install brocc-li`
+2. `brocc`
 
 <details open>
 <summary><h2>Principles</h2></summary>
@@ -8,47 +13,18 @@ Brocc is a work-in-progress tool for searching and analyzing personal data.
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
 1. **Local-first**: AI features may use cloud services, but Brocc never logs or stores your data remotely. Your data is always stored on your machine.
-2. **Source-visible**: You can [verify](https://github.com/SubstrateLabs/brocc) our promise to never store your data and review our architecture.
-3. **Open-contribution**: Though Brocc isn't fully open-source yet (see the BSL [LICENSE](LICENSE.md)), we aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
+2. **Source-visible**: You can review our architecture, and [verify](https://github.com/SubstrateLabs/brocc) our promise to never store your data.
+3. **Open-contribution**: We aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
 4. **Programmable**: Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
 
 </details>
 
 <details>
-<summary><h2>Roadmap</h2></summary>
-
-- `0.0.1`: Browser sense: connects to your **browser history**.
-  - [ ] Read browser history up to a selected timeframe
-  - [ ] Index common feeds:
-    - [x] Twitter
-    - [x] Substack
-    - [ ] Gmail
-  - [ ] Parse PDFs, including metadata for research articles
-  - [ ] Chunk long articles and PDFs semantically
-  - [ ] Search for "AI-related content", and get back feed items from multiple sources with an AI summary.
-- `0.0.2`: API sense: connects to **web services** via OAuth.
-  - [ ] OAuth connection to:
-    - [ ] Notion
-    - [ ] Slack
-    - [ ] Discord
-    - [ ] WhatsApp
-    - [ ] Telegram
-- `0.0.3`: File sense: connects to your **filesystem**.
-  - [ ] Index local Mac applications:
-    - [ ] iMessage
-    - [ ] Photos
-    - [ ] Notes
-  - [ ] Index local files:
-    - [ ] PDFs
-    - [ ] Markdown files
-</details>
-
-<details open>
 <summary><h2>Architecture</h2></summary>
 
 ### Local app
 
-All local application technology is embedded, except AI inference (currently, all AI models run via cloud services). A long-term goal is to offer an option for local inference, which would enable fully on-device operation (and offline or low-data mode).
+We always prefer embedded tech to hosted services. For now, all AI models run via cloud services. A long-term goal is to offer an option for local inference, enabling fully on-device operation (and offline mode).
 
 Dependencies:
 
@@ -65,7 +41,7 @@ AI models:
 
 ### Website
 
-The web component of Brocc is intentionally minimal (following our Local-first [principle]((/?tab=readme-ov-file#principles)). We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
+The web component of Brocc is intentionally minimal (following our Local-first [principle](<(/?tab=readme-ov-file#principles)>). We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
 
 - [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
 - Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
@@ -74,10 +50,32 @@ The web component of Brocc is intentionally minimal (following our Local-first [
 
 </details>
 
-## FAQ
-
 <details>
-  <summary>Why is it called Brocc?</summary>
-  
-  The name comes from the project's acronym, BrOCCLI: Browser Observer Content Collection Liquid Interface.
+<summary><h2>Roadmap</h2></summary>
+
+- **0.0.1**: Browser sense: connects to your browser history.
+  - [ ] Read browser history up to a selected timeframe
+  - [ ] Index common feeds:
+    - [x] Twitter
+    - [x] Substack
+    - [ ] Gmail
+  - [ ] Parse PDFs, including metadata for research articles
+  - [ ] Chunk long articles and PDFs semantically
+  - [ ] Search for "AI-related content", and get back feed items from multiple sources with an AI summary.
+- **0.0.2**: API sense: connects to web services via OAuth.
+  - [ ] OAuth connection to:
+    - [ ] Notion
+    - [ ] Slack
+    - [ ] Discord
+    - [ ] WhatsApp
+    - [ ] Telegram
+- **0.0.3**: File sense: connects to your filesystem.
+  - [ ] Index local Mac applications:
+    - [ ] iMessage
+    - [ ] Photos
+    - [ ] Notes
+  - [ ] Index local files:
+    - [ ] PDFs
+    - [ ] Markdown files
+
 </details>
