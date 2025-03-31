@@ -46,13 +46,6 @@ Indexing personal data is a big responsibility. We believe this kind of software
 
 ## Architecture
 
-### site (NextJS site)
-
-- [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: Users, API Keys, and visibility settings for published data.
-- Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
-- [WorkOS](https://workos.com): Easier maintenance than DIY, cheaper than alternatives.
-- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
-
 ### brocc-li (Python CLI)
 
 All local application technology is embedded, except AI inference (currently, all AI models run via cloud services). A long-term goal is to offer an option for local inference, which would enable fully on-device operation (and offline or low-data mode).
@@ -69,3 +62,12 @@ Dependencies:
 AI models:
 
 - [voyage-multimodal-3](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3): Embeds text and images in the same latent space, enabling multimodal search. This model must be run in the cloud until open-source alternatives improve in quality.
+
+### site (NextJS site)
+
+The web component of Brocc is intentionally minimal (following the Local-first principle). We use the site for authentication and collaboration features.
+
+- [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
+- Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
+- [WorkOS](https://workos.com): Easier maintenance than DIY, cheaper than alternatives.
+- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
