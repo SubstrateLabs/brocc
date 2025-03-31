@@ -1,8 +1,9 @@
-# 🥦 brocc
+# 🥦 Brocc
 
-> Brocc: BRowser-Observer Content-Collection Liquid-Interface
+Brocc is a work-in-progress tool for searching and analyzing personal data. 
 
-Brocc is a work-in-progress tool for searching and analyzing personal data.
+The name is short for an early codename for the project, BrOCCLI _BRowser-Observer Content-Collection Liquid-Interface_.
+
 
 ## Principles
 
