@@ -18,13 +18,16 @@ export function Header({ user, signInUrl }: HeaderProps) {
   const isOnHome = pathname === "/";
 
   return (
-    <header className="w-full flex justify-between items-center">
+    <header className="w-full flex justify-between items-center border-b border-gray-200">
       <div>
-        <Link href="/">
-          <Button variant="ghost">
-            <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="" />
-          </Button>
-        </Link>
+        {!isOnHome && (
+          <Link href="/">
+            <Button variant="ghost">
+              <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="mr-1" />
+              Brocc
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

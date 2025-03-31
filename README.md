@@ -2,10 +2,10 @@
 
 Brocc is a new way to index and explore your digital life.
 
-Try the beta by installing the CLI:
+Try the beta CLI:
 
-1. `pipx install brocc-li`
-2. `brocc`
+1. Install: `pipx install brocc-li`
+2. Run: `brocc`
 
 <details open>
 <summary><h2>Principles</h2></summary>
