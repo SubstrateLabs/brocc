@@ -1,7 +1,7 @@
 ---
 - Licensor: Substrate Labs Inc
 - Licensed Work: Brocc v.0.0 until v.1.9. The Licensed Work is © 2023 – 2025 Substrate Labs Inc.
-- Change Date: 2029-12-31
+- Change Date: 2030-01-01
 - Change License: Version 2 or later of the GNU General Public License as published by the Free Software Foundation.
 ---
 
@@ -11,7 +11,7 @@ License text copyright © 2024 MariaDB plc, All Rights Reserved. “Business Sou
 
 ## Terms
 
-Effective on the Change Date, or the fourth anniversary of the first publicly available distribution of a specific version of the Licensed Work under this License, whichever comes first, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
+Effective on the Change Date, or the fourth anniversary of the first publicly available distribution of a specific version of the Licensed Work under this License, whichever is later, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
 
 Effective on the Change Date, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
 
