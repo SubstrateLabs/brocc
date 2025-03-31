@@ -18,9 +18,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 
 ## Roadmap
 
-### Part 1: Extensible Foundations
-
-- `0.0.1`: A CLI that connects to your **browser history**.
+- `0.0.1`: Browser sense: connects to your **browser history**.
   - [ ] Read browser history up to a selected timeframe
   - [ ] Index common feeds:
     - [x] Twitter
@@ -29,19 +27,19 @@ Indexing personal data is a big responsibility. We believe this kind of software
   - [ ] Parse PDFs, including metadata for research articles
   - [ ] Chunk long articles and PDFs semantically
   - [ ] Search for "AI-related content", and get back feed items from multiple sources with an AI summary.
-- `0.0.2`: A CLI that connects to **web services**.
-  - [ ] OAuth connection to index:
+- `0.0.2`: API sense: connects to **web services** via OAuth.
+  - [ ] OAuth connection to:
     - [ ] Notion
     - [ ] Slack
     - [ ] Discord
     - [ ] WhatsApp
     - [ ] Telegram
-- `0.0.3`: A CLI that connects to your **filesystem**.
-  - [ ] Index local Mac applications
+- `0.0.3`: File sense: connects to your **filesystem**.
+  - [ ] Index local Mac applications:
     - [ ] iMessage
     - [ ] Photos
     - [ ] Notes
-  - [ ] Index local files
+  - [ ] Index local files:
     - [ ] PDFs
     - [ ] Markdown files
 
