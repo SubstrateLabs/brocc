@@ -44,7 +44,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 
 ## Architecture
 
-# site (NextJS site)
+### site (NextJS site)
 
 - [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: Users, API Keys, and visibility settings for published data.
   - with [Drizzle](https://orm.drizzle.team/docs/overview): simple, unobtrusive ORM.
@@ -52,7 +52,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 - [WorkOS](https://workos.com): Easy maintenance. More legit + cheaper than alternatives.
 - Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
 
-# brocc-li (Python CLI)
+### brocc-li (Python CLI)
 
 All local application technology is embedded, except AI inference (currently, all AI models must be run using cloud services). Our long-term goal is to offer local inference, enabling fully on-device operation (and offline or low-data mode).
 
