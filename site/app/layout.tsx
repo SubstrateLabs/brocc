@@ -7,6 +7,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SWRConfig } from "swr";
 import { Header } from "../components/header";
+import { Footer } from "../components/footer";
 
 const ibmPlexSans = IBM_Plex_Sans({
   variable: "--font-ibm-plex-sans",
@@ -65,9 +66,10 @@ export default async function RootLayout({
             >
               <div className="min-h-screen flex flex-col">
                 <Header user={user ? { ...user, id: user.id } : null} signInUrl={signInUrl} />
-                <div>
+                <div className="flex-1">
                   {children}
-                  </div>
+                </div>
+                <Footer />
               </div>
             </SWRConfig>
           </AuthKitProvider>

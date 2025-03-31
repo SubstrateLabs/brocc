@@ -20,7 +20,9 @@ export function Header({ user, signInUrl }: HeaderProps) {
   return (
     <header className="w-full flex justify-between items-center border-b border-gray-200">
       <div>
-        {!isOnHome && (
+        {isOnHome ? (
+          <div className="text-sm font-medium text-muted-foreground px-4">Know thyself</div>
+        ) : (
           <Link href="/">
             <Button variant="ghost">
               <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="mr-1" />
