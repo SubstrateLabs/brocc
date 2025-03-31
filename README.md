@@ -12,7 +12,7 @@ Try the beta CLI:
 
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
-1. **Local-first**: AI features may use cloud services, but Brocc never logs or stores your data remotely. Your data is always stored on your machine.
+1. **Local-first**: Your data belongs on your computer. Brocc never logs or stores your data remotely. Brocc's AI functionality uses cloud services (for now).
 2. **Source-visible**: You can review our architecture below, and inspect the code to verify our promise to never store your data.
 3. **Open-contribution**: We aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
 4. **Programmable**: Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
