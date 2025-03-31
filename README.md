@@ -13,7 +13,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 3. **Open-contribution**: Though we're not fully open-source (see [LICENSE](LICENSE.md)), we believe in the power of open-contribution software, and may compensate top contributors.
 4. **Extensible and malleable**: The big vision is an interactive computational environment, built on extensible foundations with malleable interfaces.
 
-(see [PHILOSOPHY](._NOTES/PHILOSOPHY.md) for more)
+(see [PHILOSOPHY](._NOTES/PHILOSOPHY.md) for more background)
 
 ## Roadmap
 
