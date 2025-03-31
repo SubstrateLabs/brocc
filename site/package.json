@@ -40,7 +40,7 @@
     "react-dom": "^19.0.0",
     "swr": "^2.3.3",
     "tailwind-merge": "^3.0.2",
-    "tw-animate-css": "^1.2.4",
+    "tw-animate-css": "^1.2.5",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -55,7 +55,6 @@
     "eslint": "^9",
     "eslint-config-next": "15.2.3",
     "tailwindcss": "^4",
-    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5"
   }
 }
