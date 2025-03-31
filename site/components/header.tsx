@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Button } from "@/components/ui/button";
 import { usePathname } from "next/navigation";
+import { Button } from "./button";
 
 type HeaderProps = {
   user: {
@@ -18,15 +18,11 @@ export function Header({ user, signInUrl }: HeaderProps) {
   const isOnHome = pathname === "/";
 
   return (
-    <header className="w-full flex justify-between items-center !border-b border-border p-2">
+    <header className="w-full flex justify-between items-center">
       <div>
         <Link href="/">
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-0 shadow-none font-mono font-bold text-lg tracking-tight"
-          >
-            <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="" />
+          <Button variant="default">
+            <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="mr-1" />
             Brocc
           </Button>
         </Link>
@@ -35,14 +31,14 @@ export function Header({ user, signInUrl }: HeaderProps) {
       <div className="flex items-center gap-2">
         {isOnHome && !user && (
           <Link href={signInUrl}>
-            <Button variant="outline" size="sm">
+            <Button variant="default">
               Sign in
             </Button>
           </Link>
         )}
         {isOnHome && user && (
           <Link href="/dashboard">
-            <Button variant="outline" size="sm">
+            <Button variant="default">
               Dashboard
             </Button>
           </Link>

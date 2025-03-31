@@ -1,12 +1,12 @@
 import { handleSignOut } from "./actions";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/button";
 
 export default async function Home() {
   return (
-    <main className="h-screen flex flex-col">
-      <div className="p-4">
+    <main className="min-h-screen flex flex-col p-4">
+      <div className="flex-1">
         <form action={handleSignOut}>
-          <Button variant="outline" type="submit">
+          <Button variant="default" type="submit">
             Sign out
           </Button>
         </form>
