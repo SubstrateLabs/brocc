@@ -11,9 +11,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center font-mono font-bold text-lg tracking-tight px-2 py-[1px] border-[3px]",
-          variant === "default" && "bg-[#f0f0f0] border-[#cacaca] border-r-[#404040] border-b-[#404040] hover:border-[#b0b0b0] hover:border-r-[#202020] hover:border-b-[#202020] hover:bg-white active:bg-[#e8e8e8] active:border-[#404040] active:border-t-[#cacaca] active:border-l-[#cacaca] active:translate-y-[1px]",
-          variant === "ghost" && "bg-transparent border-transparent hover:bg-[#f0f0f0] hover:border-[#cacaca] hover:border-r-[#404040] hover:border-b-[#404040] active:bg-[#e8e8e8] active:border-[#404040] active:border-t-[#cacaca] active:border-l-[#cacaca] active:translate-y-[1px]",
+          "inline-flex items-center justify-center font-mono font-bold text-base tracking-tight px-2 py-[1px] border-[3px]",
+          variant === "default" && "bg-gradient-to-b from-card to-secondary border-border border-r-primary/70 border-b-primary/70 hover:border-input hover:border-r-primary hover:border-b-primary hover:bg-background active:bg-muted active:border-primary active:border-t-border active:border-l-border active:translate-y-[1px]",
+          variant === "ghost" && "bg-transparent border-transparent hover:bg-secondary hover:border-border hover:border-r-primary/70 hover:border-b-primary/70 active:bg-muted active:border-primary active:border-t-border active:border-l-border active:translate-y-[1px]",
           className
         )}
         {...props}

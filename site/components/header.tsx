@@ -21,9 +21,8 @@ export function Header({ user, signInUrl }: HeaderProps) {
     <header className="w-full flex justify-between items-center">
       <div>
         <Link href="/">
-          <Button variant="default">
-            <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="mr-1" />
-            Brocc
+          <Button variant="ghost">
+            <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="" />
           </Button>
         </Link>
       </div>
@@ -31,16 +30,12 @@ export function Header({ user, signInUrl }: HeaderProps) {
       <div className="flex items-center gap-2">
         {isOnHome && !user && (
           <Link href={signInUrl}>
-            <Button variant="default">
-              Sign in
-            </Button>
+            <Button variant="default">Sign in</Button>
           </Link>
         )}
         {isOnHome && user && (
           <Link href="/dashboard">
-            <Button variant="default">
-              Dashboard
-            </Button>
+            <Button variant="default">Dashboard</Button>
           </Link>
         )}
       </div>
