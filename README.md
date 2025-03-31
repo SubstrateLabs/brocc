@@ -11,7 +11,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 1. **Local-first**: Your data belongs on your machine. AI features may use cloud services, but we *never log or store your data in the cloud*.
 2. **Source-visible**: You can verify our promise to not store your data.
 3. **Open-contribution**: Though we're not fully open-source (see [LICENSE](LICENSE.md)), we believe in the power of open-contribution software, and may compensate top contributors.
-4. **Extensible and malleable**: The big vision is an interactive computational environment, built on extensible foundations with malleable interfaces.
+4. **Extensible and malleable**: Power users get something that feels like an interactive computational environment: extensible foundations, with malleable user interfaces, and ergonomic client APIs. 
 
 (see [PHILOSOPHY](._NOTES/PHILOSOPHY.md) for more background)
 
