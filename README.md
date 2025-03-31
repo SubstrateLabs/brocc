@@ -24,7 +24,7 @@ Indexing personal data is a big responsibility. We believe this kind of software
 
 ### Local app
 
-We always prefer embedded tech to hosted services. For now, all AI models run via cloud services. A long-term goal is to offer an option for local inference, enabling fully on-device operation (and offline mode).
+We always prefer embedded tech to hosted services. For now, all AI models run via cloud services. However, our goal is to offer local inference, enabling fully on-device operation (and offline mode).
 
 Dependencies:
 
