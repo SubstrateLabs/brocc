@@ -45,7 +45,10 @@ export const MdxAccordionItem: React.FC<MdxAccordionItemProps> = ({
 }) => {
   return (
     <AccordionItem value={value}>
-      <AccordionTrigger className="text-lg font-mono">{title}</AccordionTrigger>
+      <div className="relative">
+        <div className="absolute inset-0 bg-[radial-gradient(#d1d5db_0.5px,transparent_0.5px)] bg-[length:4px_4px] opacity-50 rounded-lg" />
+        <AccordionTrigger className="text-lg font-mono relative z-10">{title}</AccordionTrigger>
+      </div>
       <AccordionContent>{children}</AccordionContent>
     </AccordionItem>
   );

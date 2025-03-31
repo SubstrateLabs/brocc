@@ -5,8 +5,9 @@ import { SiGithub } from "@icons-pack/react-simple-icons";
 
 export function Footer() {
   return (
-    <footer className="w-full py-4 border-t border-gray-200">
-      <div className="container mx-auto flex justify-center items-center">
+    <footer className="w-full py-4 border-t border-gray-200 relative">
+      <div className="absolute inset-0 bg-[radial-gradient(#d1d5db_0.5px,transparent_0.5px)] bg-[length:4px_4px] opacity-50" />
+      <div className="container mx-auto flex justify-center items-center relative z-10">
         <Link 
           href="https://github.com/substratelabs/brocc"
           target="_blank"
