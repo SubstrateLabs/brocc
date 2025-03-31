@@ -4,12 +4,14 @@
 
 Brocc is a work-in-progress tool for searching and analyzing personal data.
 
-## Principles (see [PHILOSOPHY](._NOTES/PHILOSOPHY.md))
+## Principles
 
 1. Simple
 2. Local-first
 3. Auditable
 4. Extensible
+
+(see [PHILOSOPHY](._NOTES/PHILOSOPHY.md))
 
 ## Roadmap
 
