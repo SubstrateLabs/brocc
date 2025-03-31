@@ -41,7 +41,7 @@ AI models:
 
 ### Website
 
-The web component of Brocc is intentionally minimal (following our Local-first [principle](<(/?tab=readme-ov-file#principles)>). We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
+The web component of Brocc is intentionally minimal. We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
 
 - [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
 - Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
