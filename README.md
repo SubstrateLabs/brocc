@@ -30,7 +30,7 @@ Dependencies:
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
 - [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
-- [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database, enables semantic search.
+- [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
 - [Textual](https://www.textualize.io): Terminal UI framework.
 - [PydanticAI](https://ai.pydantic.dev): Agent framework.
 - [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud AI models.

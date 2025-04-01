@@ -1,13 +1,13 @@
 ## 0.0.1
 
-- lancedb setup
+- lancedb + voyageai setup
+
 ```sql
 <existing fields>
 chunk_index
 ```
 
 - scrape all tabs
-
 
 - rework scrape abstraction
 - storage should _not_ update doc with same url... only update existing doc if content is identical
