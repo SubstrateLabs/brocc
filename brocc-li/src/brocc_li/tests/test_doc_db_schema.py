@@ -1,5 +1,5 @@
 from brocc_li.types.doc import Doc
-from brocc_li.utils.doc_db import _generate_create_table_sql, DOCUMENTS_TABLE
+from brocc_li.doc_db import _generate_create_table_sql, DOCUMENTS_TABLE
 
 # Expected schema based on the Doc model + last_updated
 # NOTE: This needs to be manually kept in sync if Doc model changes significantly,

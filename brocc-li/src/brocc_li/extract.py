@@ -1171,7 +1171,7 @@ def scroll_and_extract(
     storage = None
     if config.use_storage:
         # Import here to avoid circular imports
-        from brocc_li.utils.doc_db import DocDB
+        from brocc_li.doc_db import DocDB
 
         storage = DocDB(config.storage_path)
         console.print(f"[dim]Using document storage: {storage.db_path}[/dim]")

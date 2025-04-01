@@ -1,3 +1,5 @@
+"""Used for developing extractors"""
+
 from rich.table import Table
 from rich.markdown import Markdown
 from typing import List, Dict, Any, Union, Tuple, Sequence, Optional
@@ -135,18 +137,18 @@ class ProgressTracker:
         if rate > 0:
             # Next 10 items
             eta_10 = (10 / rate) * 60
-            status.append(f"+10: ", style="bright_white")
+            status.append("+10: ", style="bright_white")
             status.append(self._format_time(eta_10), style="magenta")
             status.append(" | ", style="dim")
 
             # Next 100 items
             eta_100 = (100 / rate) * 60
-            status.append(f"+100: ", style="bright_white")
+            status.append("+100: ", style="bright_white")
             status.append(self._format_time(eta_100), style="magenta")
 
             # Next 1000 items
             eta_1000 = (1000 / rate) * 60
-            status.append(f"+1000: ", style="bright_white")
+            status.append("+1000: ", style="bright_white")
             status.append(self._format_time(eta_1000), style="magenta")
             status.append(" | ", style="dim")
 
@@ -155,7 +157,7 @@ class ProgressTracker:
                 remaining = self.target - self.count
                 eta_completion = (remaining / rate) * 60
                 status.append(" | ", style="dim")
-                status.append(f"Complete: ", style="bright_white")
+                status.append("Complete: ", style="bright_white")
                 status.append(self._format_time(eta_completion), style="blue")
         else:
             status.append("Calculating...", style="dim")

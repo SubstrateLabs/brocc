@@ -12,9 +12,9 @@ from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
     ScrollConfig,
 )
-from brocc_li.display_result import display_items, ProgressTracker
+from brocc_li.utils.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.utils.doc_db import DocDB
+from brocc_li.doc_db import DocDB
 from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)

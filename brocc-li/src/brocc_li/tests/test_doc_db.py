@@ -3,7 +3,7 @@ import pytest
 import tempfile
 from datetime import datetime
 from brocc_li.types.doc import Source, SourceType, Doc
-from brocc_li.utils.doc_db import DocDB
+from brocc_li.doc_db import DocDB
 
 
 @pytest.fixture

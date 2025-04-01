@@ -4,9 +4,9 @@ import time
 from brocc_li.types.doc import DocExtractor, Doc, Source, SourceType
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
-from brocc_li.display_result import display_items, ProgressTracker
+from brocc_li.utils.display_result import display_items, ProgressTracker
 from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.utils.doc_db import DocDB
+from brocc_li.doc_db import DocDB
 from brocc_li.utils.logger import logger
 
 # Config flags for development (running main)
