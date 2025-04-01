@@ -2,7 +2,7 @@ import os
 import pytest
 import tempfile
 from datetime import datetime
-from brocc_li.types.doc import Source, Doc
+from brocc_li.types.doc import Source, SourceType, Doc
 from brocc_li.utils.doc_db import DocDB
 
 
@@ -39,13 +39,14 @@ def sample_document():
         "title": "Test Document",
         "description": "A document for testing",
         "text_content": "This is the content of the test document.",
-        "author_name": "Test Author",
-        "author_identifier": "author123",
+        "contact_name": "Test Author",
+        "contact_identifier": "author123",
         "participant_names": ["Participant 1", "Participant 2"],
         "participant_identifiers": ["p1", "p2"],
         "created_at": Doc.format_date(now),
         "metadata": {"key": "value"},
         "source": Source.TWITTER,
+        "source_type": SourceType.DOCUMENT,
         "source_location_identifier": "https://example.com/test",
         "source_location_name": "Test Source Location",
         "ingested_at": Doc.format_date(now),
@@ -61,6 +62,7 @@ def test_initialize_db(storage, temp_db_path):
         "id": "test_init",
         "url": "https://example.com/init",
         "source": Source.TWITTER,
+        "source_type": SourceType.DOCUMENT,
         "source_location_identifier": "https://example.com/init",
         "source_location_name": "Test Source Location",
     }
@@ -90,6 +92,7 @@ def test_store_document_without_url(storage):
         "id": "no_url_doc",
         "title": "No URL Document",
         "source": Source.TWITTER,
+        "source_type": SourceType.DOCUMENT,
         "source_location_identifier": "location1",
         "source_location_name": "Test Source Location",
     }
@@ -143,6 +146,7 @@ def test_get_seen_urls(storage):
             "id": "doc1",
             "url": "https://example.com/1",
             "source": Source.TWITTER,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location1",
             "source_location_name": "Test Source Location",
         },
@@ -150,6 +154,7 @@ def test_get_seen_urls(storage):
             "id": "doc2",
             "url": "https://example.com/2",
             "source": Source.TWITTER,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location2",
             "source_location_name": "Test Source Location",
         },
@@ -157,12 +162,14 @@ def test_get_seen_urls(storage):
             "id": "doc3",
             "url": "https://example.com/3",
             "source": Source.SUBSTACK,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location1",
             "source_location_name": "Test Source Location",
         },
         {
             "id": "doc4",
             "source": Source.TWITTER,  # Document without URL
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location3",
             "source_location_name": "Test Source Location",
         },
@@ -194,6 +201,7 @@ def test_get_documents(storage):
             "id": "doc1",
             "url": "https://example.com/1",
             "source": Source.TWITTER,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location1",
             "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:01+00:00",  # Oldest
@@ -202,6 +210,7 @@ def test_get_documents(storage):
             "id": "doc2",
             "url": "https://example.com/2",
             "source": Source.TWITTER,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location2",
             "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:02+00:00",  # Middle
@@ -210,6 +219,7 @@ def test_get_documents(storage):
             "id": "doc3",
             "url": "https://example.com/3",
             "source": Source.SUBSTACK,
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location1",
             "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:03+00:00",  # Newest
@@ -217,6 +227,7 @@ def test_get_documents(storage):
         {
             "id": "doc4",
             "source": Source.TWITTER,  # Document without URL
+            "source_type": SourceType.DOCUMENT,
             "source_location_identifier": "location3",
             "source_location_name": "Test Source Location",
             "ingested_at": "2024-01-01T00:00:04+00:00",  # Newest
@@ -266,6 +277,7 @@ def test_json_conversion(storage):
         "metadata": {"key": "value", "nested": {"inner": "data"}},
         "text_content": "plain text",
         "source": Source.TWITTER,
+        "source_type": SourceType.DOCUMENT,
         "source_location_identifier": "https://example.com/json1",
         "source_location_name": "Test Source Location",
     }
@@ -282,6 +294,7 @@ def test_json_conversion(storage):
         "metadata": {"key": "value"},
         "text_content": "plain text",
         "source": Source.TWITTER,
+        "source_type": SourceType.DOCUMENT,
         "source_location_identifier": "https://example.com/json2",
         "source_location_name": "Test Source Location",
     }

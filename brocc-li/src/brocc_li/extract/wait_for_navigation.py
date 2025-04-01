@@ -27,15 +27,15 @@ def wait_for_navigation(
     Returns:
         True if navigation completed successfully, False otherwise
     """
-    try:
-        # Determine wait condition based on config
-        if wait_condition in ("domcontentloaded", "load", "networkidle"):
-            condition = wait_condition
-        elif config.navigate_options and config.navigate_options.wait_networkidle:
-            condition = "networkidle"
-        else:
-            condition = "domcontentloaded"
+    # Determine wait condition based on config
+    if wait_condition in ("domcontentloaded", "load", "networkidle"):
+        condition = wait_condition
+    elif config.navigate_options and config.navigate_options.wait_networkidle:
+        condition = "networkidle"
+    else:
+        condition = "domcontentloaded"
 
+    try:
         # Set timeout based on whether this is networkidle or not
         timeout = config.network_idle_timeout_ms if condition == "networkidle" else 5000
 

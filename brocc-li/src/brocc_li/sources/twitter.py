@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 from typing import Dict, Any, ClassVar, Optional
 import time
-from brocc_li.types.doc import DocExtractor, Doc, Source
+from brocc_li.types.doc import DocExtractor, Doc, Source, SourceType
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
 from brocc_li.display_result import display_items, ProgressTracker
@@ -31,10 +31,10 @@ class TwitterFeedSchema(DocExtractor):
     created_at: ClassVar[ExtractField] = ExtractField(
         selector="time", attribute="datetime", transform=parse_timestamp
     )
-    author_name: ClassVar[ExtractField] = ExtractField(
+    contact_name: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="User-Name"] div[dir="ltr"] span span'
     )
-    author_identifier: ClassVar[ExtractField] = ExtractField(
+    contact_identifier: ClassVar[ExtractField] = ExtractField(
         selector='[data-testid="User-Name"] a[href*="/status/"]',
         attribute="href",
         transform=lambda x: x.split("/")[1] if x else None,
@@ -308,13 +308,16 @@ def main() -> None:
         for item in extraction_generator:
             # Convert to Document object
             doc = Doc.from_extracted_data(
-                data=item, source=Source.TWITTER, source_location_identifier=URL
+                data=item,
+                source=Source.TWITTER,
+                source_type=SourceType.DOCUMENT,
+                source_location_identifier=URL,
             )
             docs.append(doc)
 
             # Format for display as we get each tweet
-            author_name = doc.author_name or "Unknown"
-            author_identifier = doc.author_identifier or ""
+            contact_name = doc.contact_name or "Unknown"
+            contact_identifier = doc.contact_identifier or ""
             content = doc.text_content or "No text"
 
             # Get metadata and format it with emojis
@@ -329,8 +332,10 @@ def main() -> None:
 
             formatted_posts.append(
                 {
-                    "Author": author_name,
-                    "Handle": f"@{author_identifier}" if author_identifier else "",
+                    "Contact": contact_name,
+                    "Contact ID": f"@{contact_identifier}"
+                    if contact_identifier
+                    else "",
                     "Content": content,
                     "Created": doc.created_at or "No date",
                     "Metadata": metadata_text,
@@ -339,7 +344,7 @@ def main() -> None:
 
             # Update progress tracker
             progress.update(
-                item_info=f"Tweet from @{author_identifier or 'unknown'} - {content[:50].replace('\n', ' ')}..."
+                item_info=f"Tweet from @{contact_identifier or 'unknown'} - {content[:50].replace('\n', ' ')}..."
                 if len(content) > 50
                 else content
             )

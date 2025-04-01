@@ -1,5 +1,5 @@
 from datetime import datetime
-from brocc_li.types.doc import Doc, Source
+from brocc_li.types.doc import Doc, Source, SourceType
 
 
 def test_doc_from_twitter_data():
@@ -7,8 +7,8 @@ def test_doc_from_twitter_data():
     # Sample data that would be extracted from Twitter
     twitter_data = {
         "url": "https://x.com/username/status/123456789",
-        "author_name": "Test Author",
-        "author_identifier": "username",
+        "contact_name": "Test Author",
+        "contact_identifier": "username",
         "created_at": "2023-05-01T12:34:56Z",
         "text_content": "This is a test tweet",
         "metadata": {
@@ -25,6 +25,7 @@ def test_doc_from_twitter_data():
     doc = Doc.from_extracted_data(
         data=twitter_data,
         source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
         source_location_identifier=source_location,
         source_location_name=source_location_name,
     )
@@ -33,8 +34,8 @@ def test_doc_from_twitter_data():
     assert isinstance(doc.id, str)
     assert len(doc.id) == 36  # UUID length
     assert doc.url == twitter_data["url"]
-    assert doc.author_name == twitter_data["author_name"]
-    assert doc.author_identifier == twitter_data["author_identifier"]
+    assert doc.contact_name == twitter_data["contact_name"]
+    assert doc.contact_identifier == twitter_data["contact_identifier"]
     assert doc.created_at == twitter_data["created_at"]
     assert doc.text_content == twitter_data["text_content"]
     assert doc.metadata == twitter_data["metadata"]
@@ -53,7 +54,7 @@ def test_doc_from_substack_data():
         "url": "https://example.substack.com/p/article-title",
         "title": "Test Article Title",
         "description": "This is a test article description",
-        "author_name": "Substack Author",
+        "contact_name": "Substack Author",
         "created_at": "2023-06-15T10:20:30Z",
         "text_content": "Article content in markdown format",
         "metadata": {
@@ -67,6 +68,7 @@ def test_doc_from_substack_data():
     doc = Doc.from_extracted_data(
         data=substack_data,
         source=Source.SUBSTACK,
+        source_type=SourceType.DOCUMENT,
         source_location_identifier=source_location,
         source_location_name=source_location_name,
     )
@@ -77,7 +79,7 @@ def test_doc_from_substack_data():
     assert doc.url == substack_data["url"]
     assert doc.title == substack_data["title"]
     assert doc.description == substack_data["description"]
-    assert doc.author_name == substack_data["author_name"]
+    assert doc.contact_name == substack_data["contact_name"]
     assert doc.created_at == substack_data["created_at"]
     assert doc.text_content == substack_data["text_content"]
     assert doc.metadata == substack_data["metadata"]
@@ -117,6 +119,7 @@ def test_doc_with_missing_fields():
     doc = Doc.from_extracted_data(
         data=minimal_data,
         source=Source.TWITTER,  # Source enum value required
+        source_type=SourceType.DOCUMENT,
         source_location_identifier="https://example.com",
     )
 
@@ -131,9 +134,9 @@ def test_doc_with_missing_fields():
     assert doc.title is None
     assert doc.description is None
     assert doc.text_content is None
-    assert doc.author_name is None
-    assert doc.author_identifier is None
+    assert doc.contact_name is None
+    assert doc.contact_identifier is None
     assert doc.created_at is None
-    assert doc.metadata == {}
-    assert doc.ingested_at != ""
+    assert doc.metadata is None
     assert doc.source_location_name is None
+    assert doc.ingested_at is not None

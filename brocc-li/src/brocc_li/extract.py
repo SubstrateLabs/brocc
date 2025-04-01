@@ -40,7 +40,7 @@ class ScrollConfig:
 
 
 # Constants for deep scraping
-MARKDOWN_FIELD_NAME = "content"
+MARKDOWN_FIELD_NAME = "text_content"
 MARKDOWN_FOLDER = "debug"
 URL_FIELD = "url"
 PROGRESS_LABEL = "items"

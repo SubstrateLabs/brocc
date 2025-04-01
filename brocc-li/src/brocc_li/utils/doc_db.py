@@ -13,11 +13,15 @@ Document database using DuckDB + Polars + PyArrow
 import duckdb
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Set, Union
+from typing import Dict, Any, Optional, List, Set, Union, get_origin, get_args
 from platformdirs import user_data_dir
 from pathlib import Path
-from brocc_li.types.doc import Doc
+from brocc_li.types.doc import Doc, Source, SourceType
 import polars as pl
+import json
+from pydantic import BaseModel
+from enum import Enum
+import inspect
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -26,6 +30,93 @@ APP_AUTHOR = "substratelabs"
 # Database constants
 DEFAULT_DB_FILENAME = "documents.duckdb"
 DOCUMENTS_TABLE = "documents"
+
+# Mapping from Pydantic/Python types to DuckDB SQL types
+# Note: Enums and datetimes (stored as strings) are mapped to VARCHAR
+# Note: Optional types are mapped to their underlying type (DuckDB columns are nullable by default)
+# Note: Dict is mapped to JSON
+# Note: List[str] is mapped to VARCHAR[]
+TYPE_MAPPING = {
+    str: "VARCHAR",
+    int: "BIGINT",  # Using BIGINT for safety, though INTEGER might suffice
+    float: "DOUBLE",
+    bool: "BOOLEAN",
+    datetime: "VARCHAR",  # Stored as formatted string
+    bytes: "BLOB",
+    list: "VARCHAR[]",  # Default for lists, refine below for specific types like List[str]
+    dict: "JSON",
+    Enum: "VARCHAR",  # Store enum value
+}
+
+
+def _get_sql_type(field_type: Any) -> str:
+    """Map a Python/Pydantic type hint to a DuckDB SQL type."""
+    origin = get_origin(field_type)
+    args = get_args(field_type)
+
+    if origin is Union or origin == getattr(
+        Union, "__origin__", None
+    ):  # Handles Optional[T] which is Union[T, None]
+        # Filter out NoneType and get the first actual type
+        non_none_args = [arg for arg in args if arg is not type(None)]
+        if non_none_args:
+            # Recursively get the type for the first non-None type
+            return _get_sql_type(non_none_args[0])
+        else:
+            # Should not happen for Optional[T] but handle just in case
+            return "VARCHAR"  # Default fallback
+
+    if origin is list or origin is List:
+        if args and args[0] is str:
+            return "VARCHAR[]"
+        elif args and args[0] is dict:
+            # DuckDB doesn't directly support LIST<JSON>, so serialize or use STRUCT if needed.
+            # Storing as JSON string array might be an option, but VARCHAR[] is simpler for now if items are simple.
+            # Let's default to VARCHAR[] for list of dicts for now, assuming simple structures or string representations.
+            # A better approach might be to store the whole list as a single JSON string.
+            # For participant_metadatas (List[Dict[str, Any]]), JSON seems more appropriate for the whole list.
+            # Let's refine this specifically for known fields later if needed.
+            # Defaulting List[Dict] to JSON for the whole list.
+            return "JSON"  # Store the whole list as a JSON string
+        else:
+            # Fallback for other list types
+            return TYPE_MAPPING.get(list, "VARCHAR[]")  # Default list type
+
+    if origin is dict or origin is Dict:
+        return TYPE_MAPPING.get(dict, "JSON")
+
+    # Handle Enum types by checking inheritance
+    if inspect.isclass(field_type) and issubclass(field_type, Enum):
+        return TYPE_MAPPING.get(Enum, "VARCHAR")
+
+    # Handle basic types
+    return TYPE_MAPPING.get(
+        field_type, "VARCHAR"
+    )  # Default to VARCHAR if type not found
+
+
+def _generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
+    """Generate a CREATE TABLE SQL statement from a Pydantic model."""
+    columns = []
+    for name, field in model.model_fields.items():
+        sql_type = _get_sql_type(field.annotation)
+
+        # Handle specific overrides for complex types if needed
+        # Example: participant_metadatas is Optional[List[Dict[str, Any]]]
+        if name == "participant_metadatas":
+            sql_type = "JSON"  # Store the list of dicts as a single JSON string
+
+        column_def = f"{name} {sql_type}"
+        if name == "id":  # Assuming 'id' is always the primary key
+            column_def += " PRIMARY KEY"
+        columns.append(column_def)
+
+    # Add fields present in the old schema but not in Doc model, if strictly needed.
+    # For now, adhering strictly to the Doc model + last_updated.
+    columns.append("last_updated VARCHAR")  # Add last_updated manually
+
+    columns_sql = ",\n                    ".join(columns)
+    return f"CREATE TABLE IF NOT EXISTS {table_name} (\n                    {columns_sql}\n                )"
 
 
 def get_default_db_path() -> str:
@@ -49,28 +140,12 @@ class DocDB:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         with duckdb.connect(self.db_path) as conn:
-            # Create documents table if it doesn't exist
-            conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
-                    id VARCHAR PRIMARY KEY,
-                    url VARCHAR,
-                    title VARCHAR,
-                    description VARCHAR,
-                    text_content VARCHAR,
-                    image_data VARCHAR,
-                    author_name VARCHAR,
-                    author_identifier VARCHAR,
-                    participant_names VARCHAR[],
-                    participant_identifiers VARCHAR[],
-                    created_at VARCHAR,
-                    metadata JSON,  -- Native JSON type
-                    source VARCHAR,
-                    source_location_identifier VARCHAR,
-                    source_location_name VARCHAR,
-                    ingested_at VARCHAR,
-                    last_updated VARCHAR
-                )
-            """)
+            # Generate the CREATE TABLE statement dynamically
+            create_table_sql = _generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+            print(
+                f"Generated Schema:\n{create_table_sql}"
+            )  # Optional: print generated schema for debugging
+            conn.execute(create_table_sql)
 
     def url_exists(self, url: str) -> bool:
         """Check if a document with the given URL already exists."""
@@ -132,110 +207,138 @@ class DocDB:
 
             return documents
 
-    def store_document(self, document: Dict[str, Any]) -> bool:
-        """Store a document in the database, updating if it already exists."""
-        # Validate document structure using Pydantic model
+    def _prepare_document_for_storage(self, document: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate, format, and prepare a document dictionary for database storage."""
+        # Create a copy to avoid modifying the original input dict
+        doc_data = document.copy()
+
+        # Ensure ingested_at is set *before* validation if not provided
+        if "ingested_at" not in doc_data or not doc_data["ingested_at"]:
+            doc_data["ingested_at"] = Doc.format_date(datetime.now())
+
+        # Validate against the Pydantic model
         try:
-            # Convert dict to Document model to validate
-            doc = Doc(**document)
-            # Convert back to dict for storage
-            document = doc.model_dump()
+            # Pydantic v2 ignores extra fields by default, so no pre-filtering needed
+            doc = Doc(**doc_data)
+            prepared_doc = doc.model_dump()
         except Exception as e:
+            # Consider logging the actual error and invalid data here
+            print(f"Validation Error: {e}\nData: {doc_data}")  # Temp print
             raise ValueError(f"Invalid document structure: {str(e)}")
 
-        # Format timestamps consistently
-        document["last_updated"] = Doc.format_date(datetime.now())
-        if not document.get("ingested_at"):
-            document["ingested_at"] = Doc.format_date(datetime.now())
+        # Add/Update timestamps *after* validation
+        prepared_doc["last_updated"] = Doc.format_date(datetime.now())
 
         # Convert enum values to strings
-        for key, value in document.items():
-            if hasattr(value, "value"):  # Check if it's an enum
-                document[key] = value.value
+        for key, value in prepared_doc.items():
+            # Check if it has a 'value' attribute common to Enums
+            if hasattr(value, "value") and isinstance(value.value, (str, int, float)):
+                prepared_doc[key] = value.value
 
-        # Make a copy of the document for database operations
-        db_document = document.copy()
+        # Ensure array fields are None for empty lists if the column type is ARRAY
+        # Assuming participant_names/identifiers are VARCHAR[] and metadatas is JSON based on _get_sql_type logic.
+        if prepared_doc.get("participant_names") == []:
+            prepared_doc["participant_names"] = None  # For VARCHAR[]
+        if prepared_doc.get("participant_identifiers") == []:
+            prepared_doc["participant_identifiers"] = None  # For VARCHAR[]
+        # participant_metadatas is mapped to JSON, so empty list [] is fine for json.dumps
 
-        # Ensure array fields are properly handled - empty lists should be None for DuckDB arrays
-        if document.get("participant_names") == []:
-            db_document["participant_names"] = None
+        # Convert metadata and participant_metadatas to JSON string
+        prepared_doc["metadata"] = json.dumps(prepared_doc.get("metadata") or {})
+        prepared_doc["participant_metadatas"] = json.dumps(
+            prepared_doc.get("participant_metadatas") or []
+        )
 
-        if document.get("participant_identifiers") == []:
-            db_document["participant_identifiers"] = None
+        # Remove fields from prepared_doc that are not actual table columns
+        # Get table columns dynamically (excluding computed fields if any, though Doc doesn't have them)
+        # For now, use model_fields + last_updated
+        valid_db_keys = set(Doc.model_fields.keys()) | {"last_updated"}
+        final_db_doc = {k: v for k, v in prepared_doc.items() if k in valid_db_keys}
 
-        # Convert metadata to JSON string for DuckDB
-        if "metadata" in db_document:
-            import json
+        return final_db_doc
 
-            # DuckDB expects a JSON string for its JSON type
-            db_document["metadata"] = json.dumps(db_document["metadata"])
+    def _find_id_for_update(
+        self, document: Dict[str, Any], db_document: Dict[str, Any]
+    ) -> Optional[str]:
+        """Determine if an existing document should be updated, returning its ID if found."""
+        # First priority: check by ID
+        doc_id = document.get("id")
+        if doc_id and self.get_document_by_id(doc_id):
+            return doc_id
+
+        # Second priority: check by URL
+        url = document.get("url")
+        if url:
+            matching_docs = self.get_documents_by_url(url)
+            if matching_docs:
+                # If multiple matches, use the most recent one's ID
+                update_id = matching_docs[0]["id"]
+                # Update the document's ID if it wasn't set originally
+                if not document.get("id"):
+                    # Need to update both original dict (for return?) and db_dict (for storage)
+                    document["id"] = update_id
+                    db_document["id"] = update_id
+                return update_id
+
+        return None  # No existing document found for update
+
+    def _update_document(self, conn, db_document: Dict[str, Any], doc_id: str) -> None:
+        """Execute the UPDATE statement for a given document ID."""
+        set_clauses = []
+        params = []
+        # Get columns from the actual table to handle potential schema mismatches
+        # However, for simplicity now, assume db_document keys match table columns derived from Doc + last_updated
+        table_columns = list(Doc.model_fields.keys()) + ["last_updated"]
+
+        for key, value in db_document.items():
+            if (
+                key != "id" and key in table_columns
+            ):  # Ensure key is in expected columns and not 'id'
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+
+        if not set_clauses:
+            print(f"Warning: No fields to update for document ID {doc_id}")
+            return
+
+        params.append(doc_id)  # Add the ID for the WHERE clause
+        update_query = (
+            f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE id = ?"
+        )
+        conn.execute(update_query, params)
+
+    def _insert_document(self, conn, db_document: Dict[str, Any]) -> None:
+        """Execute the INSERT statement for a new document."""
+        # Ensure document has an ID
+        if not db_document.get("id"):
+            db_document["id"] = Doc.generate_id()
+
+        # Filter db_document to only include keys corresponding to table columns
+        table_columns = list(Doc.model_fields.keys()) + ["last_updated"]
+        filtered_db_doc = {k: v for k, v in db_document.items() if k in table_columns}
+
+        columns = ", ".join(filtered_db_doc.keys())
+        placeholders = ", ".join(["?"] * len(filtered_db_doc))
+        insert_query = (
+            f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})"
+        )
+        conn.execute(insert_query, list(filtered_db_doc.values()))
+
+    def store_document(self, document: Dict[str, Any]) -> bool:
+        """Store a document in the database, updating if it already exists."""
+        # Prepare the document data (validation, formatting, etc.)
+        db_document = self._prepare_document_for_storage(document)
+
+        # Check if an existing document needs to be updated
+        id_to_update = self._find_id_for_update(document, db_document)
 
         with duckdb.connect(self.db_path) as conn:
-            # Determine if this is an update or insert
-            is_update = False
-            update_condition = None
-            update_param = None
-
-            # First priority: update by ID if exists
-            if document.get("id"):
-                existing_doc = self.get_document_by_id(document["id"])
-                if existing_doc:
-                    is_update = True
-                    update_condition = "id = ?"
-                    update_param = document["id"]
-
-            # Second priority: update by URL if ID doesn't exist or didn't match
-            if not is_update and document.get("url"):
-                # Check if any documents exist with this URL
-                matching_docs = self.get_documents_by_url(document["url"])
-                if matching_docs:
-                    # If there's just one match, update it
-                    if len(matching_docs) == 1:
-                        is_update = True
-                        update_condition = "url = ?"
-                        update_param = document["url"]
-                    # If multiple matches, set doc["id"] to the most recent matching doc's ID
-                    else:
-                        # Set the ID to the most recent one (returned first from get_documents_by_url)
-                        most_recent_id = matching_docs[0]["id"]
-                        # Use the existing ID for this update
-                        if not document.get("id"):
-                            document["id"] = most_recent_id
-                            db_document["id"] = most_recent_id
-
-                        is_update = True
-                        update_condition = "id = ?"
-                        update_param = most_recent_id
-
-            if is_update:
-                # Update the existing document
-                set_clauses = []
-                params = []
-
-                for key, value in db_document.items():
-                    if key != "id":  # Don't update the ID
-                        set_clauses.append(f"{key} = ?")
-                        params.append(value)
-
-                # Add the condition parameter
-                params.append(update_param)
-
-                conn.execute(
-                    f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE {update_condition}",
-                    params,
-                )
+            if id_to_update:
+                # Update existing document
+                self._update_document(conn, db_document, id_to_update)
             else:
-                # Ensure document has an ID
-                if not document.get("id"):
-                    db_document["id"] = Doc.generate_id()
-
                 # Insert new document
-                columns = ", ".join(db_document.keys())
-                placeholders = ", ".join(["?"] * len(db_document))
-                conn.execute(
-                    f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})",
-                    list(db_document.values()),
-                )
+                self._insert_document(conn, db_document)
 
         return True
 
@@ -269,8 +372,6 @@ class DocDB:
 
             # DuckDB returns JSON as a string, parse it back to dict
             if "metadata" in document and document["metadata"]:
-                import json
-
                 document["metadata"] = json.loads(document["metadata"])
             else:
                 document["metadata"] = {}

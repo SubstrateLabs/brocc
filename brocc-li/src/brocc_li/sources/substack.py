@@ -3,7 +3,7 @@ from typing import ClassVar, Optional
 import time
 import re
 from datetime import datetime, timedelta
-from brocc_li.types.doc import DocExtractor, Doc, Source
+from brocc_li.types.doc import DocExtractor, Doc, Source, SourceType
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.extract.extract_field import ExtractField
 from brocc_li.extract_feed import scroll_and_extract
@@ -54,12 +54,12 @@ class SubstackExtractSchema(DocExtractor):
         extract=lambda element, field: merge_description_publication(element),
     )
     # Map author to author_name for DocumentExtractor compatibility
-    author_name: ClassVar[ExtractField] = ExtractField(
+    contact_name: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-item-meta",
         transform=lambda x: parse_author(x.strip() if x else ""),
     )
     # Add required fields from DocumentExtractor
-    author_identifier: ClassVar[ExtractField] = ExtractField(
+    contact_identifier: ClassVar[ExtractField] = ExtractField(
         selector="", transform=lambda x: ""
     )
     # Use a simple placeholder for content that will be replaced during navigate
@@ -298,6 +298,7 @@ def main() -> None:
             doc = Doc.from_extracted_data(
                 data=item,
                 source=Source.SUBSTACK,
+                source_type=SourceType.DOCUMENT,
                 source_location_identifier=source_url,
                 source_location_name=NAME,
             )
@@ -319,7 +320,7 @@ def main() -> None:
                     "Title": doc.title or "No title",
                     "Description": doc.description or "",
                     "Date": doc.created_at or "No date",
-                    "Author": doc.author_name or "Unknown",
+                    "Contact": doc.contact_name or "Unknown",
                     "URL": doc.url,
                     "Content Preview": content or "No content",
                     "Publication": doc.metadata.get("publication", "")
@@ -330,7 +331,7 @@ def main() -> None:
 
             # Update progress tracker with current count
             progress.update(
-                item_info=f"Post: {doc.title or 'Untitled'} by {doc.author_name or 'Unknown'}"
+                item_info=f"Post: {doc.title or 'Untitled'} by {doc.contact_name or 'Unknown'}"
             )
 
         # Final update to progress tracker with force display

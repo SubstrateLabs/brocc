@@ -18,7 +18,7 @@ export function Header({ user, signInUrl }: HeaderProps) {
   const isOnHome = pathname === "/";
 
   return (
-    <header className="sticky top-0 z-50 w-full flex justify-between items-center border-b border-gray-200 bg-background/80 backdrop-blur-sm relative">
+    <header className="top-0 z-50 w-full flex justify-between items-center border-b border-gray-200 bg-background/80 backdrop-blur-sm relative">
       <div className="absolute inset-0 bg-[radial-gradient(#d1d5db_0.5px,transparent_0.5px)] bg-[length:4px_4px] opacity-50" />
       <div className="relative z-10">
         {isOnHome ? (
