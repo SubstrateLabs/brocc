@@ -1,11 +1,13 @@
 # dev
 
 ```sh CLI
-$ cd brocc-li
+$ cd cli
 $ uv sync
 $ uv pip install -e . # install package in dev mode
 $ uv run brocc
 ```
+
+set interpreter path to `cli/.venv/bin/python`
 
 ```sh site
 $ cd site

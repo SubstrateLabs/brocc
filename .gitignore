@@ -1,6 +1,8 @@
 **/__pycache__
+**/.pytest_cache
 .DS_Store
-brocc-li/debug
+cli/debug
+**/.venv
 
 # Logs
 logs

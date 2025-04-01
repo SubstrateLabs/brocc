@@ -1,4 +1,4 @@
-"""Used for developing extractors"""
+"""DEVELOPMENT ONLY: used for extractor debugging"""
 
 from rich.table import Table
 from rich.markdown import Markdown
@@ -111,7 +111,7 @@ class ProgressTracker:
         status = Text()
 
         # Basic progress info
-        status.append(f"Extracted: ", style="bright_white")
+        status.append("Extracted: ", style="bright_white")
         status.append(f"{self.count} {self.label}", style="green")
 
         if self.target:
@@ -121,12 +121,12 @@ class ProgressTracker:
         status.append(" | ", style="dim")
 
         # Rate info
-        status.append(f"Rate: ", style="bright_white")
+        status.append("Rate: ", style="bright_white")
         status.append(f"{rate:.1f} {self.label}/min", style="cyan")
         status.append(" | ", style="dim")
 
         # Elapsed time
-        status.append(f"Elapsed: ", style="bright_white")
+        status.append("Elapsed: ", style="bright_white")
         status.append(self._format_time(elapsed_time), style="yellow")
 
         # Estimates for different milestones
@@ -170,6 +170,95 @@ class ProgressTracker:
             logger.print(f"  → {item_info}", style="dim")
 
 
+def _get_sampled_indices(
+    total_items: int, max_display_items: int
+) -> Tuple[List[int], int, int]:
+    """Calculates indices for head, middle, and tail sampling."""
+    # Get head indices (first third)
+    head_count = max_display_items // 3
+    head_indices = list(range(min(head_count, total_items)))
+
+    # Get tail indices (last third)
+    tail_count = max_display_items // 3
+    tail_start = total_items
+    if tail_count > 0:
+        tail_start = max(0, total_items - tail_count)
+        tail_indices = list(range(tail_start, total_items))
+    else:
+        tail_indices = []
+
+    # Get middle indices (middle third)
+    middle_count = max_display_items - len(head_indices) - len(tail_indices)
+    if middle_count > 0 and total_items > head_count + tail_count:
+        middle_start = (total_items // 2) - (middle_count // 2)
+        middle_indices = list(
+            range(middle_start, min(middle_start + middle_count, tail_start))
+        )
+    else:
+        middle_indices = []
+
+    # Combine all indices
+    all_indices = head_indices + middle_indices + tail_indices
+    head_size = len(head_indices)
+    middle_size = len(middle_indices)
+
+    return all_indices, head_size, middle_size
+
+
+def _add_table_rows(
+    table: Table,
+    items_to_display: List[Dict[str, Any]],
+    columns: Sequence[Union[str, Tuple[str, str], Tuple[str, str, bool]]],
+    total_items: int,
+    max_display_items: int,
+    head_size: int,
+    middle_size: int,
+) -> None:
+    """Adds rows to the table, handling sampling and separators."""
+    if total_items > max_display_items:
+        # Sampled case - add separators
+        for i, item in enumerate(items_to_display):
+            # Add a separator row between sections
+            if i == head_size or (middle_size > 0 and i == head_size + middle_size):
+                separator_row = ["..."] * len(columns)
+                table.add_row(*separator_row, style="dim")
+
+            # Add the actual item row
+            row_data = []
+            for col in columns:
+                name = col[0] if isinstance(col, (tuple, list)) else col
+                value = item.get(name, "")
+
+                # For Content column, use Markdown renderer
+                if name == "Content" and value:
+                    value = Markdown(value)
+                else:
+                    value = str(value) if value is not None else ""
+
+                row_data.append(value)
+
+            table.add_row(*row_data)
+    else:
+        # Regular case - add all items without separators
+        for (
+            item
+        ) in items_to_display:  # Use items_to_display which is just items in this case
+            row_data = []
+            for col in columns:
+                name = col[0] if isinstance(col, (tuple, list)) else col
+                value = item.get(name, "")
+
+                # For Content column, use Markdown renderer
+                if name == "Content" and value:
+                    value = Markdown(value)
+                else:
+                    value = str(value) if value is not None else ""
+
+                row_data.append(value)
+
+            table.add_row(*row_data)
+
+
 def display_items(
     items: List[Dict[str, Any]],
     title: str,
@@ -187,49 +276,21 @@ def display_items(
             - tuple[str, str, bool]: (name, style, no_wrap)
         max_display_items: Maximum number of items to display in the table
     """
-    # Sample items if there are too many
+    # Determine which items to display
     total_items = len(items)
-    sampled_items = items
+    items_to_display = items
     display_title = title
+    head_size = 0
+    middle_size = 0
 
     if total_items > max_display_items:
-        # Simple way to get representative samples
-        sample_indices = []
-
-        # Get head indices (first third)
-        head_count = max_display_items // 3
-        head_indices = list(range(min(head_count, total_items)))
-
-        # Get tail indices (last third)
-        tail_count = max_display_items // 3
-        if tail_count > 0:
-            tail_start = max(0, total_items - tail_count)
-            tail_indices = list(range(tail_start, total_items))
-        else:
-            tail_indices = []
-
-        # Get middle indices (middle third)
-        middle_count = max_display_items - len(head_indices) - len(tail_indices)
-        if middle_count > 0 and total_items > head_count + tail_count:
-            middle_start = (total_items // 2) - (middle_count // 2)
-            middle_indices = list(
-                range(middle_start, min(middle_start + middle_count, tail_start))
-            )
-        else:
-            middle_indices = []
-
-        # Combine all indices
-        all_indices = head_indices + middle_indices + tail_indices
-
-        # Get the sampled items
-        sampled_items = [items[i] for i in all_indices]
-
-        # Define section boundaries for separators
-        head_size = len(head_indices)
-        middle_size = len(middle_indices)
-
-        # Update title
-        display_title = f"{title} (showing {len(sampled_items)} of {total_items} items)"
+        indices_to_display, head_size, middle_size = _get_sampled_indices(
+            total_items, max_display_items
+        )
+        items_to_display = [items[i] for i in indices_to_display]
+        display_title = (
+            f"{title} (showing {len(items_to_display)} of {total_items} items)"
+        )
 
     # Create the table
     table = Table(
@@ -252,48 +313,15 @@ def display_items(
 
         table.add_column(name, style=style, no_wrap=no_wrap)
 
-    # Add all items
-    if total_items > max_display_items:
-        head_size = max_display_items // 3
-        middle_size = max_display_items - (head_size * 2)
-
-        for i, item in enumerate(sampled_items):
-            # Add a separator row between sections
-            if i == head_size or i == head_size + middle_size:
-                separator_row = ["..."] * len(columns)
-                table.add_row(*separator_row, style="dim")
-
-            # Add the actual item row
-            row_data = []
-            for col in columns:
-                name = col[0] if isinstance(col, (tuple, list)) else col
-                value = item.get(name, "")
-
-                # For Content column, use Markdown renderer
-                if name == "Content" and value:
-                    value = Markdown(value)
-                else:
-                    value = str(value) if value is not None else ""
-
-                row_data.append(value)
-
-            table.add_row(*row_data)
-    else:
-        # Regular case - add all items without separators
-        for item in sampled_items:
-            row_data = []
-            for col in columns:
-                name = col[0] if isinstance(col, (tuple, list)) else col
-                value = item.get(name, "")
-
-                # For Content column, use Markdown renderer
-                if name == "Content" and value:
-                    value = Markdown(value)
-                else:
-                    value = str(value) if value is not None else ""
-
-                row_data.append(value)
-
-            table.add_row(*row_data)
+    # Add rows to the table
+    _add_table_rows(
+        table,
+        items_to_display,
+        columns,
+        total_items,
+        max_display_items,
+        head_size,
+        middle_size,
+    )
 
     logger.print(table)

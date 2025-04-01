@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "brocc-li"
 dynamic = ["version"]
-description = ''
+description = 'Know thyself'
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 keywords = []
-authors = [{ name = "Ben Guo", email = "ben@substrate.run" }]
+authors = [{ name = "Ben G🥦", email = "ben@substrate.run" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",

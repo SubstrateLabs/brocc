@@ -3,7 +3,7 @@
     "pyright": {
       "settings": {
         "python": {
-          "pythonPath": "brocc-li/.venv/bin/python"
+          "pythonPath": "cli/.venv/bin/python"
         }
       }
     }
