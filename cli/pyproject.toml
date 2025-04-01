@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "brocc-li"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = []
+authors = [{ name = "Ben Guo", email = "ben@substrate.run" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+    "dotenv>=0.9.9",
+    "duckdb>=1.2.1",
+    "html-to-markdown>=1.2.0",
+    "lancedb>=0.21.2",
+    "platformdirs>=4.3.7",
+    "playwright>=1.51.0",
+    "polars>=1.26.0",
+    "psutil>=7.0.0",
+    "pyarrow>=19.0.1",
+    "pydantic>=2.10.6",
+    "pytest>=8.3.5",
+    "python-dateutil>=2.9.0.post0",
+    "requests>=2.32.3",
+    "rich>=13.9.4",
+    "textual>=0.73.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.scripts]
+brocc = "brocc_li.entry_points:start"
+chrome_manager = "brocc_li.chrome_manager:main"
+twitter = "brocc_li.sources.twitter:main"
+substack = "brocc_li.sources.substack:main"
+dbui = "brocc_li.utils.storage:launch_ui"
+dbfolder = "brocc_li.utils.storage:open_db_folder"
+# dbdelete = "brocc_li.utils.storage:delete_db"
+
+[tool.hatch.envs.default]
+post-install-commands = ["playwright install chromium"]
+
+[project.urls]
+Documentation = "https://brocc.li"
+Issues = "https://github.com/SubstrateLabs/brocc/issues"
+Source = "https://github.com/SubstrateLabs/brocc"
+
+[tool.hatch.version]
+path = "src/brocc_li/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = ["mypy>=1.0.0"]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/brocc_li tests}"
+
+[tool.coverage.run]
+source_pkgs = ["brocc_li", "tests"]
+branch = true
+parallel = true
+omit = ["src/brocc_li/__about__.py"]
+
+[tool.coverage.paths]
+brocc_li = ["src/brocc_li", "*/cli/src/brocc_li"]
+tests = ["tests", "*/cli/tests"]
+
+[tool.coverage.report]
+exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
