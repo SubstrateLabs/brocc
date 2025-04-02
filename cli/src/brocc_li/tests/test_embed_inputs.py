@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from brocc_li.embed.embed_inputs import embed_header
+from brocc_li.embed.embed_inputs import embed_header, split_markdown
 from brocc_li.types.doc import Doc, Source, SourceType
 
 
@@ -126,3 +126,80 @@ def test_embed_header_with_metadata():
     )
 
     assert embed_header(doc) == expected_header
+
+
+def test_split_markdown_text_only():
+    """Test splitting markdown content with text only."""
+    markdown = "This is a simple text paragraph.\n\nThis is a second paragraph."
+
+    segments = split_markdown(markdown)
+
+    assert len(segments) == 1
+    assert segments[0]["type"] == "text"
+    assert segments[0]["text"] == markdown
+
+
+def test_split_markdown_with_images():
+    """Test splitting markdown content with images."""
+    markdown = (
+        "# Header\n\n"
+        "This is a paragraph with an image below:\n\n"
+        "![Image 1](https://example.com/image1.jpg)\n\n"
+        "This is text between images.\n\n"
+        "![Image 2](https://example.com/image2.png)\n\n"
+        "This is the final paragraph."
+    )
+
+    segments = split_markdown(markdown)
+
+    assert len(segments) == 5
+    assert segments[0]["type"] == "text"
+    assert segments[0]["text"].startswith("# Header")
+
+    assert segments[1]["type"] == "image_url"
+    assert segments[1]["image_url"] == "https://example.com/image1.jpg"
+
+    assert segments[2]["type"] == "text"
+    assert segments[2]["text"] == "This is text between images."
+
+    assert segments[3]["type"] == "image_url"
+    assert segments[3]["image_url"] == "https://example.com/image2.png"
+
+    assert segments[4]["type"] == "text"
+    assert segments[4]["text"] == "This is the final paragraph."
+
+
+def test_split_markdown_with_consecutive_images():
+    """Test splitting markdown content with consecutive images."""
+    markdown = (
+        "Start text\n\n"
+        "![Image 1](https://example.com/image1.jpg)\n"
+        "![Image 2](https://example.com/image2.png)\n\n"
+        "End text"
+    )
+
+    segments = split_markdown(markdown)
+
+    assert len(segments) == 4
+    assert segments[0]["type"] == "text"
+    assert segments[0]["text"] == "Start text"
+
+    assert segments[1]["type"] == "image_url"
+    assert segments[1]["image_url"] == "https://example.com/image1.jpg"
+
+    assert segments[2]["type"] == "image_url"
+    assert segments[2]["image_url"] == "https://example.com/image2.png"
+
+    assert segments[3]["type"] == "text"
+    assert segments[3]["text"] == "End text"
+
+
+def test_split_markdown_with_image_only():
+    """Test splitting markdown content with only an image."""
+    markdown = "![Solo Image](https://example.com/solo.jpg)"
+
+    segments = split_markdown(markdown)
+
+    assert len(segments) == 1
+    assert segments[0]["type"] == "image_url"
+    assert segments[0]["image_url"] == "https://example.com/solo.jpg"

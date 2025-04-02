@@ -9,3 +9,4 @@ Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyp
 You can use our [Makefile](mdc:cli/Makefile) to run commands:
 - `make format`: format and autofix lint issues
 - `make test`: run all tests with pytest
+Always use markdown-it-py to parse markdown, instead of regex.
