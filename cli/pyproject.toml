@@ -106,8 +106,6 @@ line-length = 100
 target-version = "py311"
 # Add these common directories to exclude
 extend-exclude = [
-    "tests/*",
-    "**/migrations/*",
     ".git",
     ".venv",
     "__pycache__",

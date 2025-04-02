@@ -10,27 +10,17 @@ from brocc_li.utils.timestamp import format_datetime
 
 
 class Source(Enum):
-    """High level source providers"""
-
     TWITTER = "twitter"
     SUBSTACK = "substack"
 
 
 class SourceType(Enum):
-    """High level source types"""
-
     DOCUMENT = "document"
     CONTACT = "contact"
     CONVERSATION = "conversation"
 
 
 class DocExtractor(BaseModel):
-    """Base schema defining how to extract document data.
-
-    This class defines selectors and extraction methods for scraping.
-    Individual platform extractors should inherit from this class.
-    """
-
     # Container selector
     container: ClassVar[ExtractField]
 
@@ -55,10 +45,6 @@ class DocExtractor(BaseModel):
 
 
 class Doc(BaseModel):
-    """
-    document writ large
-    """
-
     id: str
     ingested_at: str
     # extractable fields
@@ -84,12 +70,10 @@ class Doc(BaseModel):
 
     @staticmethod
     def generate_id() -> str:
-        """Generate a unique ID from a URL."""
         return str(uuid.uuid4())
 
     @staticmethod
     def format_date(dt: datetime) -> str:
-        """Format a datetime consistently for all document dates."""
         return format_datetime(dt)
 
     @classmethod
@@ -101,7 +85,6 @@ class Doc(BaseModel):
         source_location_identifier: str,
         source_location_name: str | None = None,
     ) -> "Doc":
-        """Create a document from extracted data."""
         doc_id = cls.generate_id()
 
         # Format ingestion timestamp consistently with our format

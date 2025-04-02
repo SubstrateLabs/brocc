@@ -6,4 +6,4 @@ alwaysApply: false
 # Python tests
 
 - Always use pytest to write tests
-- Run tests from the current directory (`brocc-li`) using `uv run pytest`
+- Run tests from the current directory (`brocc-li`) using `make test` (or `uv run pytest` to run specific test cases)
