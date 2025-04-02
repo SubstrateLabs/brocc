@@ -2,7 +2,7 @@
 
 # Format code with ruff
 format:
-	python src/scripts/format.py
+	ruff format . && ruff check --fix .
 
 # Just run linting without fixing
 lint:
@@ -14,7 +14,7 @@ type-check:
 
 # Run tests
 test:
-	pytest
+	pytest --log-cli-level=DEBUG
 
 # Install the package in development mode
 install:
@@ -36,4 +36,4 @@ help:
 	@echo "make type-check  - Run pyright type checking"
 	@echo "make test        - Run tests"
 	@echo "make install     - Install package in development mode"
-	@echo "make clean       - Clean up cache and build artifacts" 
+	@echo "make clean       - Clean up cache and build artifacts"
