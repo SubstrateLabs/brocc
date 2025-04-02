@@ -10,20 +10,18 @@ Document database using DuckDB + Polars + PyArrow
   * Type-safe operations with strict typing
 """
 
-import inspect
 import json
 import os
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
-from typing import Any, Union, get_args, get_origin
+from typing import Any
 
 import duckdb
 import polars as pl
 from platformdirs import user_data_dir
-from pydantic import BaseModel
 
 from brocc_li.types.doc import Doc
+from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -32,91 +30,6 @@ APP_AUTHOR = "substratelabs"
 # Database constants
 DEFAULT_DB_FILENAME = "documents.duckdb"
 DOCUMENTS_TABLE = "documents"
-
-# Mapping from Pydantic/Python types to DuckDB SQL types
-# Note: Enums and datetimes (stored as strings) are mapped to VARCHAR
-# Note: Optional types are mapped to their underlying type (DuckDB columns are nullable by default)
-# Note: Dict is mapped to JSON
-# Note: List[str] is mapped to VARCHAR[]
-TYPE_MAPPING = {
-    str: "VARCHAR",
-    int: "BIGINT",  # Using BIGINT for safety, though INTEGER might suffice
-    float: "DOUBLE",
-    bool: "BOOLEAN",
-    datetime: "VARCHAR",  # Stored as formatted string
-    bytes: "BLOB",
-    list: "VARCHAR[]",  # Default for lists, refine below for specific types like List[str]
-    dict: "JSON",
-    Enum: "VARCHAR",  # Store enum value
-}
-
-
-def _get_sql_type(field_type: Any) -> str:
-    """Map a Python/Pydantic type hint to a DuckDB SQL type."""
-    origin = get_origin(field_type)
-    args = get_args(field_type)
-
-    if origin is Union or origin == getattr(
-        Union, "__origin__", None
-    ):  # Handles Optional[T] which is Union[T, None]
-        # Filter out NoneType and get the first actual type
-        non_none_args = [arg for arg in args if arg is not type(None)]
-        if non_none_args:
-            # Recursively get the type for the first non-None type
-            return _get_sql_type(non_none_args[0])
-        else:
-            # Should not happen for Optional[T] but handle just in case
-            return "VARCHAR"  # Default fallback
-
-    if origin is list or origin is list:
-        if args and args[0] is str:
-            return "VARCHAR[]"
-        elif args and args[0] is dict:
-            # DuckDB doesn't directly support LIST<JSON>, so serialize or use STRUCT if needed.
-            # Storing as JSON string array might be an option, but VARCHAR[] is simpler for now if items are simple.
-            # Let's default to VARCHAR[] for list of dicts for now, assuming simple structures or string representations.
-            # A better approach might be to store the whole list as a single JSON string.
-            # For participant_metadatas (List[Dict[str, Any]]), JSON seems more appropriate for the whole list.
-            # Let's refine this specifically for known fields later if needed.
-            # Defaulting List[Dict] to JSON for the whole list.
-            return "JSON"  # Store the whole list as a JSON string
-        else:
-            # Fallback for other list types
-            return TYPE_MAPPING.get(list, "VARCHAR[]")  # Default list type
-
-    if origin is dict or origin is dict:
-        return TYPE_MAPPING.get(dict, "JSON")
-
-    # Handle Enum types by checking inheritance
-    if inspect.isclass(field_type) and issubclass(field_type, Enum):
-        return TYPE_MAPPING.get(Enum, "VARCHAR")
-
-    # Handle basic types
-    return TYPE_MAPPING.get(field_type, "VARCHAR")  # Default to VARCHAR if type not found
-
-
-def _generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
-    """Generate a CREATE TABLE SQL statement from a Pydantic model."""
-    columns = []
-    for name, field in model.model_fields.items():
-        sql_type = _get_sql_type(field.annotation)
-
-        # Handle specific overrides for complex types if needed
-        # Example: participant_metadatas is Optional[List[Dict[str, Any]]]
-        if name == "participant_metadatas":
-            sql_type = "JSON"  # Store the list of dicts as a single JSON string
-
-        column_def = f"{name} {sql_type}"
-        if name == "id":  # Assuming 'id' is always the primary key
-            column_def += " PRIMARY KEY"
-        columns.append(column_def)
-
-    # Add fields present in the old schema but not in Doc model, if strictly needed.
-    # For now, adhering strictly to the Doc model + last_updated.
-    columns.append("last_updated VARCHAR")  # Add last_updated manually
-
-    columns_sql = ",\n                    ".join(columns)
-    return f"CREATE TABLE IF NOT EXISTS {table_name} (\n                    {columns_sql}\n                )"
 
 
 def get_default_db_path() -> str:
@@ -141,7 +54,7 @@ class DocDB:
 
         with duckdb.connect(self.db_path) as conn:
             # Generate the CREATE TABLE statement dynamically
-            create_table_sql = _generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+            create_table_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
             print(
                 f"Generated Schema:\n{create_table_sql}"
             )  # Optional: print generated schema for debugging
@@ -201,10 +114,73 @@ class DocDB:
                     if row.get("participant_identifiers") is None:
                         row["participant_identifiers"] = []
 
+                    if row.get("keywords") is None:
+                        row["keywords"] = []
+
+                    # Convert string representation of arrays to actual arrays if needed
+                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
+                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
+                            "["
+                        ):
+                            try:
+                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, keep the original string
+                                pass
+
+                    # Parse JSON fields
+                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
+                        if json_field in row and row[json_field]:
+                            if isinstance(row[json_field], str):
+                                try:
+                                    row[json_field] = json.loads(row[json_field])
+                                except json.JSONDecodeError:
+                                    row[json_field] = (
+                                        {} if json_field != "participant_metadatas" else []
+                                    )
+                        elif json_field == "metadata" or json_field == "contact_metadata":
+                            row[json_field] = {}
+                        elif json_field == "participant_metadatas":
+                            row[json_field] = []
+
                     documents.append(row)
             else:
                 # Handle Series case
-                documents.append(df.item())
+                row = df.item()
+                if isinstance(row, dict):
+                    # Apply the same conversions as above
+                    if row.get("participant_names") is None:
+                        row["participant_names"] = []
+                    if row.get("participant_identifiers") is None:
+                        row["participant_identifiers"] = []
+                    if row.get("keywords") is None:
+                        row["keywords"] = []
+
+                    # Process arrays and JSON fields
+                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
+                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
+                            "["
+                        ):
+                            try:
+                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, keep the original string
+                                pass
+
+                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
+                        if json_field in row and row[json_field]:
+                            if isinstance(row[json_field], str):
+                                try:
+                                    row[json_field] = json.loads(row[json_field])
+                                except json.JSONDecodeError:
+                                    row[json_field] = (
+                                        {} if json_field != "participant_metadatas" else []
+                                    )
+                        elif json_field == "metadata" or json_field == "contact_metadata":
+                            row[json_field] = {}
+                        elif json_field == "participant_metadatas":
+                            row[json_field] = []
+                documents.append(row)
 
             return documents
 
@@ -236,15 +212,21 @@ class DocDB:
                 prepared_doc[key] = value.value
 
         # Ensure array fields are None for empty lists if the column type is ARRAY
-        # Assuming participant_names/identifiers are VARCHAR[] and metadatas is JSON based on _get_sql_type logic.
+        # This helps DuckDB store them properly as VARCHAR[] types
         if prepared_doc.get("participant_names") == []:
             prepared_doc["participant_names"] = None  # For VARCHAR[]
         if prepared_doc.get("participant_identifiers") == []:
             prepared_doc["participant_identifiers"] = None  # For VARCHAR[]
-        # participant_metadatas is mapped to JSON, so empty list [] is fine for json.dumps
+        if prepared_doc.get("keywords") == []:
+            prepared_doc["keywords"] = None  # For VARCHAR[]
 
-        # Convert metadata and participant_metadatas to JSON string
+        # Initialize keywords if it doesn't exist
+        if "keywords" not in prepared_doc:
+            prepared_doc["keywords"] = None
+
+        # Convert metadata fields to JSON strings
         prepared_doc["metadata"] = json.dumps(prepared_doc.get("metadata") or {})
+        prepared_doc["contact_metadata"] = json.dumps(prepared_doc.get("contact_metadata") or {})
         prepared_doc["participant_metadatas"] = json.dumps(
             prepared_doc.get("participant_metadatas") or []
         )
@@ -364,11 +346,37 @@ class DocDB:
             if document.get("participant_identifiers") is None:
                 document["participant_identifiers"] = []
 
-            # DuckDB returns JSON as a string, parse it back to dict
-            if "metadata" in document and document["metadata"]:
-                document["metadata"] = json.loads(document["metadata"])
-            else:
-                document["metadata"] = {}
+            if document.get("keywords") is None:
+                document["keywords"] = []
+
+            # Convert string representation of arrays to actual arrays if needed
+            # This is a fallback in case arrays are stored as strings
+            for array_field in ["participant_names", "participant_identifiers", "keywords"]:
+                if isinstance(document.get(array_field), str) and document[array_field].startswith(
+                    "["
+                ):
+                    try:
+                        document[array_field] = json.loads(document[array_field].replace("'", '"'))
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, keep the original string
+                        pass
+
+            # Parse JSON fields
+            for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
+                if json_field in document and document[json_field]:
+                    if isinstance(document[json_field], str):
+                        try:
+                            document[json_field] = json.loads(document[json_field])
+                        except json.JSONDecodeError:
+                            document[json_field] = (
+                                {} if json_field != "participant_metadatas" else []
+                            )
+                elif json_field == "metadata":
+                    document[json_field] = {}
+                elif json_field == "contact_metadata":
+                    document[json_field] = {}
+                elif json_field == "participant_metadatas":
+                    document[json_field] = []
 
             return document
 
@@ -412,10 +420,73 @@ class DocDB:
                     if row.get("participant_identifiers") is None:
                         row["participant_identifiers"] = []
 
+                    if row.get("keywords") is None:
+                        row["keywords"] = []
+
+                    # Convert string representation of arrays to actual arrays if needed
+                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
+                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
+                            "["
+                        ):
+                            try:
+                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, keep the original string
+                                pass
+
+                    # Parse JSON fields
+                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
+                        if json_field in row and row[json_field]:
+                            if isinstance(row[json_field], str):
+                                try:
+                                    row[json_field] = json.loads(row[json_field])
+                                except json.JSONDecodeError:
+                                    row[json_field] = (
+                                        {} if json_field != "participant_metadatas" else []
+                                    )
+                        elif json_field == "metadata" or json_field == "contact_metadata":
+                            row[json_field] = {}
+                        elif json_field == "participant_metadatas":
+                            row[json_field] = []
+
                     documents.append(row)
             else:
                 # Handle Series case
-                documents.append(df.item())
+                row = df.item()
+                # Apply the same conversions as above
+                if isinstance(row, dict):
+                    if row.get("participant_names") is None:
+                        row["participant_names"] = []
+                    if row.get("participant_identifiers") is None:
+                        row["participant_identifiers"] = []
+                    if row.get("keywords") is None:
+                        row["keywords"] = []
+
+                    # Process arrays and JSON fields as above
+                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
+                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
+                            "["
+                        ):
+                            try:
+                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, keep the original string
+                                pass
+
+                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
+                        if json_field in row and row[json_field]:
+                            if isinstance(row[json_field], str):
+                                try:
+                                    row[json_field] = json.loads(row[json_field])
+                                except json.JSONDecodeError:
+                                    row[json_field] = (
+                                        {} if json_field != "participant_metadatas" else []
+                                    )
+                        elif json_field == "metadata" or json_field == "contact_metadata":
+                            row[json_field] = {}
+                        elif json_field == "participant_metadatas":
+                            row[json_field] = []
+                documents.append(row)
 
             return documents
 

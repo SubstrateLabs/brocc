@@ -127,12 +127,6 @@ extend-select = [
 ]
 ignore = [
     "E501",    # Line too long
-    "E203",    # Whitespace before ':'
-    "E402",    # Module level import not at top of file
-    "B008",    # Do not perform function call in argument defaults
-    "F401",    # Unused import
-    "F403",    # 'from module import *' used
-    "F405",    # Name may be undefined from star imports
 ]
 
 [tool.ruff.lint.isort]

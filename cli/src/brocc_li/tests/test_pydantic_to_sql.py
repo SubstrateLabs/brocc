@@ -1,5 +1,6 @@
-from brocc_li.doc_db import DOCUMENTS_TABLE, _generate_create_table_sql
+from brocc_li.doc_db import DOCUMENTS_TABLE
 from brocc_li.types.doc import Doc
+from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 
 # Expected schema based on the Doc model + last_updated
 # NOTE: This needs to be manually kept in sync if Doc model changes significantly,
@@ -31,7 +32,7 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
 
 def test_generate_create_table_sql():
     """Test if the generated CREATE TABLE SQL matches the expected schema."""
-    generated_sql = _generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+    generated_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
 
     # Normalize whitespace for comparison (optional, but helps avoid trivial differences)
     normalized_generated = " ".join(generated_sql.split())
