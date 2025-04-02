@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from brocc_li.embed.embed_header import embed_header
+from brocc_li.embed.chunk_header import chunk_header
 from brocc_li.types.doc import Doc, Source, SourceType
 
 
-def test_embed_header_complete():
-    """Test embed_header with a complete doc."""
+def test_chunk_header_complete():
+    """Test chunk_header with a complete doc."""
     # Create a test document with all fields populated
     doc = Doc(
         id="test-id-123",
@@ -13,7 +13,6 @@ def test_embed_header_complete():
         url="https://example.com/test",
         title="Test Document",
         description="This is a test document",
-        text_content="This should not appear in the header.",
         source=Source.TWITTER,
         source_type=SourceType.DOCUMENT,
         source_location_identifier="test-location",
@@ -28,11 +27,11 @@ def test_embed_header_complete():
         "URL: https://example.com/test"
     )
 
-    assert embed_header(doc) == expected_header
+    assert chunk_header(doc) == expected_header
 
 
-def test_embed_header_minimal():
-    """Test embed_header with minimal fields."""
+def test_chunk_header_minimal():
+    """Test chunk_header with minimal fields."""
     # Create a test document with only required fields
     doc = Doc(
         id="test-id-456",
@@ -44,11 +43,11 @@ def test_embed_header_minimal():
 
     expected_header = "Source: substack\nSource Type: conversation"
 
-    assert embed_header(doc) == expected_header
+    assert chunk_header(doc) == expected_header
 
 
-def test_embed_header_all_fields():
-    """Test embed_header with all possible fields populated."""
+def test_chunk_header_all_fields():
+    """Test chunk_header with all possible fields populated."""
     # Create a test document with all possible fields
     doc = Doc(
         id="test-id-789",
@@ -56,7 +55,6 @@ def test_embed_header_all_fields():
         url="https://example.com/comprehensive",
         title="Comprehensive Test",
         description="Testing all Doc fields",
-        text_content="This should not appear in the header.",
         contact_name="John Doe",
         contact_identifier="johndoe123",
         contact_metadata={"verified": True, "status": "active"},
@@ -87,11 +85,11 @@ def test_embed_header_all_fields():
         "Metadata: priority: high, category: test"
     )
 
-    assert embed_header(doc) == expected_header
+    assert chunk_header(doc) == expected_header
 
 
-def test_embed_header_with_location_name():
-    """Test embed_header with source location name."""
+def test_chunk_header_with_location_name():
+    """Test chunk_header with source location name."""
     # Create a test document with source location name
     doc = Doc(
         id="test-id-loc",
@@ -104,11 +102,11 @@ def test_embed_header_with_location_name():
 
     expected_header = "Source: twitter\nSource Type: document\nSource Location: Test Location"
 
-    assert embed_header(doc) == expected_header
+    assert chunk_header(doc) == expected_header
 
 
-def test_embed_header_with_metadata():
-    """Test embed_header with metadata."""
+def test_chunk_header_with_metadata():
+    """Test chunk_header with metadata."""
     # Create a test document with metadata
     doc = Doc(
         id="test-id-meta",
@@ -125,4 +123,4 @@ def test_embed_header_with_metadata():
         "Metadata: author: Jane Smith, views: 1234, likes: 42"
     )
 
-    assert embed_header(doc) == expected_header
+    assert chunk_header(doc) == expected_header

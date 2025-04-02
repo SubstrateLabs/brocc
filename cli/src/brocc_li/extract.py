@@ -1318,8 +1318,8 @@ def scroll_and_extract(
                                     source_type=SourceType.DOCUMENT,
                                     source_location_identifier=config.source_location,
                                 )
-                                doc_dict = doc.model_dump()
-                                storage.store_document(doc_dict)
+                                # Pass the Doc object directly
+                                storage.store_document(doc)
 
                             # Yield the item
                             yield item
@@ -1482,8 +1482,8 @@ def scroll_and_extract(
                     source_type=SourceType.DOCUMENT,
                     source_location_identifier=config.source_location,
                 )
-                doc_dict = doc.model_dump()
-                storage.store_document(doc_dict)
+                # Pass the Doc object directly
+                storage.store_document(doc)
 
             # Yield the item
             yield item

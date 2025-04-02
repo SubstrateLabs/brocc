@@ -1,8 +1,10 @@
 from brocc_li.types.doc import Doc
 
 
-def embed_header(doc: Doc) -> str:
-    """Create a formatted header string with relevant metadata from a Doc."""
+def chunk_header(doc: Doc) -> str:
+    """
+    Create a formatted header string with relevant metadata from a Doc.
+    """
     components = []
 
     # Add title if available
@@ -40,7 +42,7 @@ def embed_header(doc: Doc) -> str:
     if doc.keywords:
         components.append(f"Keywords: {', '.join(doc.keywords)}")
 
-    # Add metadata if available
+    # Add document metadata if available
     if doc.metadata:
         # Format metadata as key-value pairs
         metadata_str = ", ".join(f"{k}: {v}" for k, v in doc.metadata.items())

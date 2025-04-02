@@ -523,7 +523,7 @@ def scroll_and_extract(
             # Store the item if using storage
             if storage:
                 # Convert to Document format for storage
-                from brocc_li.types.doc import Doc, Source
+                from brocc_li.types.doc import Doc, Source, SourceType
 
                 try:
                     source = Source(config.source)
@@ -533,11 +533,12 @@ def scroll_and_extract(
                 doc = Doc.from_extracted_data(
                     data=item,
                     source=source,
+                    source_type=SourceType.DOCUMENT,
                     source_location_identifier=config.source_location_identifier,
                     source_location_name=config.source_location_name,
                 )
-                doc_dict = doc.model_dump()
-                storage.store_document(doc_dict)
+                # Pass the Doc object directly
+                storage.store_document(doc)
 
             # Yield the item
             yield item

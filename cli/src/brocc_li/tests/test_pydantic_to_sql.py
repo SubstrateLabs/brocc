@@ -11,7 +11,6 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     url VARCHAR,
                     title VARCHAR,
                     description VARCHAR,
-                    text_content VARCHAR,
                     contact_name VARCHAR,
                     contact_identifier VARCHAR,
                     contact_metadata JSON,
@@ -25,7 +24,6 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     source_location_identifier VARCHAR,
                     source_location_name VARCHAR,
                     created_at VARCHAR,
-                    embedded_at VARCHAR,
                     last_updated VARCHAR
                 )"""
 

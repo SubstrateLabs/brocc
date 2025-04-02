@@ -20,8 +20,10 @@ import duckdb
 import polars as pl
 from platformdirs import user_data_dir
 
-from brocc_li.types.doc import Doc
+from brocc_li.embed.chunk_markdown import chunk_markdown
+from brocc_li.types.doc import Chunk, Doc
 from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
+from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -30,6 +32,13 @@ APP_AUTHOR = "substratelabs"
 # Database constants
 DEFAULT_DB_FILENAME = "documents.duckdb"
 DOCUMENTS_TABLE = "documents"
+CHUNKS_TABLE = "chunks"
+
+# Document field constants
+ARRAY_FIELDS = ["participant_names", "participant_identifiers", "keywords"]
+JSON_FIELDS = {"metadata": {}, "contact_metadata": {}, "participant_metadatas": []}
+# Fields to exclude from database schema (processed separately)
+EXCLUDED_FIELDS = {"text_content"}
 
 
 def get_default_db_path() -> str:
@@ -53,12 +62,15 @@ class DocDB:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         with duckdb.connect(self.db_path) as conn:
-            # Generate the CREATE TABLE statement dynamically
-            create_table_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
-            print(
-                f"Generated Schema:\n{create_table_sql}"
-            )  # Optional: print generated schema for debugging
-            conn.execute(create_table_sql)
+            # Generate the CREATE TABLE statement dynamically for documents
+            create_documents_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+            print(f"Generated Documents Schema:\n{create_documents_sql}")
+            conn.execute(create_documents_sql)
+
+            # Generate the CREATE TABLE statement for chunks
+            create_chunks_sql = generate_create_table_sql(Chunk, CHUNKS_TABLE)
+            print(f"Generated Chunks Schema:\n{create_chunks_sql}")
+            conn.execute(create_chunks_sql)
 
     def url_exists(self, url: str) -> bool:
         """Check if a document with the given URL already exists."""
@@ -93,7 +105,7 @@ class DocDB:
             return []
 
         with duckdb.connect(self.db_path) as conn:
-            df: pl.DataFrame | pl.Series = pl.from_arrow(
+            df = pl.from_arrow(
                 conn.execute(
                     f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
                     [url],
@@ -103,86 +115,29 @@ class DocDB:
             if df.is_empty():
                 return []
 
-            # Convert to list of dicts and handle special fields
-            documents = []
-            if isinstance(df, pl.DataFrame):
-                for row in df.to_dicts():
-                    # Convert None arrays to empty lists for consistency with the Document model
-                    if row.get("participant_names") is None:
-                        row["participant_names"] = []
+            # Convert to list of native Python dictionaries
+            raw_dicts = polars_to_dicts(df)
+            return [self._process_document_fields(doc) for doc in raw_dicts]
 
-                    if row.get("participant_identifiers") is None:
-                        row["participant_identifiers"] = []
+    def _process_document_fields(self, document: dict[str, Any]) -> dict[str, Any]:
+        """Process document fields for consistent formatting."""
+        doc = document.copy()
 
-                    if row.get("keywords") is None:
-                        row["keywords"] = []
-
-                    # Convert string representation of arrays to actual arrays if needed
-                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
-                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
-                            "["
-                        ):
-                            try:
-                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
-                            except json.JSONDecodeError:
-                                # If JSON parsing fails, keep the original string
-                                pass
-
-                    # Parse JSON fields
-                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
-                        if json_field in row and row[json_field]:
-                            if isinstance(row[json_field], str):
-                                try:
-                                    row[json_field] = json.loads(row[json_field])
-                                except json.JSONDecodeError:
-                                    row[json_field] = (
-                                        {} if json_field != "participant_metadatas" else []
-                                    )
-                        elif json_field == "metadata" or json_field == "contact_metadata":
-                            row[json_field] = {}
-                        elif json_field == "participant_metadatas":
-                            row[json_field] = []
-
-                    documents.append(row)
+        # Convert None arrays to empty lists
+        for field in ARRAY_FIELDS:
+            if field in doc:
+                doc[field] = process_array_field(doc[field])
             else:
-                # Handle Series case
-                row = df.item()
-                if isinstance(row, dict):
-                    # Apply the same conversions as above
-                    if row.get("participant_names") is None:
-                        row["participant_names"] = []
-                    if row.get("participant_identifiers") is None:
-                        row["participant_identifiers"] = []
-                    if row.get("keywords") is None:
-                        row["keywords"] = []
+                doc[field] = []
 
-                    # Process arrays and JSON fields
-                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
-                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
-                            "["
-                        ):
-                            try:
-                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
-                            except json.JSONDecodeError:
-                                # If JSON parsing fails, keep the original string
-                                pass
+        # Parse JSON fields
+        for field, default in JSON_FIELDS.items():
+            if field in doc:
+                doc[field] = process_json_field(doc[field], default)
+            else:
+                doc[field] = default
 
-                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
-                        if json_field in row and row[json_field]:
-                            if isinstance(row[json_field], str):
-                                try:
-                                    row[json_field] = json.loads(row[json_field])
-                                except json.JSONDecodeError:
-                                    row[json_field] = (
-                                        {} if json_field != "participant_metadatas" else []
-                                    )
-                        elif json_field == "metadata" or json_field == "contact_metadata":
-                            row[json_field] = {}
-                        elif json_field == "participant_metadatas":
-                            row[json_field] = []
-                documents.append(row)
-
-            return documents
+        return doc
 
     def _prepare_document_for_storage(self, document: dict[str, Any]) -> dict[str, Any]:
         """Validate, format, and prepare a document dictionary for database storage."""
@@ -193,8 +148,12 @@ class DocDB:
         if "ingested_at" not in doc_data or not doc_data["ingested_at"]:
             doc_data["ingested_at"] = Doc.format_date(datetime.now())
 
+        # text_content will be handled separately in store_document, no need to validate it here
+        text_content = doc_data.pop("text_content", None)
+
         # Validate against the Pydantic model
         try:
+            # Create a new doc without text_content for validation
             doc = Doc(**doc_data)
             prepared_doc = doc.model_dump()
         except Exception as e:
@@ -205,6 +164,10 @@ class DocDB:
         # Add/Update timestamps *after* validation
         prepared_doc["last_updated"] = Doc.format_date(datetime.now())
 
+        # Add back text_content if it was provided (will be removed later during insert/update)
+        if text_content is not None:
+            prepared_doc["text_content"] = text_content
+
         # Convert enum values to strings
         for key, value in prepared_doc.items():
             # Check if it has a 'value' attribute common to Enums
@@ -213,23 +176,17 @@ class DocDB:
 
         # Ensure array fields are None for empty lists if the column type is ARRAY
         # This helps DuckDB store them properly as VARCHAR[] types
-        if prepared_doc.get("participant_names") == []:
-            prepared_doc["participant_names"] = None  # For VARCHAR[]
-        if prepared_doc.get("participant_identifiers") == []:
-            prepared_doc["participant_identifiers"] = None  # For VARCHAR[]
-        if prepared_doc.get("keywords") == []:
-            prepared_doc["keywords"] = None  # For VARCHAR[]
+        for field in ARRAY_FIELDS:
+            if prepared_doc.get(field) == []:
+                prepared_doc[field] = None  # For VARCHAR[]
 
         # Initialize keywords if it doesn't exist
         if "keywords" not in prepared_doc:
             prepared_doc["keywords"] = None
 
         # Convert metadata fields to JSON strings
-        prepared_doc["metadata"] = json.dumps(prepared_doc.get("metadata") or {})
-        prepared_doc["contact_metadata"] = json.dumps(prepared_doc.get("contact_metadata") or {})
-        prepared_doc["participant_metadatas"] = json.dumps(
-            prepared_doc.get("participant_metadatas") or []
-        )
+        for field in JSON_FIELDS:
+            prepared_doc[field] = json.dumps(prepared_doc.get(field) or JSON_FIELDS[field])
 
         # Remove fields from prepared_doc that are not actual table columns
         # Get table columns dynamically (excluding computed fields if any, though Doc doesn't have them)
@@ -238,6 +195,19 @@ class DocDB:
         final_db_doc = {k: v for k, v in prepared_doc.items() if k in valid_db_keys}
 
         return final_db_doc
+
+    def _prepare_chunk_for_storage(self, chunk: Chunk) -> dict[str, Any]:
+        """Prepare a Chunk object for database storage."""
+        # Convert to dictionary
+        prepared_chunk = chunk.model_dump()
+
+        # Convert content to JSON string if it's not already
+        if prepared_chunk.get("content"):
+            prepared_chunk["content"] = json.dumps(prepared_chunk["content"])
+        else:
+            prepared_chunk["content"] = "[]"
+
+        return prepared_chunk
 
     def _find_id_for_update(
         self, document: dict[str, Any], db_document: dict[str, Any]
@@ -274,8 +244,8 @@ class DocDB:
 
         for key, value in db_document.items():
             if (
-                key != "id" and key in table_columns
-            ):  # Ensure key is in expected columns and not 'id'
+                key != "id" and key in table_columns and key not in EXCLUDED_FIELDS
+            ):  # Ensure key is in expected columns, not 'id', and not excluded
                 set_clauses.append(f"{key} = ?")
                 params.append(value)
 
@@ -295,29 +265,102 @@ class DocDB:
 
         # Filter db_document to only include keys corresponding to table columns
         table_columns = list(Doc.model_fields.keys()) + ["last_updated"]
-        filtered_db_doc = {k: v for k, v in db_document.items() if k in table_columns}
+
+        # Filter out fields that should not be stored directly
+        filtered_db_doc = {
+            k: v for k, v in db_document.items() if k in table_columns and k not in EXCLUDED_FIELDS
+        }
 
         columns = ", ".join(filtered_db_doc.keys())
         placeholders = ", ".join(["?"] * len(filtered_db_doc))
         insert_query = f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})"
         conn.execute(insert_query, list(filtered_db_doc.values()))
 
-    def store_document(self, document: dict[str, Any]) -> bool:
-        """Store a document in the database, updating if it already exists."""
-        # Prepare the document data (validation, formatting, etc.)
-        db_document = self._prepare_document_for_storage(document)
+    def _store_chunks(self, conn, chunks: list[Chunk]) -> None:
+        """Store multiple chunks in the database."""
+        for chunk in chunks:
+            db_chunk = self._prepare_chunk_for_storage(chunk)
+            columns = ", ".join(db_chunk.keys())
+            placeholders = ", ".join(["?"] * len(db_chunk))
+            insert_query = f"INSERT INTO {CHUNKS_TABLE} ({columns}) VALUES ({placeholders})"
+            conn.execute(insert_query, list(db_chunk.values()))
 
-        # Check if an existing document needs to be updated
-        id_to_update = self._find_id_for_update(document, db_document)
+    def _delete_chunks(self, conn, doc_id: str) -> None:
+        """Delete all chunks associated with a document ID."""
+        conn.execute(f"DELETE FROM {CHUNKS_TABLE} WHERE doc_id = ?", [doc_id])
+
+    def store_document_with_chunks(self, document_data: dict[str, Any], text_content: str) -> str:
+        """
+        Store a document and its chunks in the database.
+        Returns str ID of the stored document.
+        """
+        # Create a copy of the document data
+        doc_data = document_data.copy()
+
+        # Ensure the document has an ID
+        if not doc_data.get("id"):
+            doc_data["id"] = Doc.generate_id()
+
+        # Prepare document data for storage
+        db_document = self._prepare_document_for_storage(doc_data)
+
+        # Get chunks from text content
+        chunked_content = chunk_markdown(text_content)
+
+        # Create a Doc object to pass to create_chunks_for_doc
+        doc_obj = Doc(**doc_data)
+
+        # Create chunk objects
+        chunks = Doc.create_chunks_for_doc(doc_obj, chunked_content)
 
         with duckdb.connect(self.db_path) as conn:
+            # Check if an existing document needs to be updated
+            id_to_update = self._find_id_for_update(doc_data, db_document)
+
             if id_to_update:
                 # Update existing document
                 self._update_document(conn, db_document, id_to_update)
+
+                # Delete existing chunks for this document
+                self._delete_chunks(conn, id_to_update)
             else:
                 # Insert new document
                 self._insert_document(conn, db_document)
 
+            # Store chunks
+            self._store_chunks(conn, chunks)
+
+        return doc_data["id"]
+
+    def store_document(self, document: Doc) -> bool:
+        """
+        Store a document in the database, updating if it already exists.
+
+        Args:
+            document: A Doc object that must contain text_content for chunking.
+
+        Returns:
+            bool: True if the document was stored successfully.
+
+        Raises:
+            ValueError: If document doesn't contain required text_content field.
+
+        Implementation details:
+        - The text_content is removed from the document and:
+          1. Chunked according to markdown structure
+          2. Stored separately in the chunks table
+          3. The document will reference these chunks through the doc_id
+        - The text_content field is not stored directly in the documents table
+        """
+        # Convert to dict for processing
+        doc_dict = document.model_dump()
+
+        # Require text_content - this is what makes the document valuable
+        text_content = doc_dict.pop("text_content", None)
+        if not text_content:
+            raise ValueError("Document must contain text_content field for chunking")
+
+        self.store_document_with_chunks(doc_dict, text_content)
         return True
 
     def get_document_by_id(self, doc_id: str) -> dict[str, Any] | None:
@@ -326,59 +369,18 @@ class DocDB:
             return None
 
         with duckdb.connect(self.db_path) as conn:
-            df: pl.DataFrame | pl.Series = pl.from_arrow(
+            df = pl.from_arrow(
                 conn.execute(f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]).arrow()
             )
 
             if df.is_empty():
                 return None
 
-            # Convert to dict and handle special fields
-            if isinstance(df, pl.DataFrame):
-                document = df.to_dicts()[0]
-            else:
-                document = df.item()
-
-            # Convert None arrays to empty lists for consistency with the Document model
-            if document.get("participant_names") is None:
-                document["participant_names"] = []
-
-            if document.get("participant_identifiers") is None:
-                document["participant_identifiers"] = []
-
-            if document.get("keywords") is None:
-                document["keywords"] = []
-
-            # Convert string representation of arrays to actual arrays if needed
-            # This is a fallback in case arrays are stored as strings
-            for array_field in ["participant_names", "participant_identifiers", "keywords"]:
-                if isinstance(document.get(array_field), str) and document[array_field].startswith(
-                    "["
-                ):
-                    try:
-                        document[array_field] = json.loads(document[array_field].replace("'", '"'))
-                    except json.JSONDecodeError:
-                        # If JSON parsing fails, keep the original string
-                        pass
-
-            # Parse JSON fields
-            for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
-                if json_field in document and document[json_field]:
-                    if isinstance(document[json_field], str):
-                        try:
-                            document[json_field] = json.loads(document[json_field])
-                        except json.JSONDecodeError:
-                            document[json_field] = (
-                                {} if json_field != "participant_metadatas" else []
-                            )
-                elif json_field == "metadata":
-                    document[json_field] = {}
-                elif json_field == "contact_metadata":
-                    document[json_field] = {}
-                elif json_field == "participant_metadatas":
-                    document[json_field] = []
-
-            return document
+            # Convert to a plain Python dictionary
+            raw_dicts = polars_to_dicts(df)
+            if raw_dicts:
+                return self._process_document_fields(raw_dicts[0])
+            return None
 
     def get_documents(
         self,
@@ -407,88 +409,49 @@ class DocDB:
             # Add limit and offset
             query += f" ORDER BY ingested_at DESC LIMIT {limit} OFFSET {offset}"
 
-            df: pl.DataFrame | pl.Series = pl.from_arrow(conn.execute(query, params).arrow())
+            df = pl.from_arrow(conn.execute(query, params).arrow())
 
-            # Convert to list of dicts and handle special fields
-            documents = []
-            if isinstance(df, pl.DataFrame):
-                for row in df.to_dicts():
-                    # Convert None arrays to empty lists for consistency with the Document model
-                    if row.get("participant_names") is None:
-                        row["participant_names"] = []
+            if df.is_empty():
+                return []
 
-                    if row.get("participant_identifiers") is None:
-                        row["participant_identifiers"] = []
+            # Convert to list of native Python dictionaries
+            raw_dicts = polars_to_dicts(df)
+            return [self._process_document_fields(doc) for doc in raw_dicts]
 
-                    if row.get("keywords") is None:
-                        row["keywords"] = []
+    def _process_chunk_fields(self, chunk: dict[str, Any]) -> dict[str, Any]:
+        """Process chunk fields for consistent formatting."""
+        processed = chunk.copy()
 
-                    # Convert string representation of arrays to actual arrays if needed
-                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
-                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
-                            "["
-                        ):
-                            try:
-                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
-                            except json.JSONDecodeError:
-                                # If JSON parsing fails, keep the original string
-                                pass
+        # Parse JSON content field
+        if "content" in processed and processed["content"]:
+            if isinstance(processed["content"], str):
+                try:
+                    processed["content"] = json.loads(processed["content"])
+                except json.JSONDecodeError:
+                    processed["content"] = []
+        else:
+            processed["content"] = []
 
-                    # Parse JSON fields
-                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
-                        if json_field in row and row[json_field]:
-                            if isinstance(row[json_field], str):
-                                try:
-                                    row[json_field] = json.loads(row[json_field])
-                                except json.JSONDecodeError:
-                                    row[json_field] = (
-                                        {} if json_field != "participant_metadatas" else []
-                                    )
-                        elif json_field == "metadata" or json_field == "contact_metadata":
-                            row[json_field] = {}
-                        elif json_field == "participant_metadatas":
-                            row[json_field] = []
+        return processed
 
-                    documents.append(row)
-            else:
-                # Handle Series case
-                row = df.item()
-                # Apply the same conversions as above
-                if isinstance(row, dict):
-                    if row.get("participant_names") is None:
-                        row["participant_names"] = []
-                    if row.get("participant_identifiers") is None:
-                        row["participant_identifiers"] = []
-                    if row.get("keywords") is None:
-                        row["keywords"] = []
+    def get_chunks_by_doc_id(self, doc_id: str) -> list[dict[str, Any]]:
+        """
+        Retrieve all chunks for a document by its ID.
+        Returns list of chunk dictionaries.
+        """
+        with duckdb.connect(self.db_path) as conn:
+            df = pl.from_arrow(
+                conn.execute(
+                    f"SELECT * FROM {CHUNKS_TABLE} WHERE doc_id = ? ORDER BY chunk_index", [doc_id]
+                ).arrow()
+            )
 
-                    # Process arrays and JSON fields as above
-                    for array_field in ["participant_names", "participant_identifiers", "keywords"]:
-                        if isinstance(row.get(array_field), str) and row[array_field].startswith(
-                            "["
-                        ):
-                            try:
-                                row[array_field] = json.loads(row[array_field].replace("'", '"'))
-                            except json.JSONDecodeError:
-                                # If JSON parsing fails, keep the original string
-                                pass
+            if df.is_empty():
+                return []
 
-                    for json_field in ["metadata", "contact_metadata", "participant_metadatas"]:
-                        if json_field in row and row[json_field]:
-                            if isinstance(row[json_field], str):
-                                try:
-                                    row[json_field] = json.loads(row[json_field])
-                                except json.JSONDecodeError:
-                                    row[json_field] = (
-                                        {} if json_field != "participant_metadatas" else []
-                                    )
-                        elif json_field == "metadata" or json_field == "contact_metadata":
-                            row[json_field] = {}
-                        elif json_field == "participant_metadatas":
-                            row[json_field] = []
-                documents.append(row)
-
-            return documents
+            # Convert to list of native Python dictionaries
+            raw_dicts = polars_to_dicts(df)
+            return [self._process_chunk_fields(chunk) for chunk in raw_dicts]
 
     def launch_ui(self) -> None:
         """
@@ -516,6 +479,13 @@ class DocDB:
         except KeyboardInterrupt:
             conn.execute("CALL stop_ui_server();")
             conn.close()
+
+    def get_chunks_for_document(self, doc_id: str) -> list[dict[str, Any]]:
+        """
+        Retrieve all chunks associated with a document ID.
+        Returns list of chunk dictionaries.
+        """
+        return self.get_chunks_by_doc_id(doc_id)
 
 
 def launch_ui() -> None:

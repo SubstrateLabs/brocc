@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from brocc_li.types.doc import Doc, Source, SourceType
+from brocc_li.types.doc import Chunk, Doc, Source, SourceType
 
 
 def test_doc_from_twitter_data():
@@ -11,7 +11,6 @@ def test_doc_from_twitter_data():
         "contact_name": "Test Author",
         "contact_identifier": "username",
         "created_at": "2023-05-01T12:34:56Z",
-        "text_content": "This is a test tweet",
         "metadata": {
             "replies": "10",
             "retweets": "20",
@@ -38,7 +37,6 @@ def test_doc_from_twitter_data():
     assert doc.contact_name == twitter_data["contact_name"]
     assert doc.contact_identifier == twitter_data["contact_identifier"]
     assert doc.created_at == twitter_data["created_at"]
-    assert doc.text_content == twitter_data["text_content"]
     assert doc.metadata == twitter_data["metadata"]
 
     # Verify source information
@@ -57,7 +55,6 @@ def test_doc_from_substack_data():
         "description": "This is a test article description",
         "contact_name": "Substack Author",
         "created_at": "2023-06-15T10:20:30Z",
-        "text_content": "Article content in markdown format",
         "metadata": {
             "publication": "Test Publication",
         },
@@ -82,7 +79,6 @@ def test_doc_from_substack_data():
     assert doc.description == substack_data["description"]
     assert doc.contact_name == substack_data["contact_name"]
     assert doc.created_at == substack_data["created_at"]
-    assert doc.text_content == substack_data["text_content"]
     assert doc.metadata == substack_data["metadata"]
 
     # Verify source information
@@ -134,10 +130,97 @@ def test_doc_with_missing_fields():
     # Verify optional fields have default values
     assert doc.title is None
     assert doc.description is None
-    assert doc.text_content is None
     assert doc.contact_name is None
     assert doc.contact_identifier is None
     assert doc.created_at is None
     assert doc.metadata is None
     assert doc.source_location_name is None
     assert doc.ingested_at is not None
+
+
+def test_chunk_creation():
+    """Test creating Chunk objects."""
+    content = [{"type": "text", "text": "This is chunk content"}]
+
+    chunk = Chunk(
+        id="chunk123",
+        doc_id="doc456",
+        chunk_index=1,
+        chunk_total=3,
+        content=content,
+    )
+
+    # Verify fields
+    assert chunk.id == "chunk123"
+    assert chunk.doc_id == "doc456"
+    assert chunk.chunk_index == 1
+    assert chunk.chunk_total == 3
+    assert chunk.content == content
+    # Verify content directly instead of using properties
+    assert (
+        "\n\n".join(item["text"] for item in chunk.content if item.get("type") == "text")
+        == "This is chunk content"
+    )
+    assert [item["image_url"] for item in chunk.content if item.get("type") == "image_url"] == []
+
+
+def test_doc_create_chunks_for_doc():
+    """Test creating Chunk objects from a document."""
+    # Create a document
+    doc = Doc(
+        id="test_doc",
+        ingested_at=Doc.format_date(datetime.now()),
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_location",
+    )
+
+    # Create chunked content (similar to what chunk_markdown would return)
+    chunked_content = [
+        [{"type": "text", "text": "Chunk 1 content"}],
+        [{"type": "text", "text": "Chunk 2 content"}],
+        [{"type": "text", "text": "Chunk 3 content"}],
+    ]
+
+    # Create chunks
+    chunks = Doc.create_chunks_for_doc(doc, chunked_content)
+
+    # Verify chunks
+    assert len(chunks) == 3
+
+    # Check each chunk
+    for i, chunk in enumerate(chunks):
+        assert chunk.doc_id == "test_doc"
+        assert chunk.chunk_index == i
+        assert chunk.chunk_total == 3
+        # Verify content directly
+        text_content = "\n\n".join(
+            item["text"] for item in chunk.content if item.get("type") == "text"
+        )
+        assert text_content == f"Chunk {i + 1} content"
+        assert [
+            item["image_url"] for item in chunk.content if item.get("type") == "image_url"
+        ] == []
+
+    # Test with multimodal content
+    multimodal_content = [
+        [
+            {"type": "text", "text": "Text with image"},
+            {"type": "image_url", "image_url": "https://example.com/image.jpg"},
+        ]
+    ]
+
+    multimodal_chunks = Doc.create_chunks_for_doc(doc, multimodal_content)
+    assert len(multimodal_chunks) == 1
+    # Verify content directly
+    assert (
+        "\n\n".join(
+            item["text"] for item in multimodal_chunks[0].content if item.get("type") == "text"
+        )
+        == "Text with image"
+    )
+    assert [
+        item["image_url"]
+        for item in multimodal_chunks[0].content
+        if item.get("type") == "image_url"
+    ] == ["https://example.com/image.jpg"]

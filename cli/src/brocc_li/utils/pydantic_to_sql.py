@@ -61,7 +61,15 @@ def _get_sql_type(field_type: Any) -> str:
 def generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
     """Generate a CREATE TABLE SQL statement from a Pydantic model."""
     columns = []
+
+    # Fields to exclude from database schema (processed separately)
+    excluded_fields = {"text_content"}
+
     for name, field in model.model_fields.items():
+        # Skip excluded fields
+        if name in excluded_fields:
+            continue
+
         sql_type = _get_sql_type(field.annotation)
 
         # Handle specific overrides for complex types if needed
@@ -72,6 +80,12 @@ def generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
             sql_type = "JSON"  # Ensure these are stored as JSON
         elif name == "keywords" or name == "participant_names" or name == "participant_identifiers":
             sql_type = "VARCHAR[]"  # Ensure these are stored as arrays
+
+        # Special handling for Chunk model numeric fields
+        elif name == "chunk_index" or name == "chunk_total":
+            sql_type = "INTEGER"  # Store as proper number types
+        elif name == "content":
+            sql_type = "JSON"  # Store the content list as JSON
 
         column_def = f"{name} {sql_type}"
         if name == "id":  # Assuming 'id' is always the primary key
