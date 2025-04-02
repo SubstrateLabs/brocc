@@ -1,5 +1,6 @@
-import time
 import random
+import time
+
 from brocc_li.utils.logger import logger
 
 
@@ -8,9 +9,7 @@ def random_delay(base_delay: float, variation: float = 0.2) -> None:
     time.sleep(base_delay * random.uniform(1 - variation, 1 + variation))
 
 
-def random_delay_with_jitter(
-    min_ms: int, max_ms: int, jitter_factor: float = 0.3
-) -> None:
+def random_delay_with_jitter(min_ms: int, max_ms: int, jitter_factor: float = 0.3) -> None:
     """Add a random delay with jitter to make scraping more human-like."""
     min_delay = min_ms / 1000
     max_delay = max_ms / 1000

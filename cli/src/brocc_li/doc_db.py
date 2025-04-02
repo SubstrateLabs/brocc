@@ -10,18 +10,20 @@ Document database using DuckDB + Polars + PyArrow
   * Type-safe operations with strict typing
 """
 
-import duckdb
+import inspect
+import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Set, Union, get_origin, get_args
-from platformdirs import user_data_dir
-from pathlib import Path
-from brocc_li.types.doc import Doc, Source, SourceType
-import polars as pl
-import json
-from pydantic import BaseModel
 from enum import Enum
-import inspect
+from pathlib import Path
+from typing import Any, Union, get_args, get_origin
+
+import duckdb
+import polars as pl
+from platformdirs import user_data_dir
+from pydantic import BaseModel
+
+from brocc_li.types.doc import Doc
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -66,7 +68,7 @@ def _get_sql_type(field_type: Any) -> str:
             # Should not happen for Optional[T] but handle just in case
             return "VARCHAR"  # Default fallback
 
-    if origin is list or origin is List:
+    if origin is list or origin is list:
         if args and args[0] is str:
             return "VARCHAR[]"
         elif args and args[0] is dict:
@@ -82,7 +84,7 @@ def _get_sql_type(field_type: Any) -> str:
             # Fallback for other list types
             return TYPE_MAPPING.get(list, "VARCHAR[]")  # Default list type
 
-    if origin is dict or origin is Dict:
+    if origin is dict or origin is dict:
         return TYPE_MAPPING.get(dict, "JSON")
 
     # Handle Enum types by checking inheritance
@@ -90,9 +92,7 @@ def _get_sql_type(field_type: Any) -> str:
         return TYPE_MAPPING.get(Enum, "VARCHAR")
 
     # Handle basic types
-    return TYPE_MAPPING.get(
-        field_type, "VARCHAR"
-    )  # Default to VARCHAR if type not found
+    return TYPE_MAPPING.get(field_type, "VARCHAR")  # Default to VARCHAR if type not found
 
 
 def _generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
@@ -129,7 +129,7 @@ def get_default_db_path() -> str:
 class DocDB:
     """Handles storage and retrieval of documents using DuckDB."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """Initialize the storage with the given database path or the default."""
         self.db_path = db_path or get_default_db_path()
         self._initialize_db()
@@ -158,7 +158,7 @@ class DocDB:
             ).fetchone()
             return result is not None and result[0] > 0
 
-    def get_seen_urls(self, source: Optional[str] = None) -> Set[str]:
+    def get_seen_urls(self, source: str | None = None) -> set[str]:
         """Get a set of URLs that have already been seen."""
         with duckdb.connect(self.db_path) as conn:
             query = f"SELECT url FROM {DOCUMENTS_TABLE}"
@@ -168,18 +168,19 @@ class DocDB:
                 query += " WHERE source = ?"
                 params.append(source)
 
-            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
-                conn.execute(query, params).arrow()
-            )
-            return set(df["url"].drop_nulls().to_list())
+            df: pl.DataFrame | pl.Series = pl.from_arrow(conn.execute(query, params).arrow())
+            if isinstance(df, pl.DataFrame):
+                return set(df["url"].drop_nulls().to_list())
+            else:
+                return set() if df.is_empty() else {df.item()}
 
-    def get_documents_by_url(self, url: str) -> List[Dict[str, Any]]:
+    def get_documents_by_url(self, url: str) -> list[dict[str, Any]]:
         """Retrieve all documents with the given URL."""
         if not url:
             return []
 
         with duckdb.connect(self.db_path) as conn:
-            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
+            df: pl.DataFrame | pl.Series = pl.from_arrow(
                 conn.execute(
                     f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
                     [url],
@@ -207,7 +208,7 @@ class DocDB:
 
             return documents
 
-    def _prepare_document_for_storage(self, document: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_document_for_storage(self, document: dict[str, Any]) -> dict[str, Any]:
         """Validate, format, and prepare a document dictionary for database storage."""
         # Create a copy to avoid modifying the original input dict
         doc_data = document.copy()
@@ -218,13 +219,12 @@ class DocDB:
 
         # Validate against the Pydantic model
         try:
-            # Pydantic v2 ignores extra fields by default, so no pre-filtering needed
             doc = Doc(**doc_data)
             prepared_doc = doc.model_dump()
         except Exception as e:
             # Consider logging the actual error and invalid data here
             print(f"Validation Error: {e}\nData: {doc_data}")  # Temp print
-            raise ValueError(f"Invalid document structure: {str(e)}")
+            raise ValueError(f"Invalid document structure: {str(e)}") from e
 
         # Add/Update timestamps *after* validation
         prepared_doc["last_updated"] = Doc.format_date(datetime.now())
@@ -258,8 +258,8 @@ class DocDB:
         return final_db_doc
 
     def _find_id_for_update(
-        self, document: Dict[str, Any], db_document: Dict[str, Any]
-    ) -> Optional[str]:
+        self, document: dict[str, Any], db_document: dict[str, Any]
+    ) -> str | None:
         """Determine if an existing document should be updated, returning its ID if found."""
         # First priority: check by ID
         doc_id = document.get("id")
@@ -282,7 +282,7 @@ class DocDB:
 
         return None  # No existing document found for update
 
-    def _update_document(self, conn, db_document: Dict[str, Any], doc_id: str) -> None:
+    def _update_document(self, conn, db_document: dict[str, Any], doc_id: str) -> None:
         """Execute the UPDATE statement for a given document ID."""
         set_clauses = []
         params = []
@@ -302,12 +302,10 @@ class DocDB:
             return
 
         params.append(doc_id)  # Add the ID for the WHERE clause
-        update_query = (
-            f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE id = ?"
-        )
+        update_query = f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE id = ?"
         conn.execute(update_query, params)
 
-    def _insert_document(self, conn, db_document: Dict[str, Any]) -> None:
+    def _insert_document(self, conn, db_document: dict[str, Any]) -> None:
         """Execute the INSERT statement for a new document."""
         # Ensure document has an ID
         if not db_document.get("id"):
@@ -319,12 +317,10 @@ class DocDB:
 
         columns = ", ".join(filtered_db_doc.keys())
         placeholders = ", ".join(["?"] * len(filtered_db_doc))
-        insert_query = (
-            f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})"
-        )
+        insert_query = f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})"
         conn.execute(insert_query, list(filtered_db_doc.values()))
 
-    def store_document(self, document: Dict[str, Any]) -> bool:
+    def store_document(self, document: dict[str, Any]) -> bool:
         """Store a document in the database, updating if it already exists."""
         # Prepare the document data (validation, formatting, etc.)
         db_document = self._prepare_document_for_storage(document)
@@ -342,16 +338,14 @@ class DocDB:
 
         return True
 
-    def get_document_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
+    def get_document_by_id(self, doc_id: str) -> dict[str, Any] | None:
         """Retrieve a document by its ID."""
         if not doc_id:
             return None
 
         with duckdb.connect(self.db_path) as conn:
-            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
-                conn.execute(
-                    f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]
-                ).arrow()
+            df: pl.DataFrame | pl.Series = pl.from_arrow(
+                conn.execute(f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]).arrow()
             )
 
             if df.is_empty():
@@ -380,11 +374,11 @@ class DocDB:
 
     def get_documents(
         self,
-        source: Optional[str] = None,
-        source_location: Optional[str] = None,
+        source: str | None = None,
+        source_location: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Retrieve documents with optional filtering."""
         with duckdb.connect(self.db_path) as conn:
             query = f"SELECT * FROM {DOCUMENTS_TABLE}"
@@ -405,9 +399,7 @@ class DocDB:
             # Add limit and offset
             query += f" ORDER BY ingested_at DESC LIMIT {limit} OFFSET {offset}"
 
-            df: Union[pl.DataFrame, pl.Series] = pl.from_arrow(
-                conn.execute(query, params).arrow()
-            )
+            df: pl.DataFrame | pl.Series = pl.from_arrow(conn.execute(query, params).arrow())
 
             # Convert to list of dicts and handle special fields
             documents = []
@@ -432,9 +424,10 @@ class DocDB:
         Launch the DuckDB UI for the documents database.
         https://duckdb.org/docs/stable/extensions/ui.html
         """
-        import duckdb
-        import webbrowser
         import time
+        import webbrowser
+
+        import duckdb
 
         conn = duckdb.connect(self.db_path)
         conn.execute("INSTALL ui;")
@@ -460,7 +453,7 @@ def launch_ui() -> None:
     storage.launch_ui()
 
 
-def delete_db(db_path: Optional[str] = None) -> bool:
+def delete_db(db_path: str | None = None) -> bool:
     """Delete the database file at the given path or the default path."""
     path = db_path or get_default_db_path()
     print(f"Attempting to delete database at: {path}")

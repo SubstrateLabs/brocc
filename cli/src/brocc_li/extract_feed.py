@@ -1,32 +1,37 @@
-from typing import Any, Dict, Set, Tuple, Generator
 import random
-from playwright.sync_api import (
-    TimeoutError,
-    Error as PlaywrightError,
-    Page,
-)
+from collections.abc import Generator
 from datetime import datetime
-from brocc_li.utils.random_delay import random_delay, random_delay_with_jitter
-from brocc_li.types.extract_field import ExtractField
-from brocc_li.extract.save_extract_log import save_extract_log
-from brocc_li.extract.extract_schema import extract_schema
+from typing import Any
+
+from playwright.sync_api import (
+    Error as PlaywrightError,
+)
+from playwright.sync_api import (
+    Page,
+    TimeoutError,
+)
+
+from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
 from brocc_li.extract.extract_markdown import extract_markdown
-from brocc_li.extract.is_valid_page import is_valid_page
+from brocc_li.extract.extract_navigate_content import extract_navigate_content
+from brocc_li.extract.extract_schema import extract_schema
 from brocc_li.extract.find_container import find_container
 from brocc_li.extract.find_element import find_element
-from brocc_li.extract.restore_scroll import restore_scroll_position
-from brocc_li.extract.scroll_strategies import perform_adaptive_scroll
-from brocc_li.extract.extract_navigate_content import extract_navigate_content
-from brocc_li.extract.wait_for_navigation import (
-    wait_for_navigation,
-    DEFAULT_JITTER_FACTOR,
-)
-from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
+from brocc_li.extract.is_valid_page import is_valid_page
 from brocc_li.extract.rate_limit_backoff_s import (
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
 )
+from brocc_li.extract.restore_scroll import restore_scroll_position
+from brocc_li.extract.save_extract_log import save_extract_log
+from brocc_li.extract.scroll_strategies import perform_adaptive_scroll
+from brocc_li.extract.wait_for_navigation import (
+    DEFAULT_JITTER_FACTOR,
+    wait_for_navigation,
+)
 from brocc_li.types.extract_feed_config import ExtractFeedConfig
+from brocc_li.types.extract_field import ExtractField
 from brocc_li.utils.logger import logger
+from brocc_li.utils.random_delay import random_delay, random_delay_with_jitter
 
 TEXT_CONTENT_FIELD = "text_content"
 URL_FIELD = "url"
@@ -42,10 +47,10 @@ NAVIGATE_MAX_RETRIES = 2
 
 def extract_and_save_content(
     page: Page,
-    item: Dict[str, Any],
+    item: dict[str, Any],
     config: ExtractFeedConfig,
     consecutive_timeouts: int = 0,
-) -> Tuple[bool, int]:
+) -> tuple[bool, int]:
     """Extract and save content from the detail page."""
     if not config.navigate_options:
         return False, 0
@@ -77,9 +82,7 @@ def extract_and_save_content(
         return True, adjust_timeout_counter(
             consecutive_timeouts,
             success=True,
-            aggressive=(
-                consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-            ),
+            aggressive=(consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD),
         )
 
     # Track consecutive timeouts
@@ -102,7 +105,7 @@ def extract_and_save_content(
 
 def handle_navigation(
     page: Page,
-    item: Dict[str, Any],
+    item: dict[str, Any],
     config: ExtractFeedConfig,
     item_position: int,
     original_url: str,
@@ -128,16 +131,12 @@ def handle_navigation(
 
     retry_count = 0
     content_found = False
-    consecutive_timeouts = (
-        current_consecutive_timeouts  # Start from the current count, don't reset
-    )
+    consecutive_timeouts = current_consecutive_timeouts  # Start from the current count, don't reset
 
     # First ensure we're on the correct starting page before attempting to navigate
     if page.url != original_url:
         if not ensure_original_page(page, original_url, config, scroll_position):
-            logger.error(
-                "Failed to establish starting page for deep scraping, skipping this item"
-            )
+            logger.error("Failed to establish starting page for deep scraping, skipping this item")
             item[TEXT_CONTENT_FIELD] = "Error: Navigation failure before scraping"
             return consecutive_timeouts
 
@@ -146,25 +145,17 @@ def handle_navigation(
             # Check if we're on an about:blank page, which indicates navigation issue
             if page.url == "about:blank" or not page.url:
                 logger.warning("About:blank detected, attempting to recover...")
-                if not ensure_original_page(
-                    page, original_url, config, scroll_position
-                ):
+                if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
-                    logger.error(
-                        "Failed to recover from about:blank, trying next retry"
-                    )
+                    logger.error("Failed to recover from about:blank, trying next retry")
                     continue
 
             if retry_count > 0:
                 logger.warning(f"Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}")
                 # Ensure we're back on the original page before retry
-                if not ensure_original_page(
-                    page, original_url, config, scroll_position
-                ):
+                if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
-                    logger.error(
-                        "Failed to return to original page for retry, continuing"
-                    )
+                    logger.error("Failed to return to original page for retry, continuing")
                     continue
 
                 random_delay_with_jitter(
@@ -206,9 +197,7 @@ def handle_navigation(
         # If we couldn't get back to the original page, try a more aggressive approach
         try:
             logger.warning("Final attempt to return to original page...")
-            page.goto(
-                original_url, wait_until="domcontentloaded"
-            )  # Less strict wait condition
+            page.goto(original_url, wait_until="domcontentloaded")  # Less strict wait condition
             if page.url == original_url:
                 # Try to restore scroll position one last time
                 if scroll_position > 0:
@@ -312,17 +301,14 @@ def ensure_original_page(
 
     # Handle invalid page state explicitly
     if not is_valid_page(page):
-        logger.warning(
-            "Detected invalid page state, navigating directly to original URL"
-        )
+        logger.warning("Detected invalid page state, navigating directly to original URL")
         try:
             page.goto(
                 original_url,
                 wait_until="networkidle"
                 if config.navigate_options.wait_networkidle
                 else "domcontentloaded",
-                timeout=config.network_idle_timeout_ms
-                * 2,  # More generous timeout for recovery
+                timeout=config.network_idle_timeout_ms * 2,  # More generous timeout for recovery
             )
             # Verify we're actually back at the original URL
             if page.url == original_url:
@@ -332,9 +318,7 @@ def ensure_original_page(
                     restore_scroll_position(page, scroll_position)
                 return True
             else:
-                logger.error(
-                    f"Failed to return to original page. Currently at: {page.url}"
-                )
+                logger.error(f"Failed to return to original page. Currently at: {page.url}")
                 return False
         except (TimeoutError, PlaywrightError) as e:
             logger.error(f"Failed navigation to original URL: {str(e)}")
@@ -360,8 +344,7 @@ def ensure_original_page(
             wait_until="networkidle"
             if config.navigate_options.wait_networkidle
             else "domcontentloaded",
-            timeout=config.network_idle_timeout_ms
-            * 2,  # More generous timeout for recovery
+            timeout=config.network_idle_timeout_ms * 2,  # More generous timeout for recovery
         )
 
         # Verify we're actually back at the original URL
@@ -382,7 +365,7 @@ def ensure_original_page(
 
 def scroll_and_extract(
     page: Page, config: ExtractFeedConfig
-) -> Generator[Dict[str, Any], None, None]:
+) -> Generator[dict[str, Any], None, None]:
     """Generator function to scroll through a page and yield items as they're found.
 
     Return type explanation:
@@ -393,16 +376,14 @@ def scroll_and_extract(
     """
     try:
         if config.container_selector is None:
-            for field_name, field in config.feed_schema.__dict__.items():
+            for _field_name, field in config.feed_schema.__dict__.items():
                 if isinstance(field, ExtractField) and field.is_container:
                     config.container_selector = field.selector
                     break
             if config.container_selector is None:
                 raise ValueError("No container selector found in schema")
 
-        page.wait_for_selector(
-            config.container_selector, timeout=config.initial_load_timeout_ms
-        )
+        page.wait_for_selector(config.container_selector, timeout=config.initial_load_timeout_ms)
     except Exception as e:
         logger.error(f"Timeout waiting for {DEFAULT_PROGRESS_LABEL} to load: {str(e)}")
         return
@@ -417,7 +398,7 @@ def scroll_and_extract(
         logger.debug(f"Using document storage: {storage.db_path}")
 
     # Get seen URLs if using storage
-    seen_urls: Set[str] = set()
+    seen_urls: set[str] = set()
     if storage:
         # Always load the seen URLs that have been seen for this source (across all locations)
         seen_urls = storage.get_seen_urls(source=config.source)
@@ -461,9 +442,7 @@ def scroll_and_extract(
                     logger.error(f"Failed to expand element: {str(e)}")
 
         # Normal extraction mode
-        current_items = extract_schema(
-            page, config.feed_schema, config.container_selector, config
-        )
+        current_items = extract_schema(page, config.feed_schema, config.container_selector, config)
         new_items = 0
         skipped_items = 0
 
@@ -485,9 +464,7 @@ def scroll_and_extract(
                     if isinstance(item_date, str):
                         # Try parsing from ISO format first
                         try:
-                            item_date = datetime.fromisoformat(
-                                item_date.replace("Z", "+00:00")
-                            )
+                            item_date = datetime.fromisoformat(item_date.replace("Z", "+00:00"))
                         except ValueError:
                             # Fall back to more flexible parsing if needed
                             from dateutil.parser import parse
@@ -523,16 +500,12 @@ def scroll_and_extract(
 
             # Found an unseen URL - if we're in turbo mode, exit it to process content properly
             if is_turbo_mode:
-                logger.success(
-                    "Found unseen content, exiting turbo mode to process it properly"
-                )
+                logger.success("Found unseen content, exiting turbo mode to process it properly")
                 is_turbo_mode = False
 
             # Add to seen URLs to avoid duplicates in this session
             seen_urls.add(url)
-            item_position = (
-                idx  # Use the position in the current items list, not items_yielded
-            )
+            item_position = idx  # Use the position in the current items list, not items_yielded
 
             # Process this unseen item - but skip deep scraping in turbo mode
             if should_do_deep_scraping and config.navigate_options and url:
@@ -586,9 +559,7 @@ def scroll_and_extract(
         if all_items_seen:
             consecutive_all_seen += 1
             if consecutive_all_seen > 3 and not is_turbo_mode:
-                logger.warning(
-                    "Multiple scrolls with only seen items, using fast-scroll mode..."
-                )
+                logger.warning("Multiple scrolls with only seen items, using fast-scroll mode...")
         else:
             consecutive_all_seen = 0
             # If we find new items, exit turbo mode
@@ -637,8 +608,7 @@ def scroll_and_extract(
             # If the container count hasn't changed after multiple scrolls, we've likely reached the end
             if (
                 len(new_containers) == previous_container_count
-                and consecutive_same_height
-                >= config.scroll_config.max_consecutive_same_height - 1
+                and consecutive_same_height >= config.scroll_config.max_consecutive_same_height - 1
                 and no_new_items_count >= config.scroll_config.max_no_new_items - 1
             ):
                 logger.warning(
@@ -653,13 +623,10 @@ def scroll_and_extract(
                 )
                 # Be more lenient with no_new_items_count when we're finding more containers
                 if no_new_items_count > 0 and skipped_items > 0:
-                    no_new_items_count = max(
-                        0, no_new_items_count - 1
-                    )  # Reduce the counter
+                    no_new_items_count = max(0, no_new_items_count - 1)  # Reduce the counter
 
         if (
-            items_yielded % random.randint(*config.scroll_config.random_pause_interval)
-            == 0
+            items_yielded % random.randint(*config.scroll_config.random_pause_interval) == 0
             and not is_turbo_mode  # Skip random pauses in turbo mode
         ):
             random_delay(2.0, 0.5)

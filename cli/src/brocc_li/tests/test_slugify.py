@@ -16,7 +16,7 @@ class TestSlugify:
         assert "~23~" in slugify("Hello@World#123")  # # sign
         assert slugify("One & Two") == "one~s~~26~~s~two"
         # Multiple consecutive spaces are preserved
-        assert "spaces~s~~s~~s~multiple" == slugify("Spaces   Multiple")
+        assert slugify("Spaces   Multiple") == "spaces~s~~s~~s~multiple"
 
     def test_unicode_characters(self):
         slug = slugify("Café au lait")

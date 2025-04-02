@@ -1,15 +1,19 @@
-from typing import Any, Dict, List, Optional, Set, Tuple, Generator
-from pydantic import BaseModel
-from rich.console import Console
+import json
+import os
 import random
 import time
-from html_to_markdown import convert_to_markdown
-import os
+from collections.abc import Generator
 from dataclasses import dataclass
-from enum import Enum
-from playwright.sync_api import TimeoutError, Error as PlaywrightError, Page
-import json
 from datetime import datetime
+from enum import Enum
+from typing import Any, Optional
+
+from html_to_markdown import convert_to_markdown
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page, TimeoutError
+from pydantic import BaseModel
+from rich.console import Console
+
 from brocc_li.types.extract_field import ExtractField
 from brocc_li.utils.slugify import slugify
 
@@ -36,7 +40,7 @@ class ScrollConfig:
     # How many scrolls with same page height before trying aggressive scroll strategies
     max_consecutive_same_height: int = 3
     # Add a longer random pause after this many items (min, max range)
-    random_pause_interval: Tuple[int, int] = (15, 25)
+    random_pause_interval: tuple[int, int] = (15, 25)
 
 
 # Constants for deep scraping
@@ -120,9 +124,9 @@ class ExtractFeedConfig(BaseModel):
     navigate_options: Optional["NavigateOptions"] = None
 
     # Runtime behavior
-    max_items: Optional[int] = None
-    expand_item_selector: Optional[str] = None
-    container_selector: Optional[str] = None
+    max_items: int | None = None
+    expand_item_selector: str | None = None
+    container_selector: str | None = None
 
     # Source information (required)
     source: str
@@ -139,15 +143,15 @@ class ExtractFeedConfig(BaseModel):
 
     # Storage options
     use_storage: bool = False
-    storage_path: Optional[str] = None
+    storage_path: str | None = None
     continue_on_seen: bool = False
 
     # Date cutoff options
-    stop_after_date: Optional[datetime] = None
+    stop_after_date: datetime | None = None
 
     # Debug options
     debug: bool = False
-    debug_file: Optional[str] = None
+    debug_file: str | None = None
 
 
 class NavigateOptions(BaseModel):
@@ -179,9 +183,7 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
         return field.extract(element, field)
 
     if field.children:
-        container = (
-            element.query_selector(field.selector) if field.selector else element
-        )
+        container = element.query_selector(field.selector) if field.selector else element
         if not container:
             console.print(
                 f"[dim]No container found for {parent_key} with selector {field.selector}[/dim]"
@@ -196,11 +198,7 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
         elements = element.query_selector_all(field.selector)
         results = []
         for el in elements:
-            value = (
-                el.get_attribute(field.attribute)
-                if field.attribute
-                else el.inner_text()
-            )
+            value = el.get_attribute(field.attribute) if field.attribute else el.inner_text()
             if field.transform:
                 value = field.transform(value)
             if value is not None:
@@ -214,11 +212,7 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
         )
         return None
 
-    value = (
-        element.get_attribute(field.attribute)
-        if field.attribute
-        else element.inner_text()
-    )
+    value = element.get_attribute(field.attribute) if field.attribute else element.inner_text()
     return field.transform(value) if field.transform else value
 
 
@@ -226,13 +220,13 @@ def scrape_schema(
     page: Page,
     schema: type[BaseModel],
     container_selector: str,
-    config: Optional[ExtractFeedConfig] = None,
-) -> List[Dict[str, Any]]:
+    config: ExtractFeedConfig | None = None,
+) -> list[dict[str, Any]]:
     """Scrape data using a schema definition."""
     try:
         # Find container selector from schema if not provided
         if not container_selector:
-            for field_name, field in schema.__dict__.items():
+            for _field_name, field in schema.__dict__.items():
                 if isinstance(field, ExtractField) and field.is_container:
                     container_selector = field.selector
                     break
@@ -271,9 +265,7 @@ def scrape_schema(
                 for field_name, field in schema.__dict__.items():
                     if field_name != "container" and isinstance(field, ExtractField):
                         try:
-                            data[field_name] = extract_field(
-                                container, field, field_name
-                            )
+                            data[field_name] = extract_field(container, field, field_name)
                         except Exception as e:
                             console.print(
                                 f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
@@ -305,9 +297,7 @@ def random_delay(base_delay: float, variation: float = 0.2) -> None:
     time.sleep(base_delay * random.uniform(1 - variation, 1 + variation))
 
 
-def human_scroll(
-    page: Page, pattern: ScrollPattern, seen_only_multiplier: float = 1.0
-) -> None:
+def human_scroll(page: Page, pattern: ScrollPattern, seen_only_multiplier: float = 1.0) -> None:
     """Simulate human-like scrolling behavior.
 
     Args:
@@ -324,8 +314,7 @@ def human_scroll(
             * seen_only_multiplier
         )
         up_amount = int(
-            down_amount
-            * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
+            down_amount * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
         )
         page.evaluate(f"window.scrollBy(0, {down_amount})")
         time.sleep(random.uniform(BOUNCE_SCROLL_PAUSE_MIN, BOUNCE_SCROLL_PAUSE_MAX))
@@ -345,9 +334,7 @@ def human_scroll(
             )
 
 
-def random_delay_with_jitter(
-    min_ms: int, max_ms: int, jitter_factor: float = 0.3
-) -> None:
+def random_delay_with_jitter(min_ms: int, max_ms: int, jitter_factor: float = 0.3) -> None:
     """Add a random delay with jitter to make scraping more human-like."""
     min_delay = min_ms / 1000
     max_delay = max_ms / 1000
@@ -360,7 +347,7 @@ def random_delay_with_jitter(
 
 def extract_content_from_page(
     page: Page, options: NavigateOptions, consecutive_timeouts: int = 0
-) -> Tuple[Optional[str], int]:
+) -> tuple[str | None, int]:
     """Extract content from a page using the provided selector.
 
     Returns:
@@ -377,9 +364,7 @@ def extract_content_from_page(
                 RATE_LIMIT_INITIAL_COOLDOWN_MS
                 * (
                     RATE_LIMIT_BACKOFF_FACTOR
-                    ** (
-                        consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-                    )
+                    ** (consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD)
                 ),
             )
             cooldown_s = cooldown_ms / 1000
@@ -398,9 +383,7 @@ def extract_content_from_page(
                 return None, max(0, consecutive_timeouts - 1)
             return None, 0  # Only fully reset if we haven't had timeouts
 
-        largest_content = max(
-            (el.inner_html() for el in content_elements), key=len, default=""
-        )
+        largest_content = max((el.inner_html() for el in content_elements), key=len, default="")
 
         if len(largest_content) > MIN_CONTENT_LENGTH:
             console.print(
@@ -415,9 +398,7 @@ def extract_content_from_page(
     except TimeoutError as e:
         # Increment timeout counter for rate limiting detection
         consecutive_timeouts += 1
-        console.print(
-            f"[yellow]Timeout error with selector '{selector}': {str(e)}[/yellow]"
-        )
+        console.print(f"[yellow]Timeout error with selector '{selector}': {str(e)}[/yellow]")
 
         # Adaptive cooldown - apply a brief cooldown even on first timeout
         # Scale from 0.5s for first timeout up to full exponential backoff
@@ -428,9 +409,7 @@ def extract_content_from_page(
                 RATE_LIMIT_INITIAL_COOLDOWN_MS
                 * (
                     RATE_LIMIT_BACKOFF_FACTOR
-                    ** (
-                        consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-                    )
+                    ** (consecutive_timeouts - RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD)
                 ),
             )
             cooldown_s = cooldown_ms / 1000
@@ -468,7 +447,7 @@ def save_debug_log(
     page: Page,
     config: ExtractFeedConfig,
     log_type: str,
-    data: Dict[str, Any],
+    data: dict[str, Any],
 ) -> None:
     """Save debug information to a JSONL file.
 
@@ -515,10 +494,10 @@ def save_debug_log(
 
 def extract_and_save_content(
     page: Page,
-    item: Dict[str, Any],
+    item: dict[str, Any],
     config: ExtractFeedConfig,
     consecutive_timeouts: int = 0,
-) -> Tuple[bool, int]:
+) -> tuple[bool, int]:
     """Extract and save content from the detail page."""
     if not config.navigate_options:
         return False, 0
@@ -549,9 +528,7 @@ def extract_and_save_content(
 
         # Even on success, maintain some of the timeout count if it's high
         if consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            return True, max(
-                1, consecutive_timeouts - 2
-            )  # Reduce but don't reset completely
+            return True, max(1, consecutive_timeouts - 2)  # Reduce but don't reset completely
         elif consecutive_timeouts > 0:
             return True, max(0, consecutive_timeouts - 1)  # Decrease by 1
 
@@ -582,7 +559,7 @@ def extract_and_save_content(
 
 def handle_deep_scraping(
     page: Page,
-    item: Dict[str, Any],
+    item: dict[str, Any],
     config: ExtractFeedConfig,
     item_position: int,
     original_url: str,
@@ -608,9 +585,7 @@ def handle_deep_scraping(
 
     retry_count = 0
     content_found = False
-    consecutive_timeouts = (
-        current_consecutive_timeouts  # Start from the current count, don't reset
-    )
+    consecutive_timeouts = current_consecutive_timeouts  # Start from the current count, don't reset
 
     # First ensure we're on the correct starting page before attempting to navigate
     if page.url != original_url:
@@ -625,12 +600,8 @@ def handle_deep_scraping(
         try:
             # Check if we're on an about:blank page, which indicates navigation issue
             if page.url == "about:blank" or not page.url:
-                console.print(
-                    "[yellow]About:blank detected, attempting to recover...[/yellow]"
-                )
-                if not ensure_original_page(
-                    page, original_url, config, scroll_position
-                ):
+                console.print("[yellow]About:blank detected, attempting to recover...[/yellow]")
+                if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
                     console.print(
                         "[red]Failed to recover from about:blank, trying next retry[/red]"
@@ -642,9 +613,7 @@ def handle_deep_scraping(
                     f"[yellow]Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}[/yellow]"
                 )
                 # Ensure we're back on the original page before retry
-                if not ensure_original_page(
-                    page, original_url, config, scroll_position
-                ):
+                if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
                     console.print(
                         "[red]Failed to return to original page for retry, continuing[/red]"
@@ -661,9 +630,7 @@ def handle_deep_scraping(
             navigation_success = navigate_to_item(page, config, item_position)
             if not navigation_success:
                 retry_count += 1
-                console.print(
-                    "[yellow]Failed to navigate to item, attempting retry[/yellow]"
-                )
+                console.print("[yellow]Failed to navigate to item, attempting retry[/yellow]")
                 # Ensure we're back at the original page for the next attempt
                 ensure_original_page(page, original_url, config, scroll_position)
                 continue
@@ -691,19 +658,13 @@ def handle_deep_scraping(
     if not ensure_original_page(page, original_url, config, scroll_position):
         # If we couldn't get back to the original page, try a more aggressive approach
         try:
-            console.print(
-                "[yellow]Final attempt to return to original page...[/yellow]"
-            )
-            page.goto(
-                original_url, wait_until="domcontentloaded"
-            )  # Less strict wait condition
+            console.print("[yellow]Final attempt to return to original page...[/yellow]")
+            page.goto(original_url, wait_until="domcontentloaded")  # Less strict wait condition
             if page.url == original_url:
                 # Try to restore scroll position one last time
                 if scroll_position > 0:
                     page.evaluate(f"window.scrollTo(0, {scroll_position})")
-                    console.print(
-                        f"[dim]Restored scroll position: {scroll_position}px[/dim]"
-                    )
+                    console.print(f"[dim]Restored scroll position: {scroll_position}px[/dim]")
             else:
                 console.print(
                     f"[red]Failed to return to original page after all attempts. Currently at: {page.url}[/red]"
@@ -728,9 +689,7 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         visible_containers = page.query_selector_all(config.container_selector)
 
         # Log what we found for debugging
-        console.print(
-            f"[dim]Found {len(visible_containers)} containers to navigate[/dim]"
-        )
+        console.print(f"[dim]Found {len(visible_containers)} containers to navigate[/dim]")
 
         if not visible_containers or item_position >= len(visible_containers):
             console.print(
@@ -775,9 +734,7 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         # Wait for navigation to complete
         if config.navigate_options.wait_networkidle:
             try:
-                page.wait_for_load_state(
-                    "networkidle", timeout=config.network_idle_timeout_ms
-                )
+                page.wait_for_load_state("networkidle", timeout=config.network_idle_timeout_ms)
             except TimeoutError:
                 # If networkidle times out, check if we at least have domcontentloaded
                 page.wait_for_load_state("domcontentloaded", timeout=2000)
@@ -836,8 +793,7 @@ def ensure_original_page(
                 wait_until="networkidle"
                 if config.navigate_options.wait_networkidle
                 else "domcontentloaded",
-                timeout=config.network_idle_timeout_ms
-                * 2,  # More generous timeout for recovery
+                timeout=config.network_idle_timeout_ms * 2,  # More generous timeout for recovery
             )
             # Verify we're actually back at the original URL
             if page.url == original_url:
@@ -857,9 +813,7 @@ def ensure_original_page(
 
     # Try using browser history first
     try:
-        console.print(
-            "[dim]Attempting to use browser history to return to original page...[/dim]"
-        )
+        console.print("[dim]Attempting to use browser history to return to original page...[/dim]")
         page.go_back()
         random_delay(0.5, 0.1)  # Brief delay to let the navigation complete
 
@@ -879,8 +833,7 @@ def ensure_original_page(
             wait_until="networkidle"
             if config.navigate_options.wait_networkidle
             else "domcontentloaded",
-            timeout=config.network_idle_timeout_ms
-            * 2,  # More generous timeout for recovery
+            timeout=config.network_idle_timeout_ms * 2,  # More generous timeout for recovery
         )
 
         # Verify we're actually back at the original URL
@@ -891,9 +844,7 @@ def ensure_original_page(
                 _restore_scroll_with_verification(page, scroll_position)
             return True
         else:
-            console.print(
-                f"[red]Failed to return to original page. Currently at: {page.url}[/red]"
-            )
+            console.print(f"[red]Failed to return to original page. Currently at: {page.url}[/red]")
             return False
 
     except (TimeoutError, PlaywrightError) as e:
@@ -913,18 +864,14 @@ def _restore_scroll_with_verification(
     """
     # First attempt: standard scrollTo
     page.evaluate(f"window.scrollTo(0, {target_position})")
-    console.print(
-        f"[dim]Attempted to restore scroll position: {target_position}px[/dim]"
-    )
+    console.print(f"[dim]Attempted to restore scroll position: {target_position}px[/dim]")
     time.sleep(0.3)  # Brief delay for scroll to take effect
 
     # Verify if scroll position was actually restored
     current_position = page.evaluate("window.scrollY")
 
     if abs(current_position - target_position) < 500:  # Allow small differences
-        console.print(
-            f"[green]Verified scroll position restored: {current_position}px[/green]"
-        )
+        console.print(f"[green]Verified scroll position restored: {current_position}px[/green]")
         return
 
     # If scroll position wasn't restored correctly, try alternative approaches
@@ -952,9 +899,7 @@ def _restore_scroll_with_verification(
                 time.sleep(0.1)
         else:
             # Last resort: scroll to bottom then partially back up
-            console.print(
-                "[dim]Force-scrolling to bottom of page then adjusting...[/dim]"
-            )
+            console.print("[dim]Force-scrolling to bottom of page then adjusting...[/dim]")
             # First scroll all the way to bottom
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(0.3)
@@ -990,7 +935,7 @@ def handle_scrolling(
     all_items_seen: bool = False,
     consecutive_all_seen: int = 0,
     is_turbo_mode: bool = False,
-) -> Tuple[int, int, int, bool]:
+) -> tuple[int, int, int, bool]:
     """Handle scrolling logic and return updated metrics.
 
     Args:
@@ -1011,9 +956,7 @@ def handle_scrolling(
     # Turbo mode - after many consecutive scrolls with only seen items and continuously finding more
     # containers, enter a super-fast mode to get to the bottom as quickly as possible
     if is_turbo_mode:
-        console.print(
-            "[yellow]Continuing turbo mode to reach unseen content faster...[/yellow]"
-        )
+        console.print("[yellow]Continuing turbo mode to reach unseen content faster...[/yellow]")
         # In turbo mode, use more aggressive scrolling - jump directly to the very bottom
         # with a larger scroll to ensure we're going far down the page
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
@@ -1028,9 +971,7 @@ def handle_scrolling(
 
     # Activate turbo mode after seeing only seen items for several consecutive scrolls
     if all_items_seen and consecutive_all_seen >= 5:
-        console.print(
-            "[yellow]Entering turbo mode to reach unseen content faster...[/yellow]"
-        )
+        console.print("[yellow]Entering turbo mode to reach unseen content faster...[/yellow]")
         # Initial turbo mode - multiple aggressive scrolls
         # First scroll to the very bottom
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
@@ -1068,9 +1009,7 @@ def handle_scrolling(
             if consecutive_all_seen % 3 == 0:
                 page.evaluate(f"window.scrollBy(0, -{viewport_height / 3})")
                 time.sleep(0.2)
-                page.evaluate(
-                    "window.scrollTo(0, document.documentElement.scrollHeight)"
-                )
+                page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
                 time.sleep(0.2)
 
         return (
@@ -1092,32 +1031,23 @@ def handle_scrolling(
         if consecutive_same_height >= config.scroll_config.max_consecutive_same_height:
             if consecutive_same_height % 2 == 0:
                 # When stuck at same height for a while, try a dramatic jump to bottom
-                console.print(
-                    "[dim]Stuck at same height, jumping to bottom of page...[/dim]"
-                )
+                console.print("[dim]Stuck at same height, jumping to bottom of page...[/dim]")
                 # Instead of scrolling up and down, go directly to bottom
-                page.evaluate(
-                    "window.scrollTo(0, document.documentElement.scrollHeight)"
-                )
+                page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
                 random_delay(0.5, 0.2)  # Reduced delay from 1.0 to 0.5
             else:
                 human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
             consecutive_same_height = 0
+        # When all items are seen, prefer faster scrolling patterns
+        elif all_items_seen and consecutive_all_seen > 1:
+            human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
         else:
-            # When all items are seen, prefer faster scrolling patterns
-            if all_items_seen and consecutive_all_seen > 1:
-                human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
-            else:
-                human_scroll(
-                    page, random.choice(list(ScrollPattern)), scroll_multiplier
-                )
+            human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
     else:
         consecutive_same_height = 0
         if all_items_seen and consecutive_all_seen > 2:
             # Page height changed but still all seen - scroll faster toward bottom
-            console.print(
-                "[dim]Page height changed, continuing fast scroll to bottom...[/dim]"
-            )
+            console.print("[dim]Page height changed, continuing fast scroll to bottom...[/dim]")
             human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
         else:
             human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
@@ -1140,7 +1070,7 @@ def handle_scrolling(
 
 def scroll_and_extract(
     page: Page, config: ExtractFeedConfig
-) -> Generator[Dict[str, Any], None, None]:
+) -> Generator[dict[str, Any], None, None]:
     """Generator function to scroll through a page and yield items as they're found.
 
     Return type explanation:
@@ -1151,20 +1081,16 @@ def scroll_and_extract(
     """
     try:
         if config.container_selector is None:
-            for field_name, field in config.feed_schema.__dict__.items():
+            for _field_name, field in config.feed_schema.__dict__.items():
                 if isinstance(field, ExtractField) and field.is_container:
                     config.container_selector = field.selector
                     break
             if config.container_selector is None:
                 raise ValueError("No container selector found in schema")
 
-        page.wait_for_selector(
-            config.container_selector, timeout=config.initial_load_timeout_ms
-        )
+        page.wait_for_selector(config.container_selector, timeout=config.initial_load_timeout_ms)
     except Exception as e:
-        console.print(
-            f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]"
-        )
+        console.print(f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]")
         return
 
     # Initialize storage if configured
@@ -1177,13 +1103,11 @@ def scroll_and_extract(
         console.print(f"[dim]Using document storage: {storage.db_path}[/dim]")
 
     # Get seen URLs if using storage
-    seen_urls: Set[str] = set()
+    seen_urls: set[str] = set()
     if storage:
         # Always load the seen URLs that have been seen for this source (across all locations)
         seen_urls = storage.get_seen_urls(source=config.source)
-        console.print(
-            f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}[/dim]"
-        )
+        console.print(f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}[/dim]")
 
     items_yielded = 0
     no_new_items_count = 0
@@ -1195,9 +1119,7 @@ def scroll_and_extract(
     last_scroll_position = 0  # Track last scroll position to restore after navigation
     date_cutoff_reached = False  # Track if we've reached the date cutoff
     is_turbo_mode = False  # Track if we're in turbo mode
-    last_container_count = (
-        0  # Track the last container count for turbo mode optimization
-    )
+    last_container_count = 0  # Track the last container count for turbo mode optimization
 
     while (
         (config.max_items is None or items_yielded < config.max_items)
@@ -1213,9 +1135,7 @@ def scroll_and_extract(
 
         # Log the current consecutive timeouts count if it's non-zero
         if consecutive_timeouts > 0:
-            console.print(
-                f"[yellow]Current consecutive timeouts: {consecutive_timeouts}[/yellow]"
-            )
+            console.print(f"[yellow]Current consecutive timeouts: {consecutive_timeouts}[/yellow]")
 
         # Skip expandable elements in turbo mode to speed things up
         if not is_turbo_mode and config.expand_item_selector:
@@ -1246,8 +1166,7 @@ def scroll_and_extract(
                 # Periodically check for unseen content - check every 50 containers or when growth is slow
                 should_check_content = (
                     current_container_count % 50 == 0  # Check periodically
-                    or (current_container_count - last_container_count)
-                    < 10  # Growth slowing down
+                    or (current_container_count - last_container_count) < 10  # Growth slowing down
                 )
 
                 if should_check_content:
@@ -1270,21 +1189,16 @@ def scroll_and_extract(
                                 (
                                     field
                                     for field_name, field in config.feed_schema.__dict__.items()
-                                    if isinstance(field, ExtractField)
-                                    and field_name == URL_FIELD
+                                    if isinstance(field, ExtractField) and field_name == URL_FIELD
                                 ),
                                 None,
                             )
 
                             if url_field and url_field.selector:
-                                url_element = container.query_selector(
-                                    url_field.selector
-                                )
+                                url_element = container.query_selector(url_field.selector)
                                 if url_element:
                                     if url_field.attribute:
-                                        url = url_element.get_attribute(
-                                            url_field.attribute
-                                        )
+                                        url = url_element.get_attribute(url_field.attribute)
                                     else:
                                         url = url_element.inner_text()
 
@@ -1323,9 +1237,7 @@ def scroll_and_extract(
                         normal_items = scrape_schema(
                             page, config.feed_schema, config.container_selector, config
                         )
-                        console.print(
-                            f"[green]Found {len(normal_items)} items to process[/green]"
-                        )
+                        console.print(f"[green]Found {len(normal_items)} items to process[/green]")
 
                         last_container_count = len(normal_items)
                         new_items = 0
@@ -1361,9 +1273,7 @@ def scroll_and_extract(
                                         date_cutoff_reached = True
                                         break
                                 except Exception as e:
-                                    console.print(
-                                        f"[yellow]Error parsing date: {str(e)}[/yellow]"
-                                    )
+                                    console.print(f"[yellow]Error parsing date: {str(e)}[/yellow]")
 
                             url = item.get(URL_FIELD)
                             if not url:
@@ -1395,7 +1305,7 @@ def scroll_and_extract(
                             # Store the item if using storage
                             if storage:
                                 # Convert to Document format for storage
-                                from brocc_li.types.doc import Doc, Source
+                                from brocc_li.types.doc import Doc, Source, SourceType
 
                                 try:
                                     source = Source(config.source)
@@ -1405,6 +1315,7 @@ def scroll_and_extract(
                                 doc = Doc.from_extracted_data(
                                     data=item,
                                     source=source,
+                                    source_type=SourceType.DOCUMENT,
                                     source_location_identifier=config.source_location,
                                 )
                                 doc_dict = doc.model_dump()
@@ -1441,15 +1352,11 @@ def scroll_and_extract(
                 # If we're still in turbo mode, continue scrolling
                 if is_turbo_mode:
                     # Use super aggressive scrolling in turbo mode
-                    page.evaluate(
-                        "window.scrollTo(0, document.documentElement.scrollHeight * 2)"
-                    )
+                    page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
                     time.sleep(0.5)
 
                     # Do a second scroll for even faster movement
-                    page.evaluate(
-                        "window.scrollTo(0, document.documentElement.scrollHeight * 2)"
-                    )
+                    page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
                     time.sleep(1)
 
                     continue  # Skip the rest of the loop in turbo mode
@@ -1476,9 +1383,7 @@ def scroll_and_extract(
                     continue
 
         # Normal extraction mode
-        current_items = scrape_schema(
-            page, config.feed_schema, config.container_selector, config
-        )
+        current_items = scrape_schema(page, config.feed_schema, config.container_selector, config)
         last_container_count = len(current_items)  # Update container count
         new_items = 0
         skipped_items = 0
@@ -1501,9 +1406,7 @@ def scroll_and_extract(
                     if isinstance(item_date, str):
                         # Try parsing from ISO format first
                         try:
-                            item_date = datetime.fromisoformat(
-                                item_date.replace("Z", "+00:00")
-                            )
+                            item_date = datetime.fromisoformat(item_date.replace("Z", "+00:00"))
                         except ValueError:
                             # Fall back to more flexible parsing if needed
                             from dateutil.parser import parse
@@ -1548,9 +1451,7 @@ def scroll_and_extract(
 
             # Add to seen URLs to avoid duplicates in this session
             seen_urls.add(url)
-            item_position = (
-                idx  # Use the position in the current items list, not items_yielded
-            )
+            item_position = idx  # Use the position in the current items list, not items_yielded
 
             # Process this unseen item - but skip deep scraping in turbo mode
             if should_do_deep_scraping and config.navigate_options and url:
@@ -1568,7 +1469,7 @@ def scroll_and_extract(
             # Store the item if using storage
             if storage:
                 # Convert to Document format for storage
-                from brocc_li.types.doc import Doc, Source
+                from brocc_li.types.doc import Doc, Source, SourceType
 
                 try:
                     source = Source(config.source)
@@ -1578,6 +1479,7 @@ def scroll_and_extract(
                 doc = Doc.from_extracted_data(
                     data=item,
                     source=source,
+                    source_type=SourceType.DOCUMENT,
                     source_location_identifier=config.source_location,
                 )
                 doc_dict = doc.model_dump()
@@ -1667,8 +1569,7 @@ def scroll_and_extract(
             # If the container count hasn't changed after multiple scrolls, we've likely reached the end
             if (
                 len(new_containers) == previous_container_count
-                and consecutive_same_height
-                >= config.scroll_config.max_consecutive_same_height - 1
+                and consecutive_same_height >= config.scroll_config.max_consecutive_same_height - 1
                 and no_new_items_count >= config.scroll_config.max_no_new_items - 1
             ):
                 console.print(
@@ -1683,13 +1584,10 @@ def scroll_and_extract(
                 )
                 # Be more lenient with no_new_items_count when we're finding more containers
                 if no_new_items_count > 0 and skipped_items > 0:
-                    no_new_items_count = max(
-                        0, no_new_items_count - 1
-                    )  # Reduce the counter
+                    no_new_items_count = max(0, no_new_items_count - 1)  # Reduce the counter
 
         if (
-            items_yielded % random.randint(*config.scroll_config.random_pause_interval)
-            == 0
+            items_yielded % random.randint(*config.scroll_config.random_pause_interval) == 0
             and not is_turbo_mode  # Skip random pauses in turbo mode
         ):
             random_delay(2.0, 0.5)

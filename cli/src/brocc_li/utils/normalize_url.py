@@ -15,8 +15,8 @@ def normalize_url(url: str) -> str | None:
     - Supports macOS specific paths (resource forks, app bundles, etc.)
     - Preserves Unicode characters in paths
     """
-    import urllib.parse
     import os.path
+    import urllib.parse
 
     url = url.strip()
 

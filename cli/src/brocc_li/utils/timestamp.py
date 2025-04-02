@@ -1,6 +1,6 @@
-from datetime import datetime
 import re
-from typing import Optional, Any
+from datetime import datetime
+from typing import Any
 
 
 # Use ISO format for all timestamps
@@ -31,7 +31,7 @@ MONTH_MAP = {
 }
 
 
-def _parse_iso_date(date_string: str) -> Optional[datetime]:
+def _parse_iso_date(date_string: str) -> datetime | None:
     """Parse ISO format dates (like those from Twitter)."""
     if not date_string:
         return None
@@ -45,7 +45,7 @@ def _parse_iso_date(date_string: str) -> Optional[datetime]:
         return None
 
 
-def _parse_text_date(text: str) -> Optional[datetime]:
+def _parse_text_date(text: str) -> datetime | None:
     """Parse date from text format (like Substack dates)."""
     if not text:
         return None

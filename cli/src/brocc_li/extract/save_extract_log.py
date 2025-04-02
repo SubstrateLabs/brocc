@@ -1,13 +1,14 @@
-import os
-from typing import Dict, Any
 import json
-from brocc_li.utils.slugify import slugify
+import os
+from datetime import datetime
+from typing import Any
+
 from playwright.sync_api import Page
+
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
 )
-from datetime import datetime
-
+from brocc_li.utils.slugify import slugify
 
 DEBUG_FOLDER = "debug"
 DEBUG_FILENAME_FORMAT = "brocc_debug_{source}_{location}.jsonl"
@@ -17,7 +18,7 @@ def save_extract_log(
     page: Page,
     config: ExtractFeedConfig,
     log_type: str,
-    data: Dict[str, Any],
+    data: dict[str, Any],
 ) -> None:
     """Save debug information to a JSONL file.
 

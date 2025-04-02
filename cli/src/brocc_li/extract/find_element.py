@@ -1,14 +1,14 @@
-from typing import Optional, Union
-from playwright.sync_api import Page, ElementHandle
+from playwright.sync_api import ElementHandle, Page
+
 from brocc_li.utils.logger import logger
 
 
 def find_element(
-    parent: Union[Page, ElementHandle],
+    parent: Page | ElementHandle,
     selector: str,
     required: bool = False,
     description: str = "element",
-) -> Optional[ElementHandle]:
+) -> ElementHandle | None:
     """Safely find a single element with proper error handling.
 
     Args:
@@ -26,13 +26,9 @@ def find_element(
             return element
 
         if required:
-            logger.error(
-                f"{description.capitalize()} not found with selector: '{selector}'"
-            )
+            logger.error(f"{description.capitalize()} not found with selector: '{selector}'")
         else:
-            logger.warning(
-                f"{description.capitalize()} not found with selector: '{selector}'"
-            )
+            logger.warning(f"{description.capitalize()} not found with selector: '{selector}'")
         return None
     except Exception as e:
         logger.error(f"Error finding {description}: {str(e)}")

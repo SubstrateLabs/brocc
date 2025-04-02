@@ -1,14 +1,14 @@
-from playwright.sync_api import Page
-from brocc_li.utils.logger import logger
 import time
+
+from playwright.sync_api import Page
+
+from brocc_li.utils.logger import logger
 
 # Threshold for considering scroll position "close enough" to target (in pixels)
 SCROLL_POSITION_THRESHOLD = 500
 
 
-def restore_scroll_position(
-    page: Page, target_position: int, max_attempts: int = 3
-) -> None:
+def restore_scroll_position(page: Page, target_position: int, max_attempts: int = 3) -> None:
     """Restore scroll position with verification and multiple fallback strategies.
 
     Implements a robust approach to scroll position restoration, with multiple
@@ -74,9 +74,7 @@ def restore_scroll_position(
                 # If target is not at the very bottom, adjust up slightly
                 if target_position < page.evaluate("document.body.scrollHeight"):
                     # Scroll back up 20% from the bottom if needed
-                    page.evaluate(
-                        "window.scrollTo(0, document.body.scrollHeight * 0.8)"
-                    )
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
 
             time.sleep(0.3)  # Wait for scroll to take effect
             current_position = page.evaluate("window.scrollY")
@@ -87,9 +85,7 @@ def restore_scroll_position(
                 )
                 return
 
-        logger.warning(
-            "Could not precisely restore scroll position after multiple attempts"
-        )
+        logger.warning("Could not precisely restore scroll position after multiple attempts")
         # As a last resort, just make sure we're not at the top of the page
         if current_position < 500:
             logger.warning("Emergency scroll to middle/bottom of page")
@@ -129,9 +125,7 @@ def scroll_to_bottom(page: Page, aggressive: bool = False) -> None:
     try:
         if aggressive:
             # Use a more aggressive scroll by multiplying by 2
-            page.evaluate(
-                "window.scrollTo(0, document.documentElement.scrollHeight * 2)"
-            )
+            page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
         else:
             page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
     except Exception as e:

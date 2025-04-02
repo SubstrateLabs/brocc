@@ -24,6 +24,8 @@ dependencies = [
     "duckdb>=1.2.1",
     "html-to-markdown>=1.2.0",
     "lancedb>=0.21.2",
+    "numpy>=2.2.4",
+    "pillow>=11.2.0",
     "platformdirs>=4.3.7",
     "playwright>=1.51.0",
     "polars>=1.26.0",
@@ -38,7 +40,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+dev = [
+    "pytest>=7.0", 
+    "pytest-cov>=4.0",
+    "ruff>=0.3.0",
+    "pyright>=1.1.350",
+]
 
 [project.scripts]
 brocc = "brocc_li.entry_points:start"
@@ -80,3 +87,58 @@ exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "build", "dist"]
+reportMissingImports = true
+reportMissingTypeStubs = false
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+reportPrivateUsage = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Add these common directories to exclude
+extend-exclude = [
+    "tests/*",
+    "**/migrations/*",
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes 
+    "I",   # isort
+]
+extend-select = [
+    "B",   # flake8-bugbear (optional)
+    "C4",  # flake8-comprehensions (optional)
+]
+ignore = [
+    "E501",    # Line too long
+    "E203",    # Whitespace before ':'
+    "E402",    # Module level import not at top of file
+    "B008",    # Do not perform function call in argument defaults
+    "F401",    # Unused import
+    "F403",    # 'from module import *' used
+    "F405",    # Name may be undefined from star imports
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["brocc_li"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"
+indent-style = "space"

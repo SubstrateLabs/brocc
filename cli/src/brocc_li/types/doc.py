@@ -1,10 +1,12 @@
-from typing import ClassVar, Optional, Dict, Any, List
-from pydantic import BaseModel
 import uuid
-from enum import Enum
 from datetime import datetime
-from brocc_li.utils.timestamp import format_datetime
+from enum import Enum
+from typing import Any, ClassVar
+
+from pydantic import BaseModel
+
 from brocc_li.types.extract_field import ExtractField
+from brocc_li.utils.timestamp import format_datetime
 
 
 class Source(Enum):
@@ -49,7 +51,7 @@ class DocExtractor(BaseModel):
     created_at: ClassVar[ExtractField]
 
     # Selector for markdown content of navigated pages
-    navigate_content_selector: ClassVar[Optional[str]] = None
+    navigate_content_selector: ClassVar[str | None] = None
 
 
 class Doc(BaseModel):
@@ -60,25 +62,25 @@ class Doc(BaseModel):
     id: str
     ingested_at: str
     # extractable fields
-    url: Optional[str] = None
-    title: Optional[str] = None  # title
-    description: Optional[str] = None
-    text_content: Optional[str] = None  # markdown or plaintext
-    contact_name: Optional[str] = None
-    contact_identifier: Optional[str] = None  # e.g. handle, user id, email, phone
-    contact_metadata: Optional[Dict[str, Any]] = None  # source-specific metadata
-    participant_names: Optional[List[str]] = None  # e.g. message participants
-    participant_identifiers: Optional[List[str]] = None
-    participant_metadatas: Optional[List[Dict[str, Any]]] = None
-    keywords: Optional[List[str]] = None
-    metadata: Optional[Dict[str, Any]] = None  # source-specific metadata
+    url: str | None = None
+    title: str | None = None  # title
+    description: str | None = None
+    text_content: str | None = None  # markdown or plaintext
+    contact_name: str | None = None
+    contact_identifier: str | None = None  # e.g. handle, user id, email, phone
+    contact_metadata: dict[str, Any] | None = None  # source-specific metadata
+    participant_names: list[str] | None = None  # e.g. message participants
+    participant_identifiers: list[str] | None = None
+    participant_metadatas: list[dict[str, Any]] | None = None
+    keywords: list[str] | None = None
+    metadata: dict[str, Any] | None = None  # source-specific metadata
     # metadata fields
     source: Source
     source_type: SourceType
     source_location_identifier: str  # e.g. url, channel id, etc.
-    source_location_name: Optional[str] = None  # e.g. url, channel id, etc.
-    created_at: Optional[str] = None
-    embedded_at: Optional[str] = None
+    source_location_name: str | None = None  # e.g. url, channel id, etc.
+    created_at: str | None = None
+    embedded_at: str | None = None
 
     @staticmethod
     def generate_id() -> str:
@@ -93,11 +95,11 @@ class Doc(BaseModel):
     @classmethod
     def from_extracted_data(
         cls,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         source: Source,
         source_type: SourceType,
         source_location_identifier: str,
-        source_location_name: Optional[str] = None,
+        source_location_name: str | None = None,
     ) -> "Doc":
         """Create a document from extracted data."""
         doc_id = cls.generate_id()

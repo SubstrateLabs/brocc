@@ -1,11 +1,11 @@
-from typing import Optional
-from playwright.sync_api import Page, ElementHandle
+from playwright.sync_api import ElementHandle, Page
+
 from brocc_li.utils.logger import logger
 
 
 def find_container(
     page: Page, selector: str, index: int, description: str = "container"
-) -> Optional[ElementHandle]:
+) -> ElementHandle | None:
     """Find a container at a specific index with validation.
 
     Args:

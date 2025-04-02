@@ -1,6 +1,10 @@
 ## 0.0.1
 
-- lancedb + voyageai setup
+- pyright settings
+- lancedb voyage embedding plugin (voyage.py)
+  - review implementation
+- generate string for embedding doc
+- embed with filters
 
 ```sql
 <existing fields>

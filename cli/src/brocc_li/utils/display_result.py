@@ -1,10 +1,13 @@
 """DEVELOPMENT ONLY: used for extractor debugging"""
 
-from rich.table import Table
-from rich.markdown import Markdown
-from typing import List, Dict, Any, Union, Tuple, Sequence, Optional
 import time
+from collections.abc import Sequence
+from typing import Any
+
+from rich.markdown import Markdown
+from rich.table import Table
 from rich.text import Text
+
 from brocc_li.utils.logger import logger
 
 # Default styles for different types of content
@@ -22,7 +25,7 @@ DEFAULT_STYLES = {
 class ProgressTracker:
     """Tracks progress of item extraction and displays time estimates."""
 
-    def __init__(self, label: str = "items", target: Optional[int] = None):
+    def __init__(self, label: str = "items", target: int | None = None):
         """Initialize progress tracker.
 
         Args:
@@ -39,9 +42,9 @@ class ProgressTracker:
 
     def update(
         self,
-        count: Optional[int] = None,
+        count: int | None = None,
         force_display: bool = False,
-        item_info: Optional[str] = None,
+        item_info: str | None = None,
     ) -> None:
         """Update progress count and display status.
 
@@ -83,9 +86,7 @@ class ProgressTracker:
     def _get_current_rate(self) -> float:
         """Get current extraction rate (items per minute) with smoothing."""
         if not self.recent_rates:
-            overall_elapsed = max(
-                time.time() - self.start_time, 0.001
-            )  # Avoid division by zero
+            overall_elapsed = max(time.time() - self.start_time, 0.001)  # Avoid division by zero
             return (self.count / overall_elapsed) * 60
 
         # Use average of recent rates for smoother estimates
@@ -102,7 +103,7 @@ class ProgressTracker:
             hours = seconds / 3600
             return f"{hours:.1f}h"
 
-    def _display_progress(self, item_info: Optional[str] = None) -> None:
+    def _display_progress(self, item_info: str | None = None) -> None:
         """Display progress information."""
         elapsed_time = time.time() - self.start_time
         rate = self._get_current_rate()
@@ -170,9 +171,7 @@ class ProgressTracker:
             logger.print(f"  → {item_info}", style="dim")
 
 
-def _get_sampled_indices(
-    total_items: int, max_display_items: int
-) -> Tuple[List[int], int, int]:
+def _get_sampled_indices(total_items: int, max_display_items: int) -> tuple[list[int], int, int]:
     """Calculates indices for head, middle, and tail sampling."""
     # Get head indices (first third)
     head_count = max_display_items // 3
@@ -191,9 +190,7 @@ def _get_sampled_indices(
     middle_count = max_display_items - len(head_indices) - len(tail_indices)
     if middle_count > 0 and total_items > head_count + tail_count:
         middle_start = (total_items // 2) - (middle_count // 2)
-        middle_indices = list(
-            range(middle_start, min(middle_start + middle_count, tail_start))
-        )
+        middle_indices = list(range(middle_start, min(middle_start + middle_count, tail_start)))
     else:
         middle_indices = []
 
@@ -207,8 +204,8 @@ def _get_sampled_indices(
 
 def _add_table_rows(
     table: Table,
-    items_to_display: List[Dict[str, Any]],
-    columns: Sequence[Union[str, Tuple[str, str], Tuple[str, str, bool]]],
+    items_to_display: list[dict[str, Any]],
+    columns: Sequence[str | tuple[str, str] | tuple[str, str, bool]],
     total_items: int,
     max_display_items: int,
     head_size: int,
@@ -240,9 +237,7 @@ def _add_table_rows(
             table.add_row(*row_data)
     else:
         # Regular case - add all items without separators
-        for (
-            item
-        ) in items_to_display:  # Use items_to_display which is just items in this case
+        for item in items_to_display:  # Use items_to_display which is just items in this case
             row_data = []
             for col in columns:
                 name = col[0] if isinstance(col, (tuple, list)) else col
@@ -260,9 +255,9 @@ def _add_table_rows(
 
 
 def display_items(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     title: str,
-    columns: Sequence[Union[str, Tuple[str, str], Tuple[str, str, bool]]],
+    columns: Sequence[str | tuple[str, str] | tuple[str, str, bool]],
     max_display_items: int = 15,
 ) -> None:
     """Display items in a rich table with auto-sizing and smart defaults.
@@ -288,9 +283,7 @@ def display_items(
             total_items, max_display_items
         )
         items_to_display = [items[i] for i in indices_to_display]
-        display_title = (
-            f"{title} (showing {len(items_to_display)} of {total_items} items)"
-        )
+        display_title = f"{title} (showing {len(items_to_display)} of {total_items} items)"
 
     # Create the table
     table = Table(

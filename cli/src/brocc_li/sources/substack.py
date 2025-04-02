@@ -1,21 +1,23 @@
-from playwright.sync_api import sync_playwright
-from typing import ClassVar, Optional
-import time
 import re
+import time
 from datetime import datetime, timedelta
-from brocc_li.types.doc import DocExtractor, Doc, Source, SourceType
+from typing import ClassVar
+
+from playwright.sync_api import sync_playwright
+
 from brocc_li.chrome_manager import ChromeManager
+from brocc_li.doc_db import DocDB
 from brocc_li.extract.extract_field import ExtractField
 from brocc_li.extract_feed import scroll_and_extract
+from brocc_li.types.doc import Doc, DocExtractor, Source, SourceType
 from brocc_li.types.extract_feed_config import (
-    NavigateOptions,
     ExtractFeedConfig,
+    NavigateOptions,
     ScrollConfig,
 )
-from brocc_li.utils.display_result import display_items, ProgressTracker
-from brocc_li.utils.timestamp import parse_timestamp
-from brocc_li.doc_db import DocDB
+from brocc_li.utils.display_result import ProgressTracker, display_items
 from brocc_li.utils.logger import logger
+from brocc_li.utils.timestamp import parse_timestamp
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
@@ -59,13 +61,9 @@ class SubstackExtractSchema(DocExtractor):
         transform=lambda x: parse_author(x.strip() if x else ""),
     )
     # Add required fields from DocumentExtractor
-    contact_identifier: ClassVar[ExtractField] = ExtractField(
-        selector="", transform=lambda x: ""
-    )
+    contact_identifier: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
     # Use a simple placeholder for content that will be replaced during navigate
-    text_content: ClassVar[ExtractField] = ExtractField(
-        selector="", transform=lambda x: ""
-    )
+    text_content: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
     metadata: ClassVar[ExtractField] = ExtractField(
         selector=".reader2-post-container",
         extract=lambda element, field: {
@@ -76,7 +74,7 @@ class SubstackExtractSchema(DocExtractor):
     )
 
     # Selector to use for markdown content of navigated pages
-    navigate_content_selector: ClassVar[Optional[str]] = "article"
+    navigate_content_selector: ClassVar[str | None] = "article"
 
 
 SUBSTACK_CONFIG = ExtractFeedConfig(
@@ -122,7 +120,7 @@ def merge_description_publication(element):
     return description
 
 
-def parse_author(meta_text: str) -> Optional[str]:
+def parse_author(meta_text: str) -> str | None:
     """Extract author name from metadata text."""
     if not meta_text:
         return None
@@ -145,9 +143,7 @@ def parse_author(meta_text: str) -> Optional[str]:
     # Handle special cases with known multi-author formats
     if "&" in meta_text or " AND " in meta_text.upper() or "," in meta_text:
         # Likely a multi-author post, clean it up but keep all authors
-        text = re.sub(
-            r"\bPAID\b|\bSUBSCRIBE[RD]*\b", "", meta_text, flags=re.IGNORECASE
-        )
+        text = re.sub(r"\bPAID\b|\bSUBSCRIBE[RD]*\b", "", meta_text, flags=re.IGNORECASE)
         text = re.sub(r"\d+\s+MIN\s+(READ|LISTEN|WATCH)", "", text, flags=re.IGNORECASE)
         # Remove any date patterns
         text = re.sub(
@@ -202,7 +198,7 @@ def parse_author(meta_text: str) -> Optional[str]:
     return None
 
 
-def parse_date_string(date_str: str) -> Optional[datetime]:
+def parse_date_string(date_str: str) -> datetime | None:
     """Parse date string in various formats.
 
     Args:
@@ -253,9 +249,7 @@ def main() -> None:
     with sync_playwright() as p:
         # Use ChromeManager
         chrome_manager = ChromeManager()
-        browser = chrome_manager.connect(
-            p
-        )  # Connect (will handle launch/relaunch/connect logic)
+        browser = chrome_manager.connect(p)  # Connect (will handle launch/relaunch/connect logic)
 
         if not browser:
             logger.error("Could not establish connection with Chrome.")
@@ -309,11 +303,7 @@ def main() -> None:
             content = doc.text_content
             if content and isinstance(content, str):
                 content_text = content.replace("\n", " ").strip()
-                content = (
-                    (content_text[:100] + "...")
-                    if len(content_text) > 100
-                    else content_text
-                )
+                content = (content_text[:100] + "...") if len(content_text) > 100 else content_text
 
             formatted_posts.append(
                 {
@@ -323,9 +313,7 @@ def main() -> None:
                     "Contact": doc.contact_name or "Unknown",
                     "URL": doc.url,
                     "Content Preview": content or "No content",
-                    "Publication": doc.metadata.get("publication", "")
-                    if doc.metadata
-                    else "",
+                    "Publication": doc.metadata.get("publication", "") if doc.metadata else "",
                 }
             )
 

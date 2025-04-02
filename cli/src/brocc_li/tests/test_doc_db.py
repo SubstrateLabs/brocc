@@ -1,9 +1,11 @@
 import os
-import pytest
 import tempfile
 from datetime import datetime
-from brocc_li.types.doc import Source, SourceType, Doc
+
+import pytest
+
 from brocc_li.doc_db import DocDB
+from brocc_li.types.doc import Doc, Source, SourceType
 
 
 @pytest.fixture

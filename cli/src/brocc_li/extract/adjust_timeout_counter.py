@@ -25,11 +25,7 @@ def adjust_timeout_counter(
         return consecutive_timeouts + 1
 
     # For successful operations with significant timeout history
-    if (
-        success
-        and consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD
-        and aggressive
-    ):
+    if success and consecutive_timeouts > RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD and aggressive:
         # Reduce more aggressively but don't fully reset
         return max(1, consecutive_timeouts - 2)
     elif success and consecutive_timeouts > 0:

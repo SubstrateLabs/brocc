@@ -1,5 +1,7 @@
+from collections.abc import Callable
+from typing import Any
+
 from pydantic import BaseModel
-from typing import Optional, Callable, Any, Dict
 
 
 class ExtractField(BaseModel):
@@ -23,20 +25,20 @@ class ExtractField(BaseModel):
     selector: str = ""
 
     # Attribute to extract from the element (e.g. 'href', 'src', 'datetime')
-    attribute: Optional[str] = None
+    attribute: str | None = None
 
     # Function to transform the extracted value (e.g. strip whitespace, format URL)
-    transform: Optional[Callable[[Any], Any]] = None
+    transform: Callable[[Any], Any] | None = None
 
     # Nested fields to extract from this element
-    children: Optional[Dict[str, "ExtractField"]] = None
+    children: dict[str, "ExtractField"] | None = None
 
     # Custom extraction function for complex cases. Takes precedence over all other options.
     # Type: Callable[[Any, SchemaField], Any]
     # - First arg: The element to extract from (Any because it could be a Playwright ElementHandle or other type)
     # - Second arg: The SchemaField instance itself (useful for accessing field metadata)
     # - Returns: Any type of extracted value
-    extract: Optional[Callable[[Any, "ExtractField"], Any]] = None
+    extract: Callable[[Any, "ExtractField"], Any] | None = None
 
     # Whether to extract multiple elements matching the selector (e.g. list of images)
     multiple: bool = False

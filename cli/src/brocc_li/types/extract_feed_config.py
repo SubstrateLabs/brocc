@@ -1,9 +1,9 @@
-from typing import Optional, Tuple
-from enum import Enum
-from datetime import datetime
 from dataclasses import dataclass
-from pydantic import BaseModel
+from datetime import datetime
+from enum import Enum
+from typing import Optional
 
+from pydantic import BaseModel
 
 # Maximum time to wait for initial feed containers to load before aborting
 INITIAL_LOAD_TIMEOUT_MS = 10000
@@ -34,7 +34,7 @@ class ScrollConfig:
     # How many scrolls with same page height before trying aggressive scroll strategies
     max_consecutive_same_height: int = 3
     # Add a longer random pause after this many items (min, max range)
-    random_pause_interval: Tuple[int, int] = (15, 25)
+    random_pause_interval: tuple[int, int] = (15, 25)
 
 
 class ScrollPattern(Enum):
@@ -52,14 +52,14 @@ class ExtractFeedConfig(BaseModel):
     navigate_options: Optional["NavigateOptions"] = None
 
     # Runtime behavior
-    max_items: Optional[int] = None
-    expand_item_selector: Optional[str] = None
-    container_selector: Optional[str] = None
+    max_items: int | None = None
+    expand_item_selector: str | None = None
+    container_selector: str | None = None
 
     # Source information (required)
     source: str
     source_location_identifier: str
-    source_location_name: Optional[str] = None
+    source_location_name: str | None = None
 
     # Scroll behavior
     scroll_pattern: ScrollPattern = ScrollPattern.NORMAL
@@ -72,15 +72,15 @@ class ExtractFeedConfig(BaseModel):
 
     # Storage options
     use_storage: bool = False
-    storage_path: Optional[str] = None
+    storage_path: str | None = None
     continue_on_seen: bool = False
 
     # Date cutoff options
-    stop_after_date: Optional[datetime] = None
+    stop_after_date: datetime | None = None
 
     # Debug options
     debug: bool = False
-    debug_file: Optional[str] = None
+    debug_file: str | None = None
 
 
 class NavigateOptions(BaseModel):

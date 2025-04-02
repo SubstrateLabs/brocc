@@ -1,10 +1,12 @@
-from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, Static, Button, Label
-from textual.containers import Container
-from dotenv import load_dotenv
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 from platformdirs import user_config_dir
+from textual.app import App, ComposeResult
+from textual.containers import Container
+from textual.widgets import Button, Footer, Header, Label, Static
+
 from brocc_li.cli import auth
 
 load_dotenv()

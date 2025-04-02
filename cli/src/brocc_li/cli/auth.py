@@ -1,9 +1,11 @@
 import json
-import requests
 import time
 import webbrowser
 from pathlib import Path
+
+import requests
 from platformdirs import user_config_dir
+
 from brocc_li.utils.logger import logger
 
 CONFIG_DIR = Path(user_config_dir("brocc"))
@@ -22,11 +24,9 @@ def load_auth_data():
     try:
         CONFIG_DIR.mkdir(exist_ok=True)
         if AUTH_FILE.exists():
-            with open(AUTH_FILE, "r") as f:
+            with open(AUTH_FILE) as f:
                 auth_data = json.load(f)
-            logger.info(
-                f"Loaded auth data for user: {auth_data.get('email', 'unknown')}"
-            )
+            logger.info(f"Loaded auth data for user: {auth_data.get('email', 'unknown')}")
             return auth_data
         else:
             logger.debug("No saved auth data found")
@@ -194,7 +194,7 @@ def poll_for_token(api_url, session_id, max_attempts=120):
                 text = response.text
                 logger.error(f"Error parsing JSON: {e}")
                 logger.error(f"Response text: {text[:150]}...")
-                raise Exception(f"Server returned non-JSON response: {text[:150]}...")
+                raise Exception(f"Server returned non-JSON response: {text[:150]}...") from e
 
             if response.ok and data.get("status") == "complete":
                 logger.success(
@@ -209,9 +209,7 @@ def poll_for_token(api_url, session_id, max_attempts=120):
 
             # If the response indicates an error, throw it to be caught below
             if not response.ok:
-                raise Exception(
-                    f"Server returned {response.status_code}: {json.dumps(data)}"
-                )
+                raise Exception(f"Server returned {response.status_code}: {json.dumps(data)}")
 
             # Wait before trying again
             time.sleep(1)
@@ -235,7 +233,7 @@ def poll_for_token(api_url, session_id, max_attempts=120):
                 if consecutive_errors >= 10:
                     raise Exception(
                         "Connection to authentication server failed repeatedly. Please check your network connection and try again."
-                    )
+                    ) from e
 
                 # Exponential backoff
                 backoff_delay = min(5, 1 * pow(1.5, consecutive_errors - 3))

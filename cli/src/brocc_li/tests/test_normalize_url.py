@@ -56,10 +56,7 @@ def test_file_urls():
 
 def test_file_urls_edge_cases():
     # Test paths with spaces
-    assert (
-        normalize_url("file:///path/to/file with spaces")
-        == "file:///path/to/file with spaces"
-    )
+    assert normalize_url("file:///path/to/file with spaces") == "file:///path/to/file with spaces"
 
     # Test URL encoded paths (should maintain encoding)
     assert (
@@ -72,10 +69,7 @@ def test_file_urls_edge_cases():
     assert normalize_url("file:///../parent/path") == "file:///parent/path"
 
     # Test paths with special characters
-    assert (
-        normalize_url("file:///path/with~special@chars")
-        == "file:///path/with~special@chars"
-    )
+    assert normalize_url("file:///path/with~special@chars") == "file:///path/with~special@chars"
 
     # Test very long paths (MAX_PATH+ on Windows)
     long_path = "file:///" + "a" * 300
@@ -93,9 +87,7 @@ def test_windows_file_urls():
     assert normalize_url("file://server/share/path") == "file:///server/share/path"
 
     # Test Windows path with localhost
-    assert (
-        normalize_url("file://localhost/C:/path/to/file") == "file:///C:/path/to/file"
-    )
+    assert normalize_url("file://localhost/C:/path/to/file") == "file:///C:/path/to/file"
 
     # Test Windows reserved names
     assert normalize_url("file:///CON") == "file:///CON"
@@ -127,14 +119,11 @@ def test_unix_file_urls():
 def test_macos_file_urls():
     # Test macOS resource fork paths
     assert (
-        normalize_url("file:///path/file/..namedfork/rsrc")
-        == "file:///path/file/..namedfork/rsrc"
+        normalize_url("file:///path/file/..namedfork/rsrc") == "file:///path/file/..namedfork/rsrc"
     )
 
     # Test macOS app bundles
-    assert (
-        normalize_url("file:///Applications/App.app") == "file:///Applications/App.app"
-    )
+    assert normalize_url("file:///Applications/App.app") == "file:///Applications/App.app"
 
     # Test macOS volumes
     assert normalize_url("file:///Volumes/DiskName") == "file:///Volumes/DiskName"

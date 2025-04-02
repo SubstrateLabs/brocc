@@ -1,11 +1,12 @@
+import random
+import time
+
+from playwright.sync_api import Page
+
 from brocc_li.types.extract_feed_config import (
     ScrollPattern,
 )
-from playwright.sync_api import Page
-import random
-import time
 from brocc_li.utils.logger import logger
-
 
 # Multiplier ranges for viewport height when scrolling in different patterns
 # (min_multiplier, max_multiplier) - random value in this range * viewport height = scroll amount
@@ -25,9 +26,7 @@ BOUNCE_SCROLL_PAUSE_MIN = 0.2
 BOUNCE_SCROLL_PAUSE_MAX = 0.4
 
 
-def human_scroll(
-    page: Page, pattern: ScrollPattern, seen_only_multiplier: float = 1.0
-) -> None:
+def human_scroll(page: Page, pattern: ScrollPattern, seen_only_multiplier: float = 1.0) -> None:
     """Simulate human-like scrolling behavior.
 
     Args:
@@ -44,8 +43,7 @@ def human_scroll(
             * seen_only_multiplier
         )
         up_amount = int(
-            down_amount
-            * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
+            down_amount * random.uniform(BOUNCE_SCROLL_UP_RATIO_MIN, BOUNCE_SCROLL_UP_RATIO_MAX)
         )
         page.evaluate(f"window.scrollBy(0, {down_amount})")
         time.sleep(random.uniform(BOUNCE_SCROLL_PAUSE_MIN, BOUNCE_SCROLL_PAUSE_MAX))

@@ -1,10 +1,9 @@
+from playwright.sync_api import Page, TimeoutError
+
 from brocc_li.extract.is_valid_page import is_valid_page
 from brocc_li.types.extract_feed_config import ExtractFeedConfig
-from playwright.sync_api import Page, TimeoutError
-from typing import Optional
-from brocc_li.utils.random_delay import random_delay_with_jitter
 from brocc_li.utils.logger import logger
-
+from brocc_li.utils.random_delay import random_delay_with_jitter
 
 # Factor to add random variation to delays (0.3 = ±30% variation)
 DEFAULT_JITTER_FACTOR = 0.3
@@ -15,7 +14,7 @@ NAVIGATE_RETRY_DELAY_MAX_MS = 2000
 
 
 def wait_for_navigation(
-    page: Page, config: ExtractFeedConfig, wait_condition: Optional[str] = None
+    page: Page, config: ExtractFeedConfig, wait_condition: str | None = None
 ) -> bool:
     """Wait for navigation to complete with proper error handling.
 
@@ -56,9 +55,7 @@ def wait_for_navigation(
         # Fall back to domcontentloaded if networkidle times out
         if condition == "networkidle":
             try:
-                logger.warning(
-                    "Networkidle timed out, falling back to domcontentloaded"
-                )
+                logger.warning("Networkidle timed out, falling back to domcontentloaded")
                 page.wait_for_load_state("domcontentloaded", timeout=2000)
                 return is_valid_page(page)
             except Exception:

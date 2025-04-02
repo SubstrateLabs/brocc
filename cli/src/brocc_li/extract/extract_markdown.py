@@ -1,15 +1,13 @@
-from playwright.sync_api import Page
-from typing import Optional
 from html_to_markdown import convert_to_markdown
+from playwright.sync_api import Page
+
 from brocc_li.utils.logger import logger
 
 # Minimum character length to consider extracted content valid
 MIN_CONTENT_LENGTH = 100
 
 
-def extract_markdown(
-    page: Page, selector: str, min_length: int = MIN_CONTENT_LENGTH
-) -> Optional[str]:
+def extract_markdown(page: Page, selector: str, min_length: int = MIN_CONTENT_LENGTH) -> str | None:
     """Extract HTML content from a page and convert it to markdown.
 
     Args:

@@ -1,13 +1,15 @@
-from playwright.sync_api import sync_playwright
-from typing import Dict, Any, ClassVar, Optional
 import time
-from brocc_li.types.doc import DocExtractor, Doc, Source, SourceType
+from typing import Any, ClassVar
+
+from playwright.sync_api import sync_playwright
+
 from brocc_li.chrome_manager import ChromeManager
-from brocc_li.extract_feed import ExtractField, scroll_and_extract, ExtractFeedConfig
-from brocc_li.utils.display_result import display_items, ProgressTracker
-from brocc_li.utils.timestamp import parse_timestamp
 from brocc_li.doc_db import DocDB
+from brocc_li.extract_feed import ExtractFeedConfig, ExtractField, scroll_and_extract
+from brocc_li.types.doc import Doc, DocExtractor, Source, SourceType
+from brocc_li.utils.display_result import ProgressTracker, display_items
 from brocc_li.utils.logger import logger
+from brocc_li.utils.timestamp import parse_timestamp
 
 # Config flags for development (running main)
 MAX_ITEMS = None  # Set to None to get all items, or a number to limit
@@ -53,9 +55,7 @@ class TwitterFeedSchema(DocExtractor):
     )
     # Default empty implementations for required fields from DocumentExtractor
     title: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
-    description: ClassVar[ExtractField] = ExtractField(
-        selector="", transform=lambda x: ""
-    )
+    description: ClassVar[ExtractField] = ExtractField(selector="", transform=lambda x: "")
 
 
 TWITTER_CONFIG = ExtractFeedConfig(
@@ -71,7 +71,7 @@ TWITTER_CONFIG = ExtractFeedConfig(
 )
 
 
-def extract_media(element) -> Optional[Dict[str, Any]]:
+def extract_media(element) -> dict[str, Any] | None:
     """Extract media from an element, handling images, videos, and GIFs."""
     # Get element info
     tag_name = element.evaluate("node => node.tagName")
@@ -207,9 +207,7 @@ def extract_tweet_text(element) -> str:
 
         # Remove any Twitter UI artifacts like "·" and "Show more"
         if processed_content:
-            content = (
-                processed_content.split("·")[-1].strip().split("Show more")[0].strip()
-            )
+            content = processed_content.split("·")[-1].strip().split("Show more")[0].strip()
             content_parts.append(prefix + content)
 
     final_content = "".join(content_parts)
@@ -274,9 +272,7 @@ def main() -> None:
     with sync_playwright() as p:
         # Use ChromeManager
         chrome_manager = ChromeManager()
-        browser = chrome_manager.connect(
-            p
-        )  # Connect (will handle launch/relaunch/connect logic)
+        browser = chrome_manager.connect(p)  # Connect (will handle launch/relaunch/connect logic)
 
         if not browser:
             logger.error("Could not establish connection with Chrome.")
@@ -333,9 +329,7 @@ def main() -> None:
             formatted_posts.append(
                 {
                     "Contact": contact_name,
-                    "Contact ID": f"@{contact_identifier}"
-                    if contact_identifier
-                    else "",
+                    "Contact ID": f"@{contact_identifier}" if contact_identifier else "",
                     "Content": content,
                     "Created": doc.created_at or "No date",
                     "Metadata": metadata_text,

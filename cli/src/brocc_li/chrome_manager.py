@@ -1,12 +1,15 @@
-from playwright.sync_api import Browser, Page, Playwright
-from rich.prompt import Confirm
-from typing import Optional, NamedTuple, Callable
+import os
+import platform
 import subprocess
 import time
-import requests
-import platform
-import os
+from collections.abc import Callable
+from typing import NamedTuple
+
 import psutil
+import requests
+from playwright.sync_api import Browser, Page, Playwright
+from rich.prompt import Confirm
+
 from brocc_li.utils.logger import logger
 
 
@@ -36,12 +39,8 @@ class ChromeManager:
             return [
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                os.path.expanduser(
-                    "~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-                ),
-                os.path.expanduser(
-                    "~/Applications/Chromium.app/Contents/MacOS/Chromium"
-                ),
+                os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+                os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
             ]
         elif system == "linux":
             return [
@@ -55,18 +54,12 @@ class ChromeManager:
             ]
         elif system == "windows":
             program_files = os.environ.get("PROGRAMFILES", "C:\\Program Files")
-            program_files_x86 = os.environ.get(
-                "PROGRAMFILES(X86)", "C:\\Program Files (x86)"
-            )
-            local_appdata = os.environ.get(
-                "LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")
-            )
+            program_files_x86 = os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")
+            local_appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
 
             return [
                 os.path.join(program_files, "Google\\Chrome\\Application\\chrome.exe"),
-                os.path.join(
-                    program_files_x86, "Google\\Chrome\\Application\\chrome.exe"
-                ),
+                os.path.join(program_files_x86, "Google\\Chrome\\Application\\chrome.exe"),
                 os.path.join(local_appdata, "Google\\Chrome\\Application\\chrome.exe"),
                 os.path.join(program_files, "Chromium\\Application\\chrome.exe"),
                 os.path.join(program_files_x86, "Chromium\\Application\\chrome.exe"),
@@ -146,9 +139,7 @@ class ChromeManager:
                 time.sleep(1)
                 logger.debug(f"Waiting for Chrome debug port... ({i + 1}/{max_wait})")
 
-            logger.error(
-                f"Chrome did not become available on port 9222 after {max_wait} seconds."
-            )
+            logger.error(f"Chrome did not become available on port 9222 after {max_wait} seconds.")
             return False
         except Exception as e:
             logger.error(f"Failed to launch Chrome: {str(e)}")
@@ -170,24 +161,18 @@ class ChromeManager:
                     "chromium",
                 ]
                 is_main_process = (
-                    not any(arg.startswith("--type=") for arg in cmdline)
-                    if cmdline
-                    else True
+                    not any(arg.startswith("--type=") for arg in cmdline) if cmdline else True
                 )
 
                 if is_chrome_like and is_main_process:
-                    logger.debug(
-                        f"Terminating process: PID={proc.info['pid']}, Name={proc_name}"
-                    )
+                    logger.debug(f"Terminating process: PID={proc.info['pid']}, Name={proc_name}")
                     proc.terminate()
                     killed_pids.append(proc.info["pid"])
                     success = True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
             except Exception as e:
-                logger.warning(
-                    f"Error terminating process {proc.info.get('pid', 'N/A')}: {e}"
-                )
+                logger.warning(f"Error terminating process {proc.info.get('pid', 'N/A')}: {e}")
 
         if not success:
             logger.warning("No Chrome/Chromium processes found to quit.")
@@ -217,7 +202,7 @@ class ChromeManager:
             logger.error(f"Failed to quit some Chrome processes: {still_running}")
             return False
 
-    def _connect_to_chrome(self, playwright: Playwright) -> Optional[Browser]:
+    def _connect_to_chrome(self, playwright: Playwright) -> Browser | None:
         """Connect to Chrome using Playwright via debug port."""
         try:
             browser = playwright.chromium.connect_over_cdp(
@@ -225,9 +210,7 @@ class ChromeManager:
                 timeout=10000,
             )
             browser_version = browser.version
-            logger.success(
-                f"Successfully connected to Chrome {browser_version} via debug port"
-            )
+            logger.success(f"Successfully connected to Chrome {browser_version} via debug port")
             return browser
         except Exception as e:
             logger.error(f"Playwright failed to connect to Chrome debug port: {str(e)}")
@@ -247,9 +230,9 @@ class ChromeManager:
     def connect(
         self,
         playwright: Playwright,
-        confirm_fn: Optional[Callable[[str, bool], bool]] = None,
+        confirm_fn: Callable[[str, bool], bool] | None = None,
         auto_confirm: bool = False,
-    ) -> Optional[Browser]:
+    ) -> Browser | None:
         """
         Ensures Chrome is running with the debug port and connects to it.
 
@@ -265,39 +248,33 @@ class ChromeManager:
         Returns:
             A Playwright Browser instance if connection is successful, otherwise None.
         """
+
         # Use the provided confirm function or the default
-        confirm = (
-            lambda msg, default=True: True
-            if auto_confirm
-            else (
-                confirm_fn(msg, default)
-                if confirm_fn
-                else default_confirm(msg, default)
-            )
-        )
+        def make_confirm_function():
+            def confirm_wrapper(msg, default=True):
+                if auto_confirm:
+                    return True
+                else:
+                    return confirm_fn(msg, default) if confirm_fn else default_confirm(msg, default)
+
+            return confirm_wrapper
+
+        confirm = make_confirm_function()
 
         self._state = self._get_chrome_state()
 
         if self._state.has_debug_port:
-            logger.info(
-                "Chrome already running with debug port. Attempting to connect..."
-            )
+            logger.info("Chrome already running with debug port. Attempting to connect...")
             browser = self._connect_to_chrome(playwright)
             if browser:
                 return browser
             else:
-                logger.warning(
-                    "Connection failed despite active debug port. Attempting relaunch."
-                )
-                if not confirm(
-                    "Connection failed. Quit existing Chrome and relaunch?", True
-                ):
+                logger.warning("Connection failed despite active debug port. Attempting relaunch.")
+                if not confirm("Connection failed. Quit existing Chrome and relaunch?", True):
                     logger.error("Connection aborted by user.")
                     return None
                 if not self._quit_chrome():
-                    logger.error(
-                        "Failed to quit existing Chrome instance(s). Cannot proceed."
-                    )
+                    logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
                     return None
                 # Fall through to launch logic
 
@@ -307,9 +284,7 @@ class ChromeManager:
                 logger.error("Relaunch aborted by user.")
                 return None
             if not self._quit_chrome():
-                logger.error(
-                    "Failed to quit existing Chrome instance(s). Cannot proceed."
-                )
+                logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
                 return None
             # Fall through to launch logic
 
@@ -334,7 +309,7 @@ class ChromeManager:
             logger.error("Failed to launch Chrome. Cannot connect.")
             return None
 
-    def open_new_tab(self, browser: Browser, url: str) -> Optional[Page]:
+    def open_new_tab(self, browser: Browser, url: str) -> Page | None:
         """Open a new tab with the given URL in the managed browser instance."""
         if not browser or not browser.is_connected():
             logger.error("Browser is not connected. Cannot open new tab.")
@@ -352,9 +327,7 @@ class ChromeManager:
                 if "page" in locals() and not page.is_closed():
                     page.close()
             except Exception as close_err:
-                logger.warning(
-                    f"Error closing page after failed navigation: {close_err}"
-                )
+                logger.warning(f"Error closing page after failed navigation: {close_err}")
             return None
 
 

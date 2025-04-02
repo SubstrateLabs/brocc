@@ -1,15 +1,16 @@
-from playwright.sync_api import Page
 import random
 import time
+
+from playwright.sync_api import Page
+
 from brocc_li.extract.human_scroll import human_scroll
 from brocc_li.extract.restore_scroll import (
-    scroll_to_bottom,
     get_current_scroll_position,
+    scroll_to_bottom,
 )
-from brocc_li.utils.random_delay import random_delay
-from brocc_li.types.extract_feed_config import ScrollPattern, ExtractFeedConfig
-from typing import Tuple
+from brocc_li.types.extract_feed_config import ExtractFeedConfig, ScrollPattern
 from brocc_li.utils.logger import logger
+from brocc_li.utils.random_delay import random_delay
 
 # Threshold for determining when we're at the bottom of the page (in pixels)
 BOTTOM_THRESHOLD = 200
@@ -62,9 +63,7 @@ def execute_bottom_jump(page: Page, consecutive_all_seen: int = 0) -> bool:
     if at_bottom:
         # Shorter wait for consecutive seen content
         wait_time = 1.0 if consecutive_all_seen < 6 else 0.3
-        logger.success(
-            f"Reached bottom of page, waiting {wait_time}s for new content to load..."
-        )
+        logger.success(f"Reached bottom of page, waiting {wait_time}s for new content to load...")
         time.sleep(wait_time)
 
     return at_bottom
@@ -94,9 +93,7 @@ def trigger_lazy_loading(page: Page, consecutive_all_seen: int) -> None:
     time.sleep(0.2)
 
 
-def get_adaptive_scroll_multiplier(
-    all_items_seen: bool, consecutive_all_seen: int
-) -> float:
+def get_adaptive_scroll_multiplier(all_items_seen: bool, consecutive_all_seen: int) -> float:
     """Get an adaptive scroll multiplier based on scrolling context.
 
     When repeatedly seeing already seen items, increase scroll distance.
@@ -182,7 +179,7 @@ def perform_adaptive_scroll(
     all_items_seen: bool = False,
     consecutive_all_seen: int = 0,
     is_turbo_mode: bool = False,
-) -> Tuple[int, int, int, bool]:
+) -> tuple[int, int, int, bool]:
     """Perform adaptive scrolling based on the current context.
 
     Manages different scrolling strategies based on the state of content traversal.
@@ -229,9 +226,7 @@ def perform_adaptive_scroll(
         return 0, current_height, consecutive_all_seen, False
 
     # Calculate adaptive scroll multiplier
-    scroll_multiplier = get_adaptive_scroll_multiplier(
-        all_items_seen, consecutive_all_seen
-    )
+    scroll_multiplier = get_adaptive_scroll_multiplier(all_items_seen, consecutive_all_seen)
 
     # Handle the same-height case (potentially stuck)
     if current_height == last_height:
@@ -246,9 +241,7 @@ def perform_adaptive_scroll(
             if all_items_seen and consecutive_all_seen > 1:
                 human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
             else:
-                human_scroll(
-                    page, random.choice(list(ScrollPattern)), scroll_multiplier
-                )
+                human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
     else:
         # Height changed, reset counter and do normal scroll
         consecutive_same_height = 0
@@ -260,8 +253,6 @@ def perform_adaptive_scroll(
             human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
 
     # Apply appropriate delay based on context
-    apply_adaptive_delay(
-        new_items, all_items_seen, consecutive_all_seen, consecutive_same_height
-    )
+    apply_adaptive_delay(new_items, all_items_seen, consecutive_all_seen, consecutive_same_height)
 
     return consecutive_same_height, last_height, consecutive_all_seen, False

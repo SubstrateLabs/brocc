@@ -1,19 +1,20 @@
-from typing import Tuple, Optional
-from playwright.sync_api import Page
 import time
-from brocc_li.types.extract_feed_config import NavigateOptions
-from brocc_li.extract.rate_limit_backoff_s import (
-    rate_limit_backoff_s,
-    RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
-)
-from brocc_li.extract.extract_markdown import extract_markdown
+
+from playwright.sync_api import Page
+
 from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
+from brocc_li.extract.extract_markdown import extract_markdown
+from brocc_li.extract.rate_limit_backoff_s import (
+    RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
+    rate_limit_backoff_s,
+)
+from brocc_li.types.extract_feed_config import NavigateOptions
 from brocc_li.utils.logger import logger
 
 
 def extract_navigate_content(
     page: Page, options: NavigateOptions, consecutive_timeouts: int = 0
-) -> Tuple[Optional[str], int]:
+) -> tuple[str | None, int]:
     """Extract content from a page using the provided selector.
 
     Returns:
@@ -25,9 +26,7 @@ def extract_navigate_content(
         # If we've hit consecutive timeouts, implement a cooldown
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
             cooldown_s = rate_limit_backoff_s(consecutive_timeouts)
-            logger.warning(
-                f"Rate limit detected! Cooling down for {cooldown_s:.1f} seconds..."
-            )
+            logger.warning(f"Rate limit detected! Cooling down for {cooldown_s:.1f} seconds...")
             time.sleep(cooldown_s)
 
         page.wait_for_selector(selector, timeout=options.content_timeout_ms)
@@ -36,9 +35,7 @@ def extract_navigate_content(
         # Extract and convert content
         html_content = extract_markdown(page, selector)
         if html_content:
-            return html_content, adjust_timeout_counter(
-                consecutive_timeouts, success=True
-            )
+            return html_content, adjust_timeout_counter(consecutive_timeouts, success=True)
         else:
             return None, adjust_timeout_counter(consecutive_timeouts, success=False)
 
@@ -57,9 +54,7 @@ def extract_navigate_content(
                 f"Multiple timeouts detected! Cooling down for {cooldown_s:.1f} seconds..."
             )
         else:
-            logger.warning(
-                f"Timeout detected, brief cooldown for {cooldown_s:.1f} seconds..."
-            )
+            logger.warning(f"Timeout detected, brief cooldown for {cooldown_s:.1f} seconds...")
 
         time.sleep(cooldown_s)
 

@@ -1,9 +1,8 @@
 import re
-from typing import Optional
 import unicodedata
 
 
-def slugify(text: Optional[str]) -> str:
+def slugify(text: str | None) -> str:
     """Convert text to a URL and filename safe slug that is reversible.
 
     Uses rare character sequences to maintain reversibility:

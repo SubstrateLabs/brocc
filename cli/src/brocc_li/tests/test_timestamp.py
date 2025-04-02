@@ -1,7 +1,8 @@
 from datetime import datetime
+
 from brocc_li.utils.timestamp import (
-    parse_timestamp,
     parse_and_format_date,
+    parse_timestamp,
 )
 
 

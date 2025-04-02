@@ -1,12 +1,14 @@
-from brocc_li.extract.extract_field import extract_field
-from pydantic import BaseModel
+from typing import Any
+
 from playwright.sync_api import Page
-from brocc_li.types.extract_field import ExtractField
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel
+
+from brocc_li.extract.extract_field import extract_field
+from brocc_li.extract.save_extract_log import save_extract_log
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
 )
-from brocc_li.extract.save_extract_log import save_extract_log
+from brocc_li.types.extract_field import ExtractField
 from brocc_li.utils.logger import logger
 
 
@@ -14,13 +16,13 @@ def extract_schema(
     page: Page,
     schema: type[BaseModel],
     container_selector: str,
-    config: Optional[ExtractFeedConfig] = None,
-) -> List[Dict[str, Any]]:
+    config: ExtractFeedConfig | None = None,
+) -> list[dict[str, Any]]:
     """Scrape data using a schema definition."""
     try:
         # Find container selector from schema if not provided
         if not container_selector:
-            for field_name, field in schema.__dict__.items():
+            for _field_name, field in schema.__dict__.items():
                 if isinstance(field, ExtractField) and field.is_container:
                     container_selector = field.selector
                     break
@@ -59,13 +61,9 @@ def extract_schema(
                 for field_name, field in schema.__dict__.items():
                     if field_name != "container" and isinstance(field, ExtractField):
                         try:
-                            data[field_name] = extract_field(
-                                container, field, field_name
-                            )
+                            data[field_name] = extract_field(container, field, field_name)
                         except Exception as e:
-                            logger.error(
-                                f"Failed to extract field {field_name}: {str(e)}"
-                            )
+                            logger.error(f"Failed to extract field {field_name}: {str(e)}")
                             data[field_name] = None
 
                 # Save extract results if debug is enabled

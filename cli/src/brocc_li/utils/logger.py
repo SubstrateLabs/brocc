@@ -1,11 +1,12 @@
-from rich.console import Console
-from contextlib import contextmanager
 import os
-from typing import Optional, TextIO, Any
+from contextlib import contextmanager
+from typing import Any, TextIO
+
+from rich.console import Console
 
 
 class Logger:
-    def __init__(self, enabled: bool = True, file: Optional[TextIO] = None):
+    def __init__(self, enabled: bool = True, file: TextIO | None = None):
         self.enabled = enabled
         self._console = Console(file=file)
         self._null_console = Console(file=open(os.devnull, "w"))
