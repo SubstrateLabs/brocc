@@ -2,10 +2,7 @@
 Tests for serialization/deserialization utility functions.
 """
 
-import json
-
 import polars as pl
-import pytest
 
 from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
 

@@ -8,6 +8,12 @@ Document database using DuckDB + Polars + PyArrow
   * Native Arrow integration
   * Better memory efficiency with zero-copy operations
   * Type-safe operations with strict typing
+
+Document update/versioning behavior:
+- Goal is to track document history while avoiding needless duplication
+- When storing a document, the we check for existing versions by ID or URL:
+  * Docs with identical content but different metadata will be updated in place
+  * Docs with different content (even with same URL or ID) will create new versions
 """
 
 import json
@@ -209,14 +215,85 @@ class DocDB:
 
         return prepared_chunk
 
+    def _chunks_are_identical(self, doc_id: str, new_chunks: list[Chunk]) -> bool:
+        """
+        Check if the new chunks are identical to the existing ones.
+
+        Args:
+            doc_id: The ID of the document to check against
+            new_chunks: The new chunks to compare
+
+        Returns:
+            bool: True if the chunks are identical, False otherwise
+        """
+        # Get existing chunks
+        existing_chunks = self.get_chunks_by_doc_id(doc_id)
+
+        # Quick check - if the number of chunks differs, they're not identical
+        if len(existing_chunks) != len(new_chunks):
+            return False
+
+        # Create dictionaries of processed chunks for comparison
+        existing_processed = {}
+        for chunk in existing_chunks:
+            idx = (
+                int(chunk["chunk_index"])
+                if isinstance(chunk["chunk_index"], str)
+                else chunk["chunk_index"]
+            )
+            existing_processed[idx] = chunk["content"]
+
+        # Compare chunks by content
+        for chunk in new_chunks:
+            chunk_dict = self._prepare_chunk_for_storage(chunk)
+            idx = chunk.chunk_index
+
+            # If the chunk index doesn't exist in existing chunks, they're not identical
+            if idx not in existing_processed:
+                return False
+
+            # Parse existing content back into a list if it's a string
+            existing_content = existing_processed[idx]
+            if isinstance(existing_content, str):
+                try:
+                    existing_content = json.loads(existing_content)
+                except json.JSONDecodeError:
+                    existing_content = []
+
+            # Parse new content back into a list if it's a string
+            new_content = chunk_dict["content"]
+            if isinstance(new_content, str):
+                try:
+                    new_content = json.loads(new_content)
+                except json.JSONDecodeError:
+                    new_content = []
+
+            # Compare the content - if not equal, chunks aren't identical
+            if existing_content != new_content:
+                return False
+
+        # All checks passed, chunks are identical
+        return True
+
     def _find_id_for_update(
-        self, document: dict[str, Any], db_document: dict[str, Any]
-    ) -> str | None:
-        """Determine if an existing document should be updated, returning its ID if found."""
+        self, document: dict[str, Any], db_document: dict[str, Any], new_chunks: list[Chunk]
+    ) -> tuple[str | None, bool]:
+        """
+        Determine if an existing document should be updated, returning its ID if found.
+
+        Returns:
+            tuple: (doc_id, update_chunks)
+            - doc_id: ID of document to update, or None if no match
+            - update_chunks: Whether chunks should be updated (False if content identical)
+        """
         # First priority: check by ID
         doc_id = document.get("id")
         if doc_id and self.get_document_by_id(doc_id):
-            return doc_id
+            # Check if chunks are identical
+            if self._chunks_are_identical(doc_id, new_chunks):
+                return doc_id, False
+            # Content differs, do not update - will create new
+            return None, True
 
         # Second priority: check by URL
         url = document.get("url")
@@ -225,14 +302,20 @@ class DocDB:
             if matching_docs:
                 # If multiple matches, use the most recent one's ID
                 update_id = matching_docs[0]["id"]
-                # Update the document's ID if it wasn't set originally
-                if not document.get("id"):
-                    # Need to update both original dict (for return?) and db_dict (for storage)
-                    document["id"] = update_id
-                    db_document["id"] = update_id
-                return update_id
 
-        return None  # No existing document found for update
+                # Check if chunks are identical
+                if self._chunks_are_identical(update_id, new_chunks):
+                    # Update the document's ID if it wasn't set originally
+                    if not document.get("id"):
+                        document["id"] = update_id
+                        db_document["id"] = update_id
+                    return update_id, False
+
+                # Content differs, do not update - will create new
+                return None, True
+
+        # No existing document found or content differs, insert new
+        return None, True
 
     def _update_document(self, conn, db_document: dict[str, Any], doc_id: str) -> None:
         """Execute the UPDATE statement for a given document ID."""
@@ -293,16 +376,14 @@ class DocDB:
         """
         Store a document and its chunks in the database.
         Returns str ID of the stored document.
+
+        Logic:
+        - If a document with same ID/URL exists AND has identical content, update metadata only
+        - If content differs, create a new document regardless of ID/URL match
         """
-        # Create a copy of the document data
+        # Create a copy of the document data to avoid modifying the original
         doc_data = document_data.copy()
-
-        # Ensure the document has an ID
-        if not doc_data.get("id"):
-            doc_data["id"] = Doc.generate_id()
-
-        # Prepare document data for storage
-        db_document = self._prepare_document_for_storage(doc_data)
+        original_id = doc_data.get("id")
 
         # Get chunks from text content
         chunked_content = chunk_markdown(text_content)
@@ -315,22 +396,41 @@ class DocDB:
 
         with duckdb.connect(self.db_path) as conn:
             # Check if an existing document needs to be updated
-            id_to_update = self._find_id_for_update(doc_data, db_document)
+            id_to_update, update_chunks = self._find_id_for_update(doc_data, doc_data, chunks)
 
-            if id_to_update:
-                # Update existing document
+            if id_to_update and not update_chunks:
+                # Content is identical, only update document metadata
+                db_document = self._prepare_document_for_storage(doc_data)
                 self._update_document(conn, db_document, id_to_update)
-
-                # Delete existing chunks for this document
-                self._delete_chunks(conn, id_to_update)
+                return id_to_update
             else:
+                # Either no matching document found or content differs
+                # In both cases, create a new document with new chunks
+
+                # If original had an ID that matched an existing doc but content differs,
+                # or we're matching by URL but content differs, we need a new ID
+                if original_id and (
+                    self.get_document_by_id(original_id)
+                    or (doc_data.get("url") and self.url_exists(doc_data.get("url") or ""))
+                ):
+                    # Generate a new ID
+                    new_id = Doc.generate_id()
+                    doc_data["id"] = new_id
+
+                    # Update doc_id in all chunks
+                    for chunk in chunks:
+                        chunk.doc_id = new_id
+
+                # Prepare document for storage (after potential ID change)
+                db_document = self._prepare_document_for_storage(doc_data)
+
                 # Insert new document
                 self._insert_document(conn, db_document)
 
-            # Store chunks
-            self._store_chunks(conn, chunks)
+                # Store new chunks
+                self._store_chunks(conn, chunks)
 
-        return doc_data["id"]
+            return doc_data["id"]
 
     def store_document(self, document: Doc) -> bool:
         """

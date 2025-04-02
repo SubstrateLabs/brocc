@@ -114,17 +114,18 @@ def test_store_document_without_url(docdb):
 
 
 def test_update_document(docdb, sample_document):
-    """Test updating an existing document."""
+    """Test updating an existing document with different content creates a new document."""
     # Store the initial document
     docdb.store_document(sample_document)
+    original_id = sample_document.id
 
-    # Update the document
+    # Update the document with different content (should create new doc)
     updated_doc = Doc(
-        id=sample_document.id,
+        id=original_id,
         url=sample_document.url,
         title="Updated Title",
         description="Updated description",
-        text_content="Updated content",
+        text_content="Updated content",  # Different content than original
         contact_name=sample_document.contact_name,
         contact_identifier=sample_document.contact_identifier,
         participant_names=sample_document.participant_names,
@@ -141,10 +142,19 @@ def test_update_document(docdb, sample_document):
     result = docdb.store_document(updated_doc)
     assert result is True
 
-    # Retrieve and verify the update by ID
-    retrieved = docdb.get_document_by_id(sample_document.id)
-    assert retrieved["title"] == "Updated Title"
-    assert retrieved["description"] == "Updated description"
+    # Original document should still exist with original title
+    original_doc = docdb.get_document_by_id(original_id)
+    assert original_doc["title"] == "Test Document"
+
+    # Find the new document (which should have a different ID)
+    docs_by_url = docdb.get_documents_by_url(sample_document.url)
+    assert len(docs_by_url) == 2
+
+    # Find the new document (not original_id)
+    new_doc = next((doc for doc in docs_by_url if doc["id"] != original_id), None)
+    assert new_doc is not None
+    assert new_doc["title"] == "Updated Title"
+    assert new_doc["description"] == "Updated description"
 
 
 def test_url_exists(docdb, sample_document):
@@ -552,3 +562,89 @@ def test_store_document_with_rich_markdown_content(docdb):
         image_urls = chunk_data["image_urls"]
         assert len(image_urls) > 0, "Image URLs should be present"
         assert all(url.startswith("http") for url in image_urls), "Image URLs should be valid URLs"
+
+
+def test_content_based_update(docdb, sample_document):
+    """Test that documents are only updated when content is identical."""
+    # Store the initial document
+    docdb.store_document(sample_document)
+    original_id = sample_document.id
+
+    # Case 1: Update with identical content but different metadata
+    updated_doc = Doc(
+        id=original_id,
+        url=sample_document.url,
+        title="Updated Title - Same Content",
+        description="Updated description, but identical content",
+        text_content=sample_document.text_content,  # Same content
+        source=sample_document.source,
+        source_type=sample_document.source_type,
+        source_location_identifier=sample_document.source_location_identifier,
+        source_location_name=sample_document.source_location_name,
+        ingested_at=sample_document.ingested_at,
+    )
+
+    # Should update the existing document
+    docdb.store_document(updated_doc)
+
+    # Check it updated the existing document (same ID)
+    doc = docdb.get_document_by_id(original_id)
+    assert doc is not None
+    assert doc["id"] == original_id
+    assert doc["title"] == "Updated Title - Same Content"
+
+    # Case 2: Update with different content
+    new_content_doc = Doc(
+        id=original_id,  # Same ID
+        url=sample_document.url,  # Same URL
+        title="New Content Document",
+        description="This has different content",
+        text_content="This is completely different content that should create a new document.",  # Different content
+        source=sample_document.source,
+        source_type=sample_document.source_type,
+        source_location_identifier=sample_document.source_location_identifier,
+        source_location_name=sample_document.source_location_name,
+        ingested_at=sample_document.ingested_at,
+    )
+
+    # Should create a new document
+    docdb.store_document(new_content_doc)
+
+    # Check the original document still exists and wasn't changed
+    original_doc = docdb.get_document_by_id(original_id)
+    assert original_doc is not None
+    assert original_doc["title"] == "Updated Title - Same Content"  # From the first update
+
+    # Get documents by URL - should have two now
+    docs_by_url = docdb.get_documents_by_url(sample_document.url)
+    assert len(docs_by_url) == 2
+
+    # Find the new document (not original_id)
+    new_doc = next((doc for doc in docs_by_url if doc["id"] != original_id), None)
+    assert new_doc is not None
+    assert new_doc["title"] == "New Content Document"
+
+    # Get chunks for both documents to verify they're different
+    original_chunks = docdb.get_chunks_by_doc_id(original_id)
+    new_chunks = docdb.get_chunks_by_doc_id(new_doc["id"])
+
+    # Both should have chunks
+    assert len(original_chunks) > 0
+    assert len(new_chunks) > 0
+
+    # Content should be different
+    original_text = "\n\n".join(
+        [
+            "\n\n".join(item["text"] for item in chunk["content"] if item.get("type") == "text")
+            for chunk in original_chunks
+        ]
+    )
+    new_text = "\n\n".join(
+        [
+            "\n\n".join(item["text"] for item in chunk["content"] if item.get("type") == "text")
+            for chunk in new_chunks
+        ]
+    )
+
+    assert original_text != new_text
+    assert "This is completely different content" in new_text

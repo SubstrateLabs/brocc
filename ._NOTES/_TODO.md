@@ -1,9 +1,6 @@
 ## 0.0.1
 
-- when updating doc, if text content is updating, we need to delete chunks + create new ones
-- storage should _not_ update doc with same url... only update existing doc if content is identical
-  - also need to handle chunk updates...
-- embeded_at, ingested_at (maybe remove)
+- when storing chunks in lance, should store all the same metadata fields from doc
 - integrate lancedb voyage embedding plugin (voyage.py)
 - incorporate embed_header somehow into each chunk header
 - embed with filters
