@@ -15,7 +15,14 @@ from lancedb.embeddings.base import EmbeddingFunction
 from lancedb.embeddings.registry import register
 
 from brocc_li.utils.api_url import get_api_url
-from brocc_li.utils.image_utils import image_to_base64, is_plain_text, is_url
+from brocc_li.utils.image_utils import (
+    SUPPORTED_MIME_TYPES,
+    ImageFormat,
+    image_to_base64,
+    is_plain_text,
+    is_supported_mime_type,
+    is_url,
+)
 from brocc_li.utils.logger import logger
 from brocc_li.utils.serde import sanitize_input
 
@@ -113,7 +120,7 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         except json.JSONDecodeError as e:
             raise RuntimeError("Failed to parse API response") from e
 
-    def _process_image(self, image) -> dict[str, Any]:
+    def _process_image(self, image) -> dict[str, Any] | None:
         """
         Process an image input into the format expected by the API
 
@@ -124,26 +131,36 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
 
         Returns
         -------
-        Dict[str, Any]
-            Dictionary with the properly formatted image content
+        Dict[str, Any] | None
+            Dictionary with the properly formatted image content, or None if processing failed
         """
         # If it's a URL, use it directly for image_url type
         if isinstance(image, str) and is_url(image):
             return {"type": ContentType.IMAGE_URL, "image_url": image}
 
+        # Check if it's already a data URL formatted base64 string
+        if isinstance(image, str) and image.startswith("data:image/"):
+            # Validate format - must be data:image/(png|jpeg|webp|gif);base64,...
+            try:
+                media_type = image.split(";")[0].split(":")[1]
+                if media_type in SUPPORTED_MIME_TYPES and ";base64," in image:
+                    return {"type": ContentType.IMAGE_BASE64, "image_base64": image}
+                logger.warning(f"Unsupported image format: {media_type}. Using default format.")
+            except (IndexError, ValueError):
+                pass  # Fall through to normal processing
+
         # For all other cases, try to convert to base64
         try:
-            # Convert the image to base64
-            base64_str = image_to_base64(image)
+            # Convert the image to base64 with data URL format using PNG by default
+            # PNG is the most widely supported format
+            base64_str = image_to_base64(image, format=ImageFormat.PNG)
             return {"type": ContentType.IMAGE_BASE64, "image_base64": base64_str}
         except Exception as e:
-            # If all else fails and it's a string, treat as text
-            if isinstance(image, str):
-                return {"type": ContentType.TEXT, "text": image}
-            else:
-                raise RuntimeError(f"Failed to process image: {str(e)}") from e
+            # If we can't process the image, return None to indicate failure
+            logger.error(f"Failed to process image: {str(e)}")
+            return None
 
-    def _prepare_multimodal_content(self, content_item: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_multimodal_content(self, content_item: Dict[str, Any]) -> Dict[str, Any] | None:
         """
         Process a content item to ensure it's in the correct format for the API.
 
@@ -154,16 +171,16 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
 
         Returns
         -------
-        Dict[str, Any]
-            Content item formatted for the API
+        Dict[str, Any] | None
+            Content item formatted for the API, or None if it couldn't be processed
         """
         if not isinstance(content_item, dict) or "type" not in content_item:
             # If not properly formatted, try to handle as plain text
             if isinstance(content_item, str):
                 return {"type": ContentType.TEXT, "text": content_item}
-            # For unhandled types, log warning and return as-is
+            # For unhandled types, log warning and return None
             logger.warning(f"Unknown content type: {type(content_item)}")
-            return content_item
+            return None
 
         # Handle known content types
         content_type = content_item["type"]
@@ -172,6 +189,29 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         elif content_type == ContentType.IMAGE_URL and "image_url" in content_item:
             return content_item
         elif content_type == ContentType.IMAGE_BASE64 and "image_base64" in content_item:
+            # Validate base64 format
+            image_data = content_item["image_base64"]
+            if not isinstance(image_data, str) or not image_data.startswith("data:image/"):
+                # Try to reformat if possible
+                try:
+                    if isinstance(image_data, str) and "," not in image_data:
+                        # Assume it's just base64 data without the data URL prefix
+                        content_item["image_base64"] = f"data:image/png;base64,{image_data}"
+                        logger.debug("Reformatted base64 data to include data URL prefix")
+                    else:
+                        logger.warning(f"Invalid image_base64 format: {image_data[:30]}...")
+                        return None
+                except Exception:
+                    logger.warning("Failed to correct image_base64 format")
+                    return None
+            else:
+                # Verify the MIME type is supported
+                try:
+                    media_type = image_data.split(";")[0].split(":")[1]
+                    if not is_supported_mime_type(media_type):
+                        logger.warning(f"Unsupported image format: {media_type}. Request may fail.")
+                except (IndexError, ValueError):
+                    logger.warning("Could not parse MIME type from data URL")
             return content_item
         else:
             # Try to handle with best effort
@@ -182,9 +222,11 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
 
         # If we get here, we couldn't process the item
         logger.warning(f"Could not process content item: {content_item}")
-        return content_item
+        return None
 
-    def _prepare_structured_input(self, input_data: Union[str, bytes, Dict, Any]) -> Dict[str, Any]:
+    def _prepare_structured_input(
+        self, input_data: Union[str, bytes, Dict, Any]
+    ) -> Dict[str, Any] | None:
         """
         Prepare input data in the structured format expected by the API.
 
@@ -195,16 +237,26 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
 
         Returns
         -------
-        Dict[str, Any]
-            Properly structured input for the API
+        Dict[str, Any] | None
+            Properly structured input for the API, or None if input couldn't be processed
         """
         # If already structured with 'content' field, validate and return
         if isinstance(input_data, dict) and "content" in input_data:
             # Ensure each content item is properly formatted
             if isinstance(input_data["content"], list):
-                input_data["content"] = [
-                    self._prepare_multimodal_content(item) for item in input_data["content"]
-                ]
+                processed_content = []
+                for item in input_data["content"]:
+                    processed_item = self._prepare_multimodal_content(item)
+                    if processed_item:
+                        processed_content.append(processed_item)
+
+                # Only return if we have valid content
+                if processed_content:
+                    input_data["content"] = processed_content
+                    return input_data
+                else:
+                    logger.warning("No valid content items found in structured input")
+                    return None
             return input_data
 
         # Handle plain text
@@ -212,7 +264,13 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
             return {"content": [{"type": ContentType.TEXT, "text": input_data}]}
 
         # Handle image
-        return {"content": [self._process_image(input_data)]}
+        image_content = self._process_image(input_data)
+        if image_content:
+            return {"content": [image_content]}
+
+        # If we couldn't process the input, return None
+        logger.warning("Could not process input data")
+        return None
 
     def compute_query_embeddings(
         self,
@@ -227,9 +285,16 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         ----------
         query : Union[str, bytes, Dict, Any]
             The query to embed. Can be text, image, or a structured content object.
+
+        Raises
+        ------
+        RuntimeError
+            If the query couldn't be processed or the API returns no embeddings
         """
         # Prepare structured input
         structured_input = self._prepare_structured_input(query)
+        if not structured_input:
+            raise RuntimeError("Could not process query input")
 
         payload = {
             "inputs": [structured_input],
@@ -256,6 +321,11 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         ----------
         inputs : Union[str, List[str], List[bytes], List[Dict], List[Any]]
             List of inputs to embed. Can be text, images, or structured content objects.
+
+        Raises
+        ------
+        RuntimeError
+            If no inputs could be processed or the API returns no embeddings
         """
         # Use the imported sanitize_input function which already handles numpy arrays
         inputs = sanitize_input(inputs)
@@ -263,7 +333,14 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         # Process all inputs
         structured_inputs = []
         for item in inputs:
-            structured_inputs.append(self._prepare_structured_input(item))
+            processed = self._prepare_structured_input(item)
+            if processed:
+                structured_inputs.append(processed)
+            else:
+                logger.warning("Skipping input that couldn't be processed")
+
+        if not structured_inputs:
+            raise RuntimeError("Could not process any inputs")
 
         # Call API with all inputs
         payload = {

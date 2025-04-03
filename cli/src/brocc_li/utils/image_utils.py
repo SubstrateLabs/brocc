@@ -1,8 +1,9 @@
 import base64
+import enum
 import io
 import os
 import urllib.request
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 # Type checking imports
@@ -11,6 +12,45 @@ if TYPE_CHECKING:
         from PIL.Image import Image as PILImage
     except ImportError:
         PILImage = Any  # Fallback if PIL is not available
+
+
+class ImageFormat(str, enum.Enum):
+    """Supported image formats for Voyage AI embeddings"""
+
+    PNG = "PNG"
+    JPEG = "JPEG"
+    WEBP = "WEBP"
+    GIF = "GIF"
+
+
+# Mapping of image formats to MIME types
+FORMAT_TO_MIME = {
+    "png": "image/png",
+    "jpeg": "image/jpeg",
+    "jpg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
+
+# List of MIME types supported by VoyageAI
+SUPPORTED_MIME_TYPES = list(set(FORMAT_TO_MIME.values()))
+
+
+def is_supported_mime_type(mime_type: str) -> bool:
+    """
+    Check if a MIME type is supported by VoyageAI for image embeddings
+
+    Parameters
+    ----------
+    mime_type : str
+        The MIME type to check
+
+    Returns
+    -------
+    bool
+        True if the MIME type is supported, False otherwise
+    """
+    return mime_type in SUPPORTED_MIME_TYPES
 
 
 def url_retrieve(url: str) -> bytes:
@@ -88,30 +128,48 @@ def to_pil(image: str | bytes | Any) -> Any:
     raise TypeError(f"Unsupported image type: {type(image)}")
 
 
-def image_to_base64(image: str | bytes | Any, format: str = "PNG") -> str:
+def image_to_base64(
+    image: str | bytes | Any,
+    format: Literal["PNG", "JPEG", "WEBP", "GIF"] | ImageFormat = ImageFormat.PNG,
+) -> str:
     """
-    Convert an image to base64 encoded string
+    Convert an image to base64 encoded string in data URL format
 
     Parameters
     ----------
     image : Union[str, bytes, Any]
         The image to convert. Can be a URL, file path, PIL Image, or raw bytes.
-    format : str, optional
-        The format to save the image as, by default "PNG"
+    format : ImageFormat or Literal["PNG", "JPEG", "WEBP", "GIF"], optional
+        The format to save the image as, by default ImageFormat.PNG
 
     Returns
     -------
     str
-        Base64 encoded string of the image
+        Base64 encoded string of the image in data URL format
+        (data:[<mediatype>];base64,<data>) as required by VoyageAI
     """
     # Convert to PIL first
     pil_image = to_pil(image)
 
+    # Handle enum values
+    if isinstance(format, ImageFormat):
+        format_str = format.value
+    else:
+        format_str = format
+
     # Convert PIL to base64
     img_byte_arr = io.BytesIO()
-    pil_image.save(img_byte_arr, format=format)
+    pil_image.save(img_byte_arr, format=format_str)
     image_bytes = img_byte_arr.getvalue()
-    return base64.b64encode(image_bytes).decode("utf-8")
+    base64_data = base64.b64encode(image_bytes).decode("utf-8")
+
+    # Format according to Voyage AI requirements (data URL format)
+    # Map format to mime type
+    format_lower = format_str.lower()
+    mime_type = FORMAT_TO_MIME.get(format_lower, "image/png")
+
+    # Return in data URL format
+    return f"data:{mime_type};base64,{base64_data}"
 
 
 def is_url(text: str) -> bool:

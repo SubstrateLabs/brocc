@@ -6,7 +6,59 @@ from unittest import mock
 
 import pytest
 
-from brocc_li.utils.image_utils import image_to_base64, is_plain_text, is_url, to_pil, url_retrieve
+from brocc_li.utils.image_utils import (
+    ImageFormat,
+    image_to_base64,
+    is_plain_text,
+    is_url,
+    to_pil,
+    url_retrieve,
+)
+
+
+def test_image_to_base64_data_url_format():
+    """Test image_to_base64 function produces correct data URL format"""
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("PIL not installed")
+
+    # Create a simple PIL image
+    img = Image.new("RGB", (10, 10), color="red")
+
+    # Test with different formats using the enum
+    format_tests = [
+        (ImageFormat.PNG, "image/png"),
+        (ImageFormat.JPEG, "image/jpeg"),
+        (ImageFormat.WEBP, "image/webp"),
+        (ImageFormat.GIF, "image/gif"),
+    ]
+
+    for format_enum, expected_mime in format_tests:
+        result = image_to_base64(img, format=format_enum)
+
+        # Check result has proper data URL format
+        assert result.startswith(f"data:{expected_mime};base64,")
+
+        # Check that the base64 data is valid
+        # Extract just the base64 part
+        base64_part = result.split(",", 1)[1]
+        # This should not raise an exception if valid base64
+        decoded_data = base64.b64decode(base64_part)
+
+        # Verify decoded data is image content by loading it back
+        result_img = Image.open(io.BytesIO(decoded_data))
+        assert result_img.size == (10, 10)
+
+    # Also test with string literals (for backward compatibility)
+    for format_str, expected_mime in [
+        ("PNG", "image/png"),
+        ("JPEG", "image/jpeg"),
+        ("WEBP", "image/webp"),
+        ("GIF", "image/gif"),
+    ]:
+        result = image_to_base64(img, format=format_str)  # type: ignore
+        assert result.startswith(f"data:{expected_mime};base64,")
 
 
 @mock.patch("brocc_li.utils.image_utils.urllib.request.urlopen")
@@ -141,11 +193,17 @@ def test_image_to_base64():
     img.save(expected_bytes, format="PNG")
     expected_base64 = base64.b64encode(expected_bytes.getvalue()).decode("utf-8")
 
-    # Test with PIL Image
-    result = image_to_base64(img)
+    # Test with PIL Image using enum
+    result = image_to_base64(img, format=ImageFormat.PNG)
 
-    # Verify result
-    assert result == expected_base64
+    # Verify result has the correct data URL format
+    assert result.startswith("data:image/png;base64,")
+
+    # Extract the actual base64 data part
+    base64_part = result.split(",", 1)[1]
+
+    # Compare with the expected base64 content
+    assert base64_part == expected_base64
 
 
 @pytest.mark.parametrize(
