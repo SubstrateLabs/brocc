@@ -5,6 +5,9 @@ from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 # Expected schema based on the Doc model + last_updated
 # NOTE: This needs to be manually kept in sync if Doc model changes significantly,
 # but it serves as a good regression test for the generation logic.
+# Note: The location field is expected as VARCHAR here because generate_create_table_sql
+# defaults tuple[float, float] to VARCHAR. The actual table creation in DocDB
+# manually modifies this to GEOMETRY after generation.
 EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     id VARCHAR PRIMARY KEY,
                     ingested_at VARCHAR,
@@ -24,6 +27,7 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     source_location_identifier VARCHAR,
                     source_location_name VARCHAR,
                     created_at VARCHAR,
+                    location VARCHAR,
                     last_updated VARCHAR
                 )"""
 

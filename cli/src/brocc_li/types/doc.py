@@ -79,6 +79,8 @@ class Doc(BaseModel):
     source_location_identifier: str
     source_location_name: str | None = None
     created_at: str | None = None
+    # location stored as (longitude, latitude)
+    location: tuple[float, float] | None = None
 
     @staticmethod
     def generate_id() -> str:

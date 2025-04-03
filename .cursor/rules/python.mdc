@@ -3,11 +3,10 @@ description:
 globs: *.py
 alwaysApply: false
 ---
-Always use terse, concise function docstrings.
+Always use terse, concise function docstrings. Only document params that are not self-documenting and have non-obvious behavior.
 Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyproject.toml). Remember:
 - Do not use bare except
 - Do not use f-strings for simple strings without variables 
 You can use our [Makefile](mdc:cli/Makefile) to run commands:
 - `make format`: format and autofix lint issues
 - `make test`: run all tests with pytest
-Always use markdown-it-py to parse markdown, instead of regex.

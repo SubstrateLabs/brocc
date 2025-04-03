@@ -53,6 +53,7 @@ def sample_document():
         source_location_identifier="https://example.com/test",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(now),
+        location=None,
     )
 
 
@@ -89,6 +90,39 @@ def test_store_and_retrieve_document(docdb, sample_document):
     assert retrieved["metadata"]["key"] == "value"  # Test JSON conversion
     assert retrieved["participant_names"] == ["Participant 1", "Participant 2"]
     assert retrieved["participant_identifiers"] == ["p1", "p2"]
+    assert retrieved["location"] is None  # Verify location is None
+
+
+def test_store_and_retrieve_document_with_location(docdb):
+    """Test storing and retrieving a document with a location."""
+    now = datetime.now()
+    location_tuple = (-74.0060, 40.7128)  # Example: New York City
+    doc_with_location = Doc(
+        id="loc_test_1",
+        url="https://example.com/location",
+        title="Document with Location",
+        text_content="This document has coordinates.",
+        location=location_tuple,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="location_source",
+        ingested_at=Doc.format_date(now),
+    )
+
+    # Store the document
+    result = docdb.store_document(doc_with_location)
+    assert result is True
+
+    # Retrieve the document by ID
+    retrieved = docdb.get_document_by_id(doc_with_location.id)
+    assert retrieved is not None
+    assert retrieved["id"] == doc_with_location.id
+    assert retrieved["title"] == doc_with_location.title
+
+    # Verify the location tuple
+    assert retrieved["location"] is not None
+    # Compare floats using pytest.approx for tolerance
+    assert retrieved["location"] == pytest.approx(location_tuple)
 
 
 def test_store_document_without_url(docdb):
@@ -102,6 +136,7 @@ def test_store_document_without_url(docdb):
         source_location_identifier="location1",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
+        location=None,
     )
 
     result = docdb.store_document(doc)
@@ -111,6 +146,7 @@ def test_store_document_without_url(docdb):
     assert retrieved is not None
     assert retrieved["id"] == doc.id
     assert retrieved["url"] is None
+    assert retrieved["location"] is None
 
 
 def test_update_document(docdb, sample_document):
@@ -564,6 +600,144 @@ def test_store_document_with_rich_markdown_content(docdb):
         assert all(url.startswith("http") for url in image_urls), "Image URLs should be valid URLs"
 
 
+def test_location_operations(docdb):
+    """Test various location operations including storage, retrieval, and updates."""
+    # Create document with no location first
+    doc_without_location = Doc(
+        id="loc_test_no_loc",
+        url="https://example.com/no_loc",
+        title="No Location Document",
+        text_content="This document has no location.",
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=None,  # Explicitly None
+    )
+
+    # Store the document
+    docdb.store_document(doc_without_location)
+
+    # Verify stored with None location
+    retrieved = docdb.get_document_by_id(doc_without_location.id)
+    assert retrieved["location"] is None
+
+    # Now update with a location (same content)
+    same_content_with_location = Doc(
+        id=doc_without_location.id,
+        url="https://example.com/no_loc",
+        title="No Location Document - Updated With Location",
+        text_content="This document has no location.",  # Same content
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(-122.4194, 37.7749),  # San Francisco coordinates
+    )
+
+    # Store the updated document
+    docdb.store_document(same_content_with_location)
+
+    # Since content is same, it should update the existing document
+    updated = docdb.get_document_by_id(doc_without_location.id)
+    assert updated["title"] == "No Location Document - Updated With Location"
+    assert updated["location"] is not None
+    assert updated["location"] == pytest.approx((-122.4194, 37.7749))
+
+    # Create a document with a location
+    doc_with_location = Doc(
+        id="loc_test_with_loc",
+        url="https://example.com/with_loc",
+        title="Location Document",
+        text_content="This document has a location.",
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(-74.0060, 40.7128),  # New York City
+    )
+
+    # Store the document
+    docdb.store_document(doc_with_location)
+
+    # Verify location was stored correctly
+    retrieved = docdb.get_document_by_id(doc_with_location.id)
+    assert retrieved["location"] == pytest.approx((-74.0060, 40.7128))
+
+    # Update with a different location (same content)
+    updated_location_doc = Doc(
+        id=doc_with_location.id,
+        url="https://example.com/with_loc",
+        title="Updated Location Document",
+        text_content="This document has a location.",  # Same content
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(-87.6298, 41.8781),  # Chicago
+    )
+
+    # Store the updated document
+    docdb.store_document(updated_location_doc)
+
+    # Should update existing document
+    updated = docdb.get_document_by_id(doc_with_location.id)
+    assert updated["title"] == "Updated Location Document"
+    assert updated["location"] == pytest.approx((-87.6298, 41.8781))
+
+    # Update with null location (same content)
+    remove_location_doc = Doc(
+        id=doc_with_location.id,
+        url="https://example.com/with_loc",
+        title="Removed Location Document",
+        text_content="This document has a location.",  # Same content
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=None,  # Remove location
+    )
+
+    # Store the updated document
+    docdb.store_document(remove_location_doc)
+
+    # Should update existing document with null location
+    updated = docdb.get_document_by_id(doc_with_location.id)
+    assert updated["title"] == "Removed Location Document"
+    assert updated["location"] is None
+
+    # Different content should create new doc even if location is same
+    diff_content_doc = Doc(
+        id=doc_with_location.id,
+        url="https://example.com/with_loc",
+        title="Different Content Document",
+        text_content="This document has DIFFERENT content.",  # Different content
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="test_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(-87.6298, 41.8781),  # Chicago again
+    )
+
+    # Store document with different content
+    docdb.store_document(diff_content_doc)
+
+    # Original document should be unchanged
+    original = docdb.get_document_by_id(doc_with_location.id)
+    assert original["title"] == "Removed Location Document"
+    assert original["location"] is None
+
+    # New document should have been created with the location
+    docs_by_url = docdb.get_documents_by_url("https://example.com/with_loc")
+    assert len(docs_by_url) == 2
+
+    # Find the new document (not the original ID)
+    new_doc = next((doc for doc in docs_by_url if doc["id"] != doc_with_location.id), None)
+    assert new_doc is not None
+    assert new_doc["title"] == "Different Content Document"
+    assert new_doc["location"] == pytest.approx((-87.6298, 41.8781))
+
+
 def test_content_based_update(docdb, sample_document):
     """Test that documents are only updated when content is identical."""
     # Store the initial document
@@ -582,6 +756,7 @@ def test_content_based_update(docdb, sample_document):
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
+        location=(10.0, 20.0),  # Add a location to previously None
     )
 
     # Should update the existing document
@@ -592,6 +767,7 @@ def test_content_based_update(docdb, sample_document):
     assert doc is not None
     assert doc["id"] == original_id
     assert doc["title"] == "Updated Title - Same Content"
+    assert doc["location"] == pytest.approx((10.0, 20.0))  # Location should be updated
 
     # Case 2: Update with different content
     new_content_doc = Doc(
@@ -605,6 +781,7 @@ def test_content_based_update(docdb, sample_document):
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
+        location=(30.0, 40.0),  # Different location too
     )
 
     # Should create a new document
@@ -614,6 +791,7 @@ def test_content_based_update(docdb, sample_document):
     original_doc = docdb.get_document_by_id(original_id)
     assert original_doc is not None
     assert original_doc["title"] == "Updated Title - Same Content"  # From the first update
+    assert original_doc["location"] == pytest.approx((10.0, 20.0))  # Should be unchanged
 
     # Get documents by URL - should have two now
     docs_by_url = docdb.get_documents_by_url(sample_document.url)
@@ -623,6 +801,7 @@ def test_content_based_update(docdb, sample_document):
     new_doc = next((doc for doc in docs_by_url if doc["id"] != original_id), None)
     assert new_doc is not None
     assert new_doc["title"] == "New Content Document"
+    assert new_doc["location"] == pytest.approx((30.0, 40.0))  # New document has new location
 
     # Get chunks for both documents to verify they're different
     original_chunks = docdb.get_chunks_by_doc_id(original_id)
@@ -648,3 +827,64 @@ def test_content_based_update(docdb, sample_document):
 
     assert original_text != new_text
     assert "This is completely different content" in new_text
+
+
+def test_get_documents_with_location(docdb):
+    """Test retrieving multiple documents with and without locations."""
+    # Create documents with different locations
+    doc1 = Doc(
+        id="loc_get_1",
+        url="https://example.com/loc_get/1",
+        title="Location Document 1",
+        text_content="Document with location 1",
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="loc_get_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(0.0, 0.0),  # Null Island
+    )
+
+    doc2 = Doc(
+        id="loc_get_2",
+        url="https://example.com/loc_get/2",
+        title="Location Document 2",
+        text_content="Document with location 2",
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="loc_get_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=(1.0, 1.0),  # Another location
+    )
+
+    doc3 = Doc(
+        id="loc_get_3",
+        url="https://example.com/loc_get/3",
+        title="Document without location",
+        text_content="Document with no location",
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="loc_get_source",
+        ingested_at=Doc.format_date(datetime.now()),
+        location=None,  # No location
+    )
+
+    # Store all documents
+    for doc in [doc1, doc2, doc3]:
+        docdb.store_document(doc)
+
+    # Get all documents from the same source
+    docs = docdb.get_documents(source_location="loc_get_source")
+    assert len(docs) == 3
+
+    # Verify each document has correct location
+    doc1_retrieved = next((d for d in docs if d["id"] == "loc_get_1"), None)
+    assert doc1_retrieved is not None
+    assert doc1_retrieved["location"] == pytest.approx((0.0, 0.0))
+
+    doc2_retrieved = next((d for d in docs if d["id"] == "loc_get_2"), None)
+    assert doc2_retrieved is not None
+    assert doc2_retrieved["location"] == pytest.approx((1.0, 1.0))
+
+    doc3_retrieved = next((d for d in docs if d["id"] == "loc_get_3"), None)
+    assert doc3_retrieved is not None
+    assert doc3_retrieved["location"] is None

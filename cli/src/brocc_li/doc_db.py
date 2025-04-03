@@ -28,6 +28,12 @@ from platformdirs import user_data_dir
 
 from brocc_li.embed.chunk_markdown import chunk_markdown
 from brocc_li.types.doc import Chunk, Doc
+from brocc_li.utils.location import (
+    add_location_fields_to_query,
+    location_tuple_to_wkt,
+    modify_schema_for_geometry,
+    reconstruct_location_tuple,
+)
 from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
 
@@ -45,6 +51,8 @@ ARRAY_FIELDS = ["participant_names", "participant_identifiers", "keywords"]
 JSON_FIELDS = {"metadata": {}, "contact_metadata": {}, "participant_metadatas": []}
 # Fields to exclude from database schema (processed separately)
 EXCLUDED_FIELDS = {"text_content"}
+# Fields needing special handling for DuckDB (like GEOMETRY)
+SPECIAL_HANDLING_FIELDS = {"location"}
 
 
 def get_default_db_path() -> str:
@@ -60,16 +68,41 @@ class DocDB:
     def __init__(self, db_path: str | None = None):
         """Initialize the storage with the given database path or the default."""
         self.db_path = db_path or get_default_db_path()
+        # Ensure parent directory exists before initialization
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialize_db()
+
+    def _get_connection(self) -> duckdb.DuckDBPyConnection:
+        """Get a DuckDB connection with the spatial extension loaded."""
+        conn = duckdb.connect(self.db_path)
+        try:
+            # Attempt to load spatial extension
+            conn.execute("LOAD spatial;")
+        except Exception as e:
+            # If loading fails, try installing first (might not be present)
+            try:
+                print("Spatial extension not loaded, attempting install...")
+                conn.execute("INSTALL spatial;")
+                conn.execute("LOAD spatial;")
+                print("Spatial extension installed and loaded successfully.")
+            except Exception as install_e:
+                print(
+                    f"Warning: Could not install/load spatial extension. Location features may fail. Load error: {e}, Install error: {install_e}"
+                )
+        return conn
 
     def _initialize_db(self) -> None:
         """Set up the database and create tables if they don't exist."""
         # Create the parent directory if it doesn't exist
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        # Moved to __init__ to ensure it exists before any connection attempt
 
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:  # Use the helper to ensure spatial is loaded
             # Generate the CREATE TABLE statement dynamically for documents
+            # Generate SQL normally first
             create_documents_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+            # Modify the generated SQL to use GEOMETRY type for location
+            create_documents_sql = modify_schema_for_geometry(create_documents_sql)
+
             print(f"Generated Documents Schema:\n{create_documents_sql}")
             conn.execute(create_documents_sql)
 
@@ -83,7 +116,7 @@ class DocDB:
         if not url:
             return False
 
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             result = conn.execute(
                 f"SELECT COUNT(*) FROM {DOCUMENTS_TABLE} WHERE url = ?", [url]
             ).fetchone()
@@ -91,7 +124,7 @@ class DocDB:
 
     def get_seen_urls(self, source: str | None = None) -> set[str]:
         """Get a set of URLs that have already been seen."""
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             query = f"SELECT url FROM {DOCUMENTS_TABLE}"
             params = []
 
@@ -110,13 +143,12 @@ class DocDB:
         if not url:
             return []
 
-        with duckdb.connect(self.db_path) as conn:
-            df = pl.from_arrow(
-                conn.execute(
-                    f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC",
-                    [url],
-                ).arrow()
+        with self._get_connection() as conn:
+            # Select necessary columns, extracting lon/lat from GEOMETRY
+            select_query = add_location_fields_to_query(
+                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC"
             )
+            df = pl.from_arrow(conn.execute(select_query, [url]).arrow())
 
             if df.is_empty():
                 return []
@@ -127,7 +159,8 @@ class DocDB:
 
     def _process_document_fields(self, document: dict[str, Any]) -> dict[str, Any]:
         """Process document fields for consistent formatting."""
-        doc = document.copy()
+        # First reconstruct the location tuple from longitude/latitude
+        doc = reconstruct_location_tuple(document)
 
         # Convert None arrays to empty lists
         for field in ARRAY_FIELDS:
@@ -156,6 +189,7 @@ class DocDB:
 
         # text_content will be handled separately in store_document, no need to validate it here
         text_content = doc_data.pop("text_content", None)
+        location_tuple = doc_data.pop("location", None)  # Extract location tuple
 
         # Validate against the Pydantic model
         try:
@@ -194,10 +228,13 @@ class DocDB:
         for field in JSON_FIELDS:
             prepared_doc[field] = json.dumps(prepared_doc.get(field) or JSON_FIELDS[field])
 
+        # Format location for DuckDB ST_Point using utility function
+        prepared_doc["location"] = location_tuple_to_wkt(location_tuple)
+
         # Remove fields from prepared_doc that are not actual table columns
         # Get table columns dynamically (excluding computed fields if any, though Doc doesn't have them)
-        # For now, use model_fields + last_updated
-        valid_db_keys = set(Doc.model_fields.keys()) | {"last_updated"}
+        # For now, use model_fields + last_updated + location
+        valid_db_keys = set(Doc.model_fields.keys()) | {"last_updated"} | SPECIAL_HANDLING_FIELDS
         final_db_doc = {k: v for k, v in prepared_doc.items() if k in valid_db_keys}
 
         return final_db_doc
@@ -323,14 +360,21 @@ class DocDB:
         params = []
         # Get columns from the actual table to handle potential schema mismatches
         # However, for simplicity now, assume db_document keys match table columns derived from Doc + last_updated
-        table_columns = list(Doc.model_fields.keys()) + ["last_updated"]
+        table_columns = (
+            list(Doc.model_fields.keys()) + ["last_updated"] + list(SPECIAL_HANDLING_FIELDS)
+        )
 
         for key, value in db_document.items():
             if (
                 key != "id" and key in table_columns and key not in EXCLUDED_FIELDS
             ):  # Ensure key is in expected columns, not 'id', and not excluded
-                set_clauses.append(f"{key} = ?")
-                params.append(value)
+                if key == "location" and value is not None:
+                    # Use ST_Point function for location update
+                    set_clauses.append(f"{key} = ST_GeomFromText(?)")
+                    params.append(value)  # value is already the WKT string 'POINT (lon lat)'
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
 
         if not set_clauses:
             print(f"Warning: No fields to update for document ID {doc_id}")
@@ -347,17 +391,33 @@ class DocDB:
             db_document["id"] = Doc.generate_id()
 
         # Filter db_document to only include keys corresponding to table columns
-        table_columns = list(Doc.model_fields.keys()) + ["last_updated"]
+        table_columns = (
+            list(Doc.model_fields.keys()) + ["last_updated"] + list(SPECIAL_HANDLING_FIELDS)
+        )
 
         # Filter out fields that should not be stored directly
         filtered_db_doc = {
             k: v for k, v in db_document.items() if k in table_columns and k not in EXCLUDED_FIELDS
         }
 
-        columns = ", ".join(filtered_db_doc.keys())
-        placeholders = ", ".join(["?"] * len(filtered_db_doc))
-        insert_query = f"INSERT INTO {DOCUMENTS_TABLE} ({columns}) VALUES ({placeholders})"
-        conn.execute(insert_query, list(filtered_db_doc.values()))
+        columns = []
+        placeholders = []
+        values = []
+
+        for key, value in filtered_db_doc.items():
+            columns.append(key)
+            if key == "location" and value is not None:
+                # Use ST_Point function for location insert
+                placeholders.append("ST_GeomFromText(?)")
+                values.append(value)  # value is already the WKT string 'POINT (lon lat)'
+            else:
+                placeholders.append("?")
+                values.append(value)
+
+        columns_str = ", ".join(columns)
+        placeholders_str = ", ".join(placeholders)
+        insert_query = f"INSERT INTO {DOCUMENTS_TABLE} ({columns_str}) VALUES ({placeholders_str})"
+        conn.execute(insert_query, values)
 
     def _store_chunks(self, conn, chunks: list[Chunk]) -> None:
         """Store multiple chunks in the database."""
@@ -394,7 +454,7 @@ class DocDB:
         # Create chunk objects
         chunks = Doc.create_chunks_for_doc(doc_obj, chunked_content)
 
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Check if an existing document needs to be updated
             id_to_update, update_chunks = self._find_id_for_update(doc_data, doc_data, chunks)
 
@@ -455,6 +515,12 @@ class DocDB:
         # Convert to dict for processing
         doc_dict = document.model_dump()
 
+        # Ensure location is included if it exists on the object
+        if hasattr(document, "location") and document.location is not None:
+            doc_dict["location"] = document.location
+        elif "location" not in doc_dict:
+            doc_dict["location"] = None  # Ensure it's present for _prepare_document_for_storage
+
         # Require text_content - this is what makes the document valuable
         text_content = doc_dict.pop("text_content", None)
         if not text_content:
@@ -468,10 +534,12 @@ class DocDB:
         if not doc_id:
             return None
 
-        with duckdb.connect(self.db_path) as conn:
-            df = pl.from_arrow(
-                conn.execute(f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?", [doc_id]).arrow()
+        with self._get_connection() as conn:
+            # Select necessary columns, extracting lon/lat from GEOMETRY
+            select_query = add_location_fields_to_query(
+                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?"
             )
+            df = pl.from_arrow(conn.execute(select_query, [doc_id]).arrow())
 
             if df.is_empty():
                 return None
@@ -490,8 +558,8 @@ class DocDB:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Retrieve documents with optional filtering."""
-        with duckdb.connect(self.db_path) as conn:
-            query = f"SELECT * FROM {DOCUMENTS_TABLE}"
+        with self._get_connection() as conn:
+            query = f"SELECT id, ingested_at, url, title, description, contact_name, contact_identifier, contact_metadata, participant_names, participant_identifiers, participant_metadatas, keywords, metadata, source, source_type, source_location_identifier, source_location_name, created_at, last_updated, location FROM {DOCUMENTS_TABLE}"
             params = []
 
             # Add optional filters
@@ -509,13 +577,17 @@ class DocDB:
             # Add limit and offset
             query += f" ORDER BY ingested_at DESC LIMIT {limit} OFFSET {offset}"
 
-            df = pl.from_arrow(conn.execute(query, params).arrow())
+            # Select all columns, including extracted lon/lat
+            select_query = add_location_fields_to_query(query)
+
+            df = pl.from_arrow(conn.execute(select_query, params).arrow())
 
             if df.is_empty():
                 return []
 
             # Convert to list of native Python dictionaries
             raw_dicts = polars_to_dicts(df)
+            # Process fields
             return [self._process_document_fields(doc) for doc in raw_dicts]
 
     def _process_chunk_fields(self, chunk: dict[str, Any]) -> dict[str, Any]:
@@ -539,7 +611,7 @@ class DocDB:
         Retrieve all chunks for a document by its ID.
         Returns list of chunk dictionaries.
         """
-        with duckdb.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             df = pl.from_arrow(
                 conn.execute(
                     f"SELECT * FROM {CHUNKS_TABLE} WHERE doc_id = ? ORDER BY chunk_index", [doc_id]
@@ -561,24 +633,22 @@ class DocDB:
         import time
         import webbrowser
 
-        import duckdb
-
-        conn = duckdb.connect(self.db_path)
-        conn.execute("INSTALL ui;")
-        conn.execute("LOAD ui;")
-        # Start the server first
-        conn.execute("CALL start_ui_server();")
-        # Give the server a moment to start
-        time.sleep(1)
-        # Open browser
-        webbrowser.open("http://localhost:4213")
-        # Keep the connection alive
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            conn.execute("CALL stop_ui_server();")
-            conn.close()
+        # Use the helper to ensure extensions can be loaded if needed
+        with self._get_connection() as conn:
+            conn.execute("INSTALL ui;")
+            conn.execute("LOAD ui;")
+            # Start the server first
+            conn.execute("CALL start_ui_server();")
+            # Give the server a moment to start
+            time.sleep(1)
+            # Open browser
+            webbrowser.open("http://localhost:4213")
+            # Keep the connection alive
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                conn.execute("CALL stop_ui_server();")
 
     def get_chunks_for_document(self, doc_id: str) -> list[dict[str, Any]]:
         """

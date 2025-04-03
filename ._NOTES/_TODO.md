@@ -1,5 +1,6 @@
 ## 0.0.1
 
+- test markdown referencing local image
 - when storing chunks in lance, should store all the same metadata fields from doc
 - integrate lancedb voyage embedding plugin (voyage.py)
 - incorporate embed_header somehow into each chunk header

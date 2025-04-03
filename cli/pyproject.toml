@@ -24,7 +24,6 @@ dependencies = [
     "duckdb>=1.2.1",
     "html-to-markdown>=1.2.0",
     "lancedb>=0.21.2",
-    "markdown-it-py>=3.0.0",
     "numpy>=2.2.4",
     "pillow>=11.2.0",
     "platformdirs>=4.3.7",
