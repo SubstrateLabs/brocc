@@ -148,3 +148,73 @@ def polars_to_dicts(df: pl.DataFrame | pl.Series) -> list[dict[str, Any]] | list
     else:
         # For Series, return just the values
         return df.to_list()
+
+
+def process_document_fields(
+    document: dict[str, Any], array_fields: list[str], json_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Process document fields for consistent formatting.
+
+    This function:
+    1. Reconstructs the location tuple from longitude/latitude fields
+    2. Converts None arrays to empty lists
+    3. Parses JSON fields
+
+    Args:
+        document: The document dictionary to process
+        array_fields: List of field names that should be arrays
+        json_fields: Dictionary mapping JSON field names to their default values
+
+    Returns:
+        Processed document dictionary with consistent field formatting
+    """
+    from brocc_li.utils.location import reconstruct_location_tuple
+
+    # First reconstruct the location tuple from longitude/latitude
+    doc = reconstruct_location_tuple(document)
+
+    # Convert None arrays to empty lists
+    for field in array_fields:
+        if field in doc:
+            doc[field] = process_array_field(doc[field])
+        else:
+            doc[field] = []
+
+    # Parse JSON fields
+    for field, default in json_fields.items():
+        if field in doc:
+            doc[field] = process_json_field(doc[field], default)
+        else:
+            doc[field] = default
+
+    return doc
+
+
+def process_duckdb_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+    """
+    Process DuckDB chunk fields for consistent formatting.
+
+    This function specifically handles chunks retrieved from DuckDB, which store the content
+    field as a JSON string. It deserializes this string back into a list of dictionaries
+    containing interleaved text and image items.
+
+    Args:
+        chunk: Raw chunk dictionary from DuckDB
+
+    Returns:
+        Processed chunk with content field as a list of dictionaries
+    """
+    processed = chunk.copy()
+
+    # Parse JSON content field
+    if "content" in processed and processed["content"]:
+        if isinstance(processed["content"], str):
+            try:
+                processed["content"] = json.loads(processed["content"])
+            except json.JSONDecodeError:
+                processed["content"] = []
+    else:
+        processed["content"] = []
+
+    return processed

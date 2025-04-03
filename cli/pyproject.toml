@@ -51,12 +51,6 @@ dev = [
 
 [project.scripts]
 brocc = "brocc_li.entry_points:start"
-chrome_manager = "brocc_li.chrome_manager:main"
-twitter = "brocc_li.sources.twitter:main"
-substack = "brocc_li.sources.substack:main"
-dbui = "brocc_li.utils.storage:launch_ui"
-dbfolder = "brocc_li.utils.storage:open_db_folder"
-# dbdelete = "brocc_li.utils.storage:delete_db"
 
 [tool.hatch.envs.default]
 post-install-commands = ["playwright install chromium"]

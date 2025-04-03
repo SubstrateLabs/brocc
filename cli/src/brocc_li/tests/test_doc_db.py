@@ -163,7 +163,7 @@ def docdb(temp_db_path, temp_lance_path, monkeypatch):
 
     # Apply the mocks
     monkeypatch.setattr(DocDB, "_initialize_lance", mock_initialize_lance)
-    monkeypatch.setattr(DocDB, "_store_in_lance", mock_store_in_lance)
+    monkeypatch.setattr(DocDB, "_store_lance_chunks", mock_store_in_lance)
     monkeypatch.setattr(DocDB, "_delete_chunks", mock_delete_chunks)
     monkeypatch.setattr(DocDB, "vector_search", mock_vector_search)
 
@@ -552,7 +552,7 @@ def test_store_document_with_chunks(docdb):
     assert retrieved_doc is not None
 
     # Get chunks separately (since we no longer auto-load them)
-    chunks = docdb.get_chunks_by_doc_id("doc_with_chunks")
+    chunks = docdb.get_duckdb_chunks("doc_with_chunks")
 
     # Verify chunks were created
     assert len(chunks) > 0
@@ -576,7 +576,7 @@ def test_store_document_with_chunks(docdb):
     assert "paragraph 3" in combined_text
 
 
-def test_get_chunks_by_doc_id(docdb):
+def test_get_duckdb_chunks(docdb):
     """Test retrieving chunks for a document with multiple paragraphs."""
     # Create a document with multiple paragraphs
     long_text = "\n\n".join([f"This is paragraph {i}." for i in range(1, 10)])
@@ -595,7 +595,7 @@ def test_get_chunks_by_doc_id(docdb):
     docdb.store_document(doc)
 
     # Get chunks
-    chunks = docdb.get_chunks_by_doc_id("chunks_doc")
+    chunks = docdb.get_duckdb_chunks("chunks_doc")
 
     # Verify chunks
     assert len(chunks) > 0
@@ -671,7 +671,7 @@ def test_store_document_with_rich_markdown_content(docdb):
     assert retrieved_doc["title"] == "Rich Markdown Document"
 
     # Get chunks separately (since we no longer auto-load them)
-    chunks = docdb.get_chunks_by_doc_id("rich_markdown_doc")
+    chunks = docdb.get_duckdb_chunks("rich_markdown_doc")
 
     # Verify chunks were created and there's more than one (ensuring chunking happened)
     assert len(chunks) > 1, "Content should be split into multiple chunks"
@@ -948,8 +948,8 @@ def test_content_based_update(docdb, sample_document):
     assert new_doc["location"] == pytest.approx((30.0, 40.0))  # New document has new location
 
     # Get chunks for both documents to verify they're different
-    original_chunks = docdb.get_chunks_by_doc_id(original_id)
-    new_chunks = docdb.get_chunks_by_doc_id(new_doc["id"])
+    original_chunks = docdb.get_duckdb_chunks(original_id)
+    new_chunks = docdb.get_duckdb_chunks(new_doc["id"])
 
     # Both should have chunks
     assert len(original_chunks) > 0

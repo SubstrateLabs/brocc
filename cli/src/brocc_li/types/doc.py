@@ -1,4 +1,3 @@
-import json
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -91,7 +90,18 @@ class BaseDocFields(BaseModel):
 
 
 class Chunk(BaseModel):
-    """Model for document chunks that contain the actual text content."""
+    """
+    Model for document chunks that contain the actual text content.
+
+    This model represents the core chunk structure used throughout the application.
+    It's stored in both DuckDB and LanceDB, but with different formatting:
+
+    - In DuckDB: The content field is stored as a JSON string
+    - In LanceDB: The content is wrapped in a structured format with a header and stored as a JSON string
+
+    The content field is a list of dictionaries containing interleaved text and image items
+    as returned by chunk_markdown.
+    """
 
     id: str
     doc_id: str  # Reference to parent document
@@ -107,8 +117,7 @@ class Doc(BaseDocFields):
     source_type: Union[SourceType, str, None] = (
         None  # Override the string-only version from BaseDocFields
     )
-    # Complex fields that LanceDB can't handle (moved from BaseDocFields)
-    # Arrays, lists, tuples, and dictionaries
+    # Additional non-scalar fields that LanceDB can't handle
     participant_names: Optional[List[str]] = None
     participant_identifiers: Optional[List[str]] = None
     participant_metadatas: Optional[List[Dict[str, Any]]] = None
@@ -116,7 +125,7 @@ class Doc(BaseDocFields):
     keywords: List[str] = Field(default_factory=list)
     contact_metadata: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    # text_content is used for temporary storage during document processing
+    # NOTE: text_content is used for temporary storage during document processing
     # It holds the raw content before chunking and is NOT directly persisted in the database
     # Instead, it's processed by store_document and stored separately in the chunks table
     text_content: Optional[str] = None
@@ -179,25 +188,34 @@ class Doc(BaseDocFields):
         return chunks
 
 
-# ChunkModel inherits from Chunk, BaseDocFields and LanceModel
-class ChunkModel(BaseDocFields, LanceModel):
+class LanceChunk(BaseDocFields, LanceModel):
     """
-    Model for chunks stored in LanceDB with embeddings.
-    Inherits from:
-    - BaseDocFields (for doc metadata)
-    - LanceModel (for vector DB storage)
+    LanceDB model for document chunks.
 
-    Rather than inheriting from Chunk directly (which includes complex content field),
-    we define the fields we need from Chunk directly to avoid LanceDB conversion issues.
+    This model is specifically designed for storing chunks in LanceDB, which differs from
+    DuckDB storage in several ways:
+    1. Content is wrapped in a structured format with a header
+    2. The entire content structure is JSON serialized as a single string
+    3. Document metadata is merged with chunk data
+    4. The resulting data is used to generate vector embeddings
 
-    In doc_db.py, a subclass with embedding fields is created:
-
-    class ChunkModelWithEmbedding(ChunkModel):
-        content: str = embedding_func.SourceField()
-        vector: Any = embedding_func.VectorField()
-
-    This approach keeps ChunkModel reusable while allowing
-    specific embedding functions to be used at runtime.
+    Flow:
+    1. Initial Chunking:
+       - Document text_content is chunked into Chunk objects
+       - Each Chunk.content is a list[dict[str, Any]] of interleaved text/image items
+       - e.g. [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": "..."}]
+    2. LanceDB Storage Preparation:
+       - For each Chunk, a metadata header is generated via chunk_header()
+       - Content is wrapped in a standard structure: {"content": [...]}
+       - Header is prepended as first content item
+       - This entire structure is JSON serialized to a string for ChunkModel.content
+    3. LanceDB Storage & Embedding:
+       - JSON string is stored in LanceDB's chunks table
+       - VoyageAIEmbeddingFunction picks up content field annotated as SourceField
+       - During embedding:
+         * JSON string is deserialized back to structured dict
+         * Dict (with header + chunk content) is used to generate multimodal vector embedding
+         * https://docs.voyageai.com/reference/multimodal-embeddings-api
     """
 
     # Fields from Chunk, but excluding 'content'
@@ -206,5 +224,5 @@ class ChunkModel(BaseDocFields, LanceModel):
     chunk_index: int  # Position of this chunk
     chunk_total: int  # Total number of chunks in this document
 
-    # JSON serialized version of content for LanceDB storage
-    content: str = ""  # Changed from Optional[str] = None to be compatible with embedding
+    # JSON serialized interleaved text/image list
+    content: str = ""

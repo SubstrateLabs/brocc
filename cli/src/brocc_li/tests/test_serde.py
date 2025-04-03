@@ -11,6 +11,8 @@ from brocc_li.utils.serde import (
     get_attr_or_default,
     polars_to_dicts,
     process_array_field,
+    process_document_fields,
+    process_duckdb_chunk,
     process_json_field,
     sanitize_input,
 )
@@ -254,15 +256,126 @@ def test_polars_to_dicts_with_dataframe():
 
 
 def test_polars_to_dicts_with_series():
-    """Test converting Polars Series to a list of values."""
+    """Test converting Polars Series to list of values."""
     # Empty Series
     empty_series = pl.Series([], dtype=pl.Utf8)
     assert polars_to_dicts(empty_series) == []
 
-    # Series with a single value
-    series = pl.Series("test", [42])
-    assert polars_to_dicts(series) == [42]
+    # Series with values
+    series = pl.Series("test", [1, 2, 3])
+    assert polars_to_dicts(series) == [1, 2, 3]
 
-    # Series with multiple values
-    multi_series = pl.Series("test", [1, 2, 3])
-    assert polars_to_dicts(multi_series) == [1, 2, 3]
+
+def test_process_document_fields():
+    """Test processing document fields for consistent formatting."""
+    # Create a test document with various field types
+    document = {
+        "id": "test-id",
+        "title": "Test Document",
+        "longitude": 37.7749,
+        "latitude": -122.4194,
+        "participant_names": None,
+        "participant_identifiers": ["@user1", "@user2"],
+        "keywords": "['test', 'document']",  # String representation of array
+        "metadata": '{"key": "value"}',  # JSON string
+        "contact_metadata": None,
+        "participant_metadatas": "[]",  # Empty JSON array string
+    }
+
+    # Define array and JSON fields
+    array_fields = ["participant_names", "participant_identifiers", "keywords"]
+    json_fields = {"metadata": {}, "contact_metadata": {}, "participant_metadatas": []}
+
+    # Process the document
+    processed = process_document_fields(document, array_fields, json_fields)
+
+    # Check that location tuple was reconstructed
+    assert "location" in processed
+    assert processed["location"] == (37.7749, -122.4194)
+    assert "longitude" not in processed
+    assert "latitude" not in processed
+
+    # Check that array fields were processed correctly
+    assert processed["participant_names"] == []  # None converted to empty list
+    assert processed["participant_identifiers"] == ["@user1", "@user2"]  # Already a list
+    assert processed["keywords"] == ["test", "document"]  # String converted to list
+
+    # Check that JSON fields were processed correctly
+    assert processed["metadata"] == {"key": "value"}  # JSON string parsed
+    assert processed["contact_metadata"] == {}  # None converted to default
+    assert processed["participant_metadatas"] == []  # Empty JSON array string parsed
+
+    # Check that other fields were preserved
+    assert processed["id"] == "test-id"
+    assert processed["title"] == "Test Document"
+
+
+def test_process_duckdb_chunk_with_valid_json():
+    """Test processing DuckDB chunk with valid JSON content."""
+    # Valid JSON content
+    chunk = {
+        "id": "chunk1",
+        "doc_id": "doc1",
+        "content": '[{"type": "text", "text": "Hello world"}, {"type": "image", "url": "image.jpg"}]',
+    }
+
+    processed = process_duckdb_chunk(chunk)
+
+    assert processed["id"] == "chunk1"
+    assert processed["doc_id"] == "doc1"
+    assert processed["content"] == [
+        {"type": "text", "text": "Hello world"},
+        {"type": "image", "url": "image.jpg"},
+    ]
+
+
+def test_process_duckdb_chunk_with_invalid_json():
+    """Test processing DuckDB chunk with invalid JSON content."""
+    # Invalid JSON content
+    chunk = {
+        "id": "chunk1",
+        "doc_id": "doc1",
+        "content": '[{"type": "text", "text": "Hello world", "missing_closing_bracket"',
+    }
+
+    processed = process_duckdb_chunk(chunk)
+
+    assert processed["id"] == "chunk1"
+    assert processed["doc_id"] == "doc1"
+    assert processed["content"] == []
+
+
+def test_process_duckdb_chunk_with_missing_content():
+    """Test processing DuckDB chunk with missing content field."""
+    # Missing content field
+    chunk = {"id": "chunk1", "doc_id": "doc1"}
+
+    processed = process_duckdb_chunk(chunk)
+
+    assert processed["id"] == "chunk1"
+    assert processed["doc_id"] == "doc1"
+    assert processed["content"] == []
+
+
+def test_process_duckdb_chunk_with_empty_content():
+    """Test processing DuckDB chunk with empty content field."""
+    # Empty content field
+    chunk = {"id": "chunk1", "doc_id": "doc1", "content": ""}
+
+    processed = process_duckdb_chunk(chunk)
+
+    assert processed["id"] == "chunk1"
+    assert processed["doc_id"] == "doc1"
+    assert processed["content"] == []
+
+
+def test_process_duckdb_chunk_with_non_string_content():
+    """Test processing DuckDB chunk with non-string content field."""
+    # Non-string content field
+    chunk = {"id": "chunk1", "doc_id": "doc1", "content": ["item1", "item2"]}
+
+    processed = process_duckdb_chunk(chunk)
+
+    assert processed["id"] == "chunk1"
+    assert processed["doc_id"] == "doc1"
+    assert processed["content"] == ["item1", "item2"]
