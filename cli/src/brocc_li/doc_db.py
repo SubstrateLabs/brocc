@@ -590,7 +590,10 @@ class DocDB:
         # Convert to dict for processing
         doc_dict = document.model_dump()
 
-        # Ensure location is included if it exists on the object
+        # Ensure location is properly captured
+        # The Pydantic model_dump() might not properly include the location tuple
+        # We need to get it directly from the object if available
+        # Later in storage, location_tuple_to_wkt will convert it to the proper WKT format
         if hasattr(document, "location") and document.location is not None:
             doc_dict["location"] = document.location
         elif "location" not in doc_dict:
