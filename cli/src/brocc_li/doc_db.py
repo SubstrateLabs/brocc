@@ -20,23 +20,31 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 import duckdb
+import lancedb
 import polars as pl
+from lancedb.embeddings import get_registry
 from platformdirs import user_data_dir
 
+from brocc_li.embed.chunk_header import chunk_header
 from brocc_li.embed.chunk_markdown import chunk_markdown
-from brocc_li.types.doc import Chunk, Doc
+from brocc_li.embed.voyage import ContentType
+from brocc_li.types.doc import BaseDocFields, Chunk, ChunkModel, Doc
 from brocc_li.utils.location import (
     add_location_fields_to_query,
     location_tuple_to_wkt,
     modify_schema_for_geometry,
     reconstruct_location_tuple,
 )
-from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
-from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
 from brocc_li.utils.logger import logger
+from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
+from brocc_li.utils.serde import (
+    polars_to_dicts,
+    process_array_field,
+    process_json_field,
+)
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -44,8 +52,10 @@ APP_AUTHOR = "substratelabs"
 
 # Database constants
 DEFAULT_DB_FILENAME = "documents.duckdb"
+DEFAULT_LANCE_DIRNAME = "vector_store"
 DOCUMENTS_TABLE = "documents"
 CHUNKS_TABLE = "chunks"
+LANCE_CHUNKS_TABLE = "chunks"
 
 # Document field constants
 ARRAY_FIELDS = ["participant_names", "participant_identifiers", "keywords"]
@@ -63,15 +73,82 @@ def get_default_db_path() -> str:
     return os.path.join(data_dir, DEFAULT_DB_FILENAME)
 
 
-class DocDB:
-    """Handles storage and retrieval of documents using DuckDB."""
+def get_default_lance_path() -> str:
+    """Get the default LanceDB path in the user's data directory."""
+    data_dir = user_data_dir(APP_NAME, APP_AUTHOR)
+    lance_dir = os.path.join(data_dir, DEFAULT_LANCE_DIRNAME)
+    os.makedirs(lance_dir, exist_ok=True)
+    return lance_dir
 
-    def __init__(self, db_path: str | None = None):
-        """Initialize the storage with the given database path or the default."""
+
+class DocDB:
+    """Handles storage and retrieval of documents using DuckDB and LanceDB."""
+
+    def __init__(self, db_path: str | None = None, lance_path: str | None = None):
+        """
+        Initialize the storage with the given database paths or the defaults.
+
+        Args:
+            db_path: Path to DuckDB database
+            lance_path: Path to LanceDB storage
+        """
         self.db_path = db_path or get_default_db_path()
-        # Ensure parent directory exists before initialization
+        self.lance_path = lance_path or get_default_lance_path()
+
+        # Ensure parent directories exist before initialization
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.lance_path).mkdir(parents=True, exist_ok=True)
+
+        # Initialize DuckDB
         self._initialize_db()
+
+        # Initialize LanceDB
+        self._initialize_lance()
+
+    def _initialize_lance(self) -> None:
+        """Initialize LanceDB connection and create table if it doesn't exist."""
+        try:
+            # Connect to LanceDB
+            self.lance_db = lancedb.connect(self.lance_path)
+
+            # Check if chunks table exists, if not create it
+            tables = self.lance_db.table_names()
+
+            if LANCE_CHUNKS_TABLE not in tables:
+                # Define LanceModel for chunks with embedding
+                try:
+                    # Get registry and embedding function
+                    registry = get_registry()
+                    voyage_ai = registry.get("voyageai").create()
+                    logger.info("Successfully loaded VoyageAI embedding function")
+
+                    # Create a subclass of ChunkModel to add the embedding fields
+                    # ChunkModel already inherits from LanceModel in doc.py
+                    class ChunkModelWithEmbedding(ChunkModel):
+                        content_json: str = (
+                            voyage_ai.SourceField()
+                        )  # JSON serialized multimodal content
+                        vector: Any = voyage_ai.VectorField()
+
+                    # Create the table with the ChunkModel schema
+                    self.lance_db.create_table(
+                        LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
+                    )
+                    logger.info(
+                        f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Failed to set up embedding function: {e}")
+                    self.lance_db = None
+                    logger.warning("Vector search will not be available - embedding setup failed")
+            else:
+                logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize LanceDB: {e}")
+            # Continue without LanceDB
+            self.lance_db = None
 
     def _get_connection(self) -> duckdb.DuckDBPyConnection:
         """Get a DuckDB connection with the spatial extension loaded."""
@@ -109,6 +186,111 @@ class DocDB:
             # Generate the CREATE TABLE statement for chunks
             create_chunks_sql = generate_create_table_sql(Chunk, CHUNKS_TABLE)
             conn.execute(create_chunks_sql)
+
+    def _store_in_lance(self, chunks: list[Chunk], doc: Dict[str, Any]) -> None:
+        """
+        Store chunks in LanceDB with all the metadata from the document.
+
+        Args:
+            chunks: List of chunk objects to store
+            doc: Document data with metadata for filtering
+        """
+        if not self.lance_db:
+            logger.warning(
+                "Vector storage unavailable - LanceDB not properly initialized with embeddings"
+            )
+            return
+
+        try:
+            # Get the table
+            table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
+
+            # Prepare data for LanceDB
+            lance_data = []
+
+            for chunk in chunks:
+                # Create structured content object
+                doc_obj = Doc(**doc)
+                header = chunk_header(doc_obj)
+
+                # Initialize multimodal content structure
+                structured_content = {"content": []}
+
+                # Add header as text type
+                structured_content["content"].append({"type": ContentType.TEXT, "text": header})
+
+                # Process each content item from the chunk
+                for item in chunk.content:
+                    content_type = item.get("type")
+                    if content_type == "text" and "text" in item:
+                        structured_content["content"].append(
+                            {"type": ContentType.TEXT, "text": item["text"]}
+                        )
+                    elif content_type == "image_url" and "image_url" in item:
+                        structured_content["content"].append(
+                            {"type": ContentType.IMAGE_URL, "image_url": item["image_url"]}
+                        )
+                    # Add other types as needed
+
+                # Build chunk data using ChunkModel to ensure consistent field structure
+                # Start with the chunk fields
+                chunk_dict = chunk.model_dump()
+
+                # Get document metadata fields
+                # Extract only the fields that belong to BaseDocFields - the common fields
+                # in our consolidated model structure
+                doc_fields = BaseDocFields.extract_base_fields(doc)
+
+                # Create the final data object
+                row = {
+                    **chunk_dict,  # Basic chunk fields (id, doc_id, chunk_index, etc.)
+                    **doc_fields,  # Document metadata fields
+                    "content_json": json.dumps(
+                        structured_content
+                    ),  # The field that will be automatically embedded
+                }
+
+                lance_data.append(row)
+
+            # Store chunks in LanceDB - the embedding will be generated automatically
+            if lance_data:
+                try:
+                    # Add directly to table - embedding is generated automatically
+                    table.add(lance_data)
+                    logger.info(f"Added {len(lance_data)} chunks to LanceDB with auto-embeddings")
+                except Exception as e:
+                    logger.error(f"Failed to add data to LanceDB: {e}")
+        except Exception as e:
+            logger.error(f"Failed to store in LanceDB: {e}")
+            # If we hit an exception accessing the table, mark lance_db as None to avoid future attempts
+            self.lance_db = None
+            logger.warning(
+                "Vector storage disabled due to error - future operations will be skipped"
+            )
+
+    def _delete_from_lance(self, doc_id: str) -> None:
+        """
+        Delete all chunks for a document from LanceDB.
+
+        Args:
+            doc_id: The document ID whose chunks should be deleted
+        """
+        if not self.lance_db:
+            # Skip silently - nothing to delete if LanceDB isn't available
+            return
+
+        try:
+            table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
+            # Delete where doc_id matches
+            table.delete(f"doc_id = '{doc_id}'")
+            logger.info(f"Deleted chunks for doc_id {doc_id} from LanceDB")
+        except Exception as e:
+            logger.error(f"Failed to delete from LanceDB: {e}")
+            # If we encounter an error, mark lance_db as None to avoid future attempts
+            self.lance_db = None
+            logger.warning(
+                "Vector storage disabled due to error - future operations will be skipped"
+            )
 
     def url_exists(self, url: str) -> bool:
         """Check if a document with the given URL already exists."""
@@ -428,8 +610,10 @@ class DocDB:
             conn.execute(insert_query, list(db_chunk.values()))
 
     def _delete_chunks(self, conn, doc_id: str) -> None:
-        """Delete all chunks associated with a document ID."""
+        """Delete all chunks associated with a document ID from both DuckDB and LanceDB."""
         conn.execute(f"DELETE FROM {CHUNKS_TABLE} WHERE doc_id = ?", [doc_id])
+        # Also delete from LanceDB
+        self._delete_from_lance(doc_id)
 
     def store_document_with_chunks(self, document_data: dict[str, Any], text_content: str) -> str:
         """
@@ -486,8 +670,11 @@ class DocDB:
                 # Insert new document
                 self._insert_document(conn, db_document)
 
-                # Store new chunks
+                # Store new chunks in DuckDB
                 self._store_chunks(conn, chunks)
+
+                # Store chunks in LanceDB with prepended header
+                self._store_in_lance(chunks, doc_data)
 
             return doc_data["id"]
 
@@ -624,6 +811,125 @@ class DocDB:
             raw_dicts = polars_to_dicts(df)
             return [self._process_chunk_fields(chunk) for chunk in raw_dicts]
 
+    def vector_search(
+        self,
+        query: str,
+        limit: int = 10,
+        filter_str: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Search for chunks semantically similar to the query text.
+
+        Args:
+            query: The search query text
+            limit: Maximum number of results to return
+            filter_str: SQL-style filter string for LanceDB (e.g. "source = 'twitter'")
+
+        Returns:
+            List of matching chunks with scores and document metadata
+        """
+        if not self.lance_db:
+            logger.warning(
+                "Vector search unavailable - LanceDB not properly initialized with embeddings"
+            )
+            return []
+
+        try:
+            table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
+
+            # With the LanceModel approach, we can search directly with the text query
+            # The embedding will be generated automatically
+            search_query = table.search(query)
+
+            # Apply filter if provided
+            if filter_str:
+                search_query = search_query.where(filter_str)
+
+            # Execute search
+            results = search_query.limit(limit).to_list()
+
+            # Format results
+            formatted_results = []
+            for item in results:
+                # Start with core chunk fields
+                result = {
+                    "id": item["id"],
+                    "doc_id": item["doc_id"],
+                    "score": item["_distance"],  # Similarity score
+                    "chunk_index": item["chunk_index"],
+                    "chunk_total": item["chunk_total"],
+                }
+
+                # Add all available BaseDocFields
+                base_fields = set(BaseDocFields.model_fields.keys())
+                for field in base_fields:
+                    if field in item:
+                        result[field] = item[field]
+
+                # Process JSON fields if they're strings
+                for json_field, default_value in JSON_FIELDS.items():
+                    if json_field in result and isinstance(result[json_field], str):
+                        try:
+                            result[json_field] = json.loads(result[json_field])
+                        except json.JSONDecodeError:
+                            result[json_field] = default_value
+
+                # Process array fields
+                for array_field in ARRAY_FIELDS:
+                    if array_field in result:
+                        if result[array_field] is None:
+                            result[array_field] = []
+                        elif isinstance(result[array_field], str):
+                            # Handle array stored as a JSON string
+                            try:
+                                result[array_field] = json.loads(result[array_field])
+                            except json.JSONDecodeError:
+                                result[array_field] = []
+
+                # Extract text content from multimodal content_json if available
+                if "content_json" in item and item["content_json"]:
+                    try:
+                        content_data = json.loads(item["content_json"])
+                        content_items = content_data.get("content", [])
+
+                        # Extract text and image URLs
+                        text_content = []
+                        image_urls = []
+
+                        for content_item in content_items:
+                            if (
+                                content_item.get("type") == ContentType.TEXT
+                                and "text" in content_item
+                            ):
+                                text_content.append(content_item["text"])
+                            elif (
+                                content_item.get("type") == ContentType.IMAGE_URL
+                                and "image_url" in content_item
+                            ):
+                                image_urls.append(content_item["image_url"])
+
+                        # Add to result
+                        result["text"] = "\n\n".join(text_content)
+                        if image_urls:
+                            result["image_urls"] = image_urls
+                            result["has_images"] = True
+                    except json.JSONDecodeError:
+                        # Fallback for backward compatibility
+                        result["text"] = item.get("content_json", "")
+                elif "text" in item:
+                    # Backward compatibility for old schema
+                    result["text"] = item["text"]
+                else:
+                    result["text"] = ""
+
+                formatted_results.append(result)
+
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Vector search failed: {e}")
+            return []
+
     def launch_ui(self) -> None:
         """
         Launch the DuckDB UI for the documents database.
@@ -663,20 +969,41 @@ def launch_ui() -> None:
     storage.launch_ui()
 
 
-def delete_db(db_path: str | None = None) -> bool:
-    """Delete the database file at the given path or the default path."""
-    path = db_path or get_default_db_path()
-    logger.info(f"Attempting to delete database at: {path}")
-    if os.path.exists(path):
+def delete_db(db_path: str | None = None, lance_path: str | None = None) -> bool:
+    """Delete the database files at the given path or the default path."""
+    duck_path = db_path or get_default_db_path()
+    lance_dir = lance_path or get_default_lance_path()
+
+    success = True
+
+    # Delete DuckDB file
+    logger.info(f"Attempting to delete DuckDB database at: {duck_path}")
+    if os.path.exists(duck_path):
         try:
-            os.remove(path)
-            logger.success("Successfully deleted database")
-            return True
+            os.remove(duck_path)
+            logger.success("Successfully deleted DuckDB database")
         except Exception as e:
-            logger.error(f"Failed to delete database: {e}")
-            return False
-    logger.info("Database file not found")
-    return False
+            logger.error(f"Failed to delete DuckDB database: {e}")
+            success = False
+    else:
+        logger.info("DuckDB database file not found")
+
+    # Delete LanceDB directory
+    logger.info(f"Attempting to delete LanceDB data at: {lance_dir}")
+    if os.path.exists(lance_dir):
+        try:
+            # LanceDB stores data in a directory, so we need to remove all files
+            import shutil
+
+            shutil.rmtree(lance_dir)
+            logger.success("Successfully deleted LanceDB database")
+        except Exception as e:
+            logger.error(f"Failed to delete LanceDB database: {e}")
+            success = False
+    else:
+        logger.info("LanceDB directory not found")
+
+    return success
 
 
 def open_db_folder() -> None:

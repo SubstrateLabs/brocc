@@ -1,4 +1,5 @@
 from brocc_li.types.doc import Doc
+from brocc_li.utils.serde import get_attr_or_default
 
 
 def chunk_header(doc: Doc) -> str:
@@ -16,8 +17,8 @@ def chunk_header(doc: Doc) -> str:
         components.append(f"Description: {doc.description}")
 
     # Add source information
-    components.append(f"Source: {doc.source.value}")
-    components.append(f"Source Type: {doc.source_type.value}")
+    components.append(f"Source: {get_attr_or_default(doc.source)}")
+    components.append(f"Source Type: {get_attr_or_default(doc.source_type)}")
 
     # Add URL if available
     if doc.url:

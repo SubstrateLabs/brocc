@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from brocc_li.types.doc import Chunk, Doc, Source, SourceType
+from brocc_li.types.doc import BaseDocFields, Chunk, Doc, Source, SourceType
 
 
 def test_doc_from_twitter_data():
@@ -133,7 +133,7 @@ def test_doc_with_missing_fields():
     assert doc.contact_name is None
     assert doc.contact_identifier is None
     assert doc.created_at is None
-    assert doc.metadata is None
+    assert doc.metadata == {}
     assert doc.source_location_name is None
     assert doc.ingested_at is not None
 
@@ -224,3 +224,42 @@ def test_doc_create_chunks_for_doc():
         for item in multimodal_chunks[0].content
         if item.get("type") == "image_url"
     ] == ["https://example.com/image.jpg"]
+
+
+def test_extract_base_fields():
+    """Test that BaseDocFields.extract_base_fields correctly extracts fields."""
+    # Create a dictionary with both base fields and extra fields
+    test_data = {
+        "id": "test123",  # Not in BaseDocFields
+        "url": "https://example.com",  # In BaseDocFields
+        "title": "Test Document",  # In BaseDocFields
+        "description": "A test document",  # In BaseDocFields
+        "text_content": "This is test content",  # Not in BaseDocFields
+        "participant_names": ["Person 1", "Person 2"],  # In BaseDocFields
+        "source": "twitter",  # In BaseDocFields
+        "random_field": "random value",  # Not in BaseDocFields
+    }
+
+    # Extract base fields
+    base_fields = BaseDocFields.extract_base_fields(test_data)
+
+    # Check that only the base fields are included
+    assert "id" not in base_fields, "id is not a BaseDocFields field"
+    assert "random_field" not in base_fields, "random_field is not a BaseDocFields field"
+    assert "text_content" not in base_fields, "text_content is not a BaseDocFields field"
+
+    # Check that all base fields are included
+    assert base_fields["url"] == "https://example.com"
+    assert base_fields["title"] == "Test Document"
+    assert base_fields["description"] == "A test document"
+    assert base_fields["participant_names"] == ["Person 1", "Person 2"]
+    assert base_fields["source"] == "twitter"
+
+    # Check total count of fields
+    extracted_field_count = len(base_fields)
+
+    # Only fields present in the original data should be extracted
+    # The number of extracted fields should equal the number of fields in the original
+    # data that match BaseDocFields fields
+    matching_field_count = len([f for f in test_data if f in BaseDocFields.model_fields])
+    assert extracted_field_count == matching_field_count, "Should only extract matching fields"

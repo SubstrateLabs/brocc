@@ -9,8 +9,6 @@ from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 # defaults tuple[float, float] to VARCHAR. The actual table creation in DocDB
 # manually modifies this to GEOMETRY after generation.
 EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
-                    id VARCHAR PRIMARY KEY,
-                    ingested_at VARCHAR,
                     url VARCHAR,
                     title VARCHAR,
                     description VARCHAR,
@@ -20,6 +18,7 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     participant_names VARCHAR[],
                     participant_identifiers VARCHAR[],
                     participant_metadatas JSON,
+                    location VARCHAR,
                     keywords VARCHAR[],
                     metadata JSON,
                     source VARCHAR,
@@ -27,7 +26,8 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     source_location_identifier VARCHAR,
                     source_location_name VARCHAR,
                     created_at VARCHAR,
-                    location VARCHAR,
+                    ingested_at VARCHAR,
+                    id VARCHAR PRIMARY KEY,
                     last_updated VARCHAR
                 )"""
 

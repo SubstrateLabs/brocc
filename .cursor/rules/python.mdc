@@ -9,4 +9,4 @@ Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyp
 - Do not use f-strings for simple strings without variables 
 You can use our [Makefile](mdc:cli/Makefile) to run commands:
 - `make format`: format and autofix lint issues
-- `make test`: run all tests with pytest
+- `make test`: run all tests with pytest. note you should use `uv run pytest` if you want to run an individual test file (or use other pytest features).

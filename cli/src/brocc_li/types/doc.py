@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Dict, List, Optional, Union
 
-from pydantic import BaseModel
+from lancedb.pydantic import LanceModel
+from pydantic import BaseModel, Field
 
 from brocc_li.types.extract_field import ExtractField
 from brocc_li.utils.timestamp import format_datetime
@@ -44,6 +45,47 @@ class DocExtractor(BaseModel):
     navigate_content_selector: ClassVar[str | None] = None
 
 
+# Base model with common fields shared between Doc and ChunkModel
+class BaseDocFields(BaseModel):
+    url: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_identifier: Optional[str] = None
+    contact_metadata: Dict[str, Any] = Field(default_factory=dict)
+    participant_names: Optional[List[str]] = None
+    participant_identifiers: Optional[List[str]] = None
+    participant_metadatas: Optional[List[Dict[str, Any]]] = None
+    # location stored as (longitude, latitude)
+    location: Optional[tuple[float, float]] = None
+    keywords: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    source: Union[Source, str, None] = None
+    source_type: Union[SourceType, str, None] = None
+    source_location_identifier: Optional[str] = None
+    source_location_name: Optional[str] = None
+    created_at: Optional[str] = None
+    ingested_at: Optional[str] = None
+
+    @classmethod
+    def extract_base_fields(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Extract all fields that belong to BaseDocFields from a dictionary.
+        Uses the model definition as the source of truth.
+
+        Args:
+            data: A dictionary containing document data
+
+        Returns:
+            A dictionary containing only the base document fields
+        """
+        # Get all field names from the model
+        base_fields = set(cls.model_fields.keys())
+
+        # Extract matching fields from the data
+        return {k: v for k, v in data.items() if k in base_fields}
+
+
 class Chunk(BaseModel):
     """Model for document chunks that contain the actual text content."""
 
@@ -54,33 +96,12 @@ class Chunk(BaseModel):
     content: list[dict[str, Any]]  # The interleaved text/image list as returned by chunk_markdown
 
 
-class Doc(BaseModel):
+class Doc(BaseDocFields):
     id: str
-    ingested_at: str
-    # extractable fields
-    url: str | None = None
-    title: str | None = None
-    description: str | None = None
     # text_content is used for temporary storage during document processing
     # It holds the raw content before chunking and is NOT directly persisted in the database
     # Instead, it's processed by store_document and stored separately in the chunks table
-    text_content: str | None = None
-    contact_name: str | None = None
-    contact_identifier: str | None = None
-    contact_metadata: dict[str, Any] | None = None
-    participant_names: list[str] | None = None
-    participant_identifiers: list[str] | None = None
-    participant_metadatas: list[dict[str, Any]] | None = None
-    keywords: list[str] | None = None
-    metadata: dict[str, Any] | None = None
-    # metadata fields
-    source: Source
-    source_type: SourceType
-    source_location_identifier: str
-    source_location_name: str | None = None
-    created_at: str | None = None
-    # location stored as (longitude, latitude)
-    location: tuple[float, float] | None = None
+    text_content: Optional[str] = None
 
     @staticmethod
     def generate_id() -> str:
@@ -138,3 +159,28 @@ class Doc(BaseModel):
             chunks.append(chunk)
 
         return chunks
+
+
+# ChunkModel inherits from Chunk, BaseDocFields and LanceModel
+class ChunkModel(Chunk, BaseDocFields, LanceModel):
+    """
+    Model for chunks stored in LanceDB with embeddings.
+    Inherits from:
+    - Chunk (for chunk structure)
+    - BaseDocFields (for doc metadata)
+    - LanceModel (for vector DB storage)
+
+    In doc_db.py, a subclass with embedding fields is created:
+
+    class ChunkModelWithEmbedding(ChunkModel):
+        text: str = embedding_func.SourceField()
+        vector: Any = embedding_func.VectorField()
+
+    This approach keeps ChunkModel reusable while allowing
+    specific embedding functions to be used at runtime.
+    """
+
+    # Shared fields with Doc are inherited from BaseDocFields
+    # The embedding fields will be added in doc_db.py:
+    # text: str - SourceField for the embedding function
+    # vector: Any - VectorField produced by the embedding function

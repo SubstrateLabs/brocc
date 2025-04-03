@@ -2,15 +2,80 @@
 Tests for serialization/deserialization utility functions.
 """
 
+from enum import Enum
+
 import polars as pl
 import pytest
 
 from brocc_li.utils.serde import (
+    get_attr_or_default,
     polars_to_dicts,
     process_array_field,
     process_json_field,
     sanitize_input,
 )
+
+
+class SampleEnum(Enum):
+    """Test enum for testing get_attr_or_default function."""
+
+    A = "a_value"
+    B = "b_value"
+
+
+class SampleClass:
+    """Test class with custom attributes for testing get_attr_or_default function."""
+
+    def __init__(self, custom_attr="custom_value"):
+        self.custom_attr = custom_attr
+
+
+def test_get_attr_or_default_with_enum():
+    """Test getting value from an enum."""
+    # Enum has a 'value' attribute
+    assert get_attr_or_default(SampleEnum.A) == "a_value"
+    assert get_attr_or_default(SampleEnum.B) == "b_value"
+
+    # With explicit attribute
+    assert get_attr_or_default(SampleEnum.A, "name") == "A"
+
+
+def test_get_attr_or_default_with_custom_object():
+    """Test getting attributes from custom objects."""
+    obj = SampleClass()
+
+    # Get an attribute that exists
+    assert get_attr_or_default(obj, "custom_attr") == "custom_value"
+
+    # Get an attribute that doesn't exist - should return the object itself
+    # since default is None
+    assert get_attr_or_default(obj, "nonexistent_attr") is obj
+
+    # With explicit default
+    assert get_attr_or_default(obj, "nonexistent_attr", "fallback") == "fallback"
+
+
+def test_get_attr_or_default_with_none():
+    """Test behavior when object is None."""
+    # With default value
+    assert get_attr_or_default(None, "any_attr", "default_val") == "default_val"
+
+    # Without default value (returns None)
+    assert get_attr_or_default(None) is None
+
+
+def test_get_attr_or_default_with_primitives():
+    """Test behavior with primitive values that don't have attributes."""
+    # Integer
+    assert get_attr_or_default(42) == 42
+    assert get_attr_or_default(42, default="default") == "default"
+
+    # String - doesn't have a 'value' attribute
+    assert get_attr_or_default("test") == "test"
+
+    # Dictionary - doesn't have a 'value' attribute
+    test_dict = {"key": "value"}
+    assert get_attr_or_default(test_dict) is test_dict
 
 
 def test_sanitize_input_with_string():

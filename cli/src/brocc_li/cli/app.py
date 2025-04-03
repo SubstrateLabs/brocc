@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,6 +7,7 @@ from textual.containers import Container
 from textual.widgets import Button, Footer, Header, Label, Static
 
 from brocc_li.cli import auth
+from brocc_li.utils.api_url import get_api_url
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ class BroccApp(App):
         ("l", "login", "Login"),
         ("o", "logout", "Logout"),
     ]
-    API_URL = os.getenv("API_URL", "https://brocc.li/api")
+    API_URL = get_api_url()
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
 

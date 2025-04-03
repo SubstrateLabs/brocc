@@ -1,5 +1,9 @@
 ## 0.0.1
 
+- unify doc + lancemodel
+  vector: Any = voyage_ai.VectorField() type better
+- how are we splitting multimodal markdown...
+- interleaved content handling seems not supported by lance function registry?
 - when storing chunks in lance, should store all the same metadata fields from doc
 - integrate lancedb voyage embedding plugin (voyage.py)
 - incorporate embed_header somehow into each chunk header

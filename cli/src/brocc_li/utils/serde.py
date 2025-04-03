@@ -12,6 +12,26 @@ import polars as pl
 T = TypeVar("T")
 
 
+def get_attr_or_default(obj: Any, attr: str = "value", default: Any = None) -> Any:
+    """
+    Get an attribute from an object if it exists, otherwise return a default.
+
+    Useful for handling enum-like objects where you want to extract their value.
+
+    Args:
+        obj: The object to extract from (can be None)
+        attr: The attribute name to extract (default: "value")
+        default: Value to return if obj is None or default is explicitly provided
+                 If default is None, returns the obj itself
+
+    Returns:
+        The attribute value if it exists, otherwise the default or the object itself
+    """
+    if obj is None:
+        return default
+    return getattr(obj, attr, default if default is not None else obj)
+
+
 def sanitize_input(inputs: Any) -> list[Any]:
     """
     Sanitize inputs to ensure they're in a list format.
