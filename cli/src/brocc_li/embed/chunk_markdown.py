@@ -1,4 +1,5 @@
 import logging
+import os
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +16,7 @@ def chunk_markdown(
     max_characters: Optional[int] = 3000,
     new_after_n_chars: Optional[int] = 2000,
     combine_text_under_n_chars: Optional[int] = None,
+    base_path: Optional[str] = None,
 ) -> List[List[Dict[str, Any]]]:
     """
     Chunks markdown content using unstructured's by_title strategy, then formats each chunk
@@ -37,6 +39,9 @@ def chunk_markdown(
         Combine chunks under this character count with adjacent chunks (None for default)
         If None, it will be set to min(max_characters, 1500)
         Size reference: ~half a page of text or ~300 words
+    base_path : Optional[str]
+        Base directory path to resolve relative image paths against.
+        If None, local image paths will be kept as-is.
 
     Returns
     -------
@@ -114,7 +119,22 @@ def chunk_markdown(
                         elif isinstance(element.metadata, dict) and "image_url" in element.metadata:
                             image_url = element.metadata["image_url"]
 
-                    if image_url:
+                        # Resolve local paths if base_path is provided
+                        if base_path and isinstance(image_url, str):
+                            if image_url.startswith("/"):
+                                # Absolute path from root, join with base_path
+                                resolved_path = os.path.join(base_path, image_url.lstrip("/"))
+                                logger.debug(f"Resolved local path: {image_url} -> {resolved_path}")
+                                image_url = resolved_path
+                            elif image_url.startswith("./"):
+                                # Relative path, join with base_path
+                                resolved_path = os.path.join(base_path, image_url[2:])
+                                logger.debug(
+                                    f"Resolved relative path: {image_url} -> {resolved_path}"
+                                )
+                                image_url = resolved_path
+                            # Skip other URLs (e.g., http://, https://)
+
                         voyage_items.append({"type": "image_url", "image_url": image_url})
                 else:
                     # Accumulate text

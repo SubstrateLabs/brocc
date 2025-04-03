@@ -3,8 +3,84 @@ Tests for serialization/deserialization utility functions.
 """
 
 import polars as pl
+import pytest
 
-from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
+from brocc_li.utils.serde import (
+    polars_to_dicts,
+    process_array_field,
+    process_json_field,
+    sanitize_input,
+)
+
+
+def test_sanitize_input_with_string():
+    """Test sanitizing a single string input."""
+    result = sanitize_input("hello")
+    assert result == ["hello"]
+    assert isinstance(result, list)
+    assert len(result) == 1
+
+
+def test_sanitize_input_with_bytes():
+    """Test sanitizing a single bytes input."""
+    result = sanitize_input(b"hello")
+    assert result == [b"hello"]
+    assert isinstance(result, list)
+    assert len(result) == 1
+
+
+def test_sanitize_input_with_list():
+    """Test sanitizing an already list input."""
+    test_list = [1, 2, 3]
+    result = sanitize_input(test_list)
+    assert result == test_list
+    assert id(result) != id(test_list)  # Should be a new list, not the same object
+
+
+def test_sanitize_input_with_tuple():
+    """Test sanitizing a tuple input."""
+    test_tuple = (1, 2, 3)
+    result = sanitize_input(test_tuple)
+    assert result == list(test_tuple)
+    assert isinstance(result, list)
+
+
+def test_sanitize_input_with_polars_series():
+    """Test sanitizing a Polars Series."""
+    series = pl.Series("test", [1, 2, 3])
+    result = sanitize_input(series)
+    assert result == [1, 2, 3]
+    assert isinstance(result, list)
+
+
+def test_sanitize_input_with_empty_iterator():
+    """Test sanitizing an empty iterator."""
+    result = sanitize_input([])
+    assert result == []
+    assert isinstance(result, list)
+
+
+def test_sanitize_input_with_none():
+    """Test sanitizing None should raise TypeError."""
+    with pytest.raises(TypeError):
+        sanitize_input(None)
+
+
+def test_sanitize_input_with_set():
+    """Test sanitizing a set."""
+    test_set = {1, 2, 3}
+    result = sanitize_input(test_set)
+    assert sorted(result) == [1, 2, 3]
+    assert isinstance(result, list)
+
+
+def test_sanitize_input_with_dict():
+    """Test sanitizing a dictionary."""
+    test_dict = {"a": 1, "b": 2}
+    result = sanitize_input(test_dict)
+    # dict to list conversion in Python only includes the keys
+    assert sorted(result) == ["a", "b"]
+    assert isinstance(result, list)
 
 
 def test_process_array_field_with_series():

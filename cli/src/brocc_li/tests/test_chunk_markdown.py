@@ -1,3 +1,5 @@
+import os
+
 from brocc_li.embed.chunk_markdown import chunk_markdown
 from brocc_li.tests.generate_test_markdown import generate_test_markdown
 
@@ -247,3 +249,111 @@ def test_chunking_complex_markdown():
     assert scenario_chunk_counts["large_chunks"] < scenario_chunk_counts["default"], (
         "Large chunks should produce fewer chunks than default"
     )
+
+
+def test_chunk_markdown_with_local_images():
+    """Test chunking markdown with local image paths using the example doc."""
+    # Get the path to the example markdown file
+    # Since tests run from the cli directory, the path is relative to that
+    example_file_path = "example-docs/simple.md"
+
+    # Verify file exists
+    assert os.path.exists(example_file_path), f"Example file {example_file_path} not found"
+
+    # Read the markdown content
+    with open(example_file_path, "r") as f:
+        markdown = f.read()
+
+    # Get the absolute base path for resolving local images
+    base_dir = os.path.dirname(os.path.abspath(example_file_path))
+
+    # Chunk the markdown without base_path first
+    chunks_no_base = chunk_markdown(markdown)
+
+    # Verify both types of images are found but local image path is not resolved
+    local_image_found = False
+    remote_image_found = False
+
+    for chunk in chunks_no_base:
+        for item in chunk:
+            if item["type"] == "image_url":
+                if item["image_url"] == "/tessan.png":
+                    local_image_found = True
+                elif item["image_url"] == "https://www.brocc.li/brocc.png":
+                    remote_image_found = True
+
+    # Verify both types of images were found
+    assert local_image_found, "Local image path was not found in the chunks"
+    assert remote_image_found, "Remote image URL was not found in the chunks"
+
+    # Now test with base_path
+    chunks_with_base = chunk_markdown(markdown, base_path=base_dir)
+
+    # Local path should be resolved, remote URL should remain the same
+    resolved_local_path = os.path.join(base_dir, "tessan.png")
+    local_image_resolved = False
+    remote_image_unchanged = False
+
+    for chunk in chunks_with_base:
+        for item in chunk:
+            if item["type"] == "image_url":
+                if item["image_url"] == resolved_local_path:
+                    local_image_resolved = True
+                elif item["image_url"] == "https://www.brocc.li/brocc.png":
+                    remote_image_unchanged = True
+
+    # Verify local image path was resolved and remote URL remained unchanged
+    assert local_image_resolved, f"Local image path was not resolved to {resolved_local_path}"
+    assert remote_image_unchanged, "Remote image URL should remain unchanged"
+
+
+def test_chunk_markdown_with_base_path_resolution():
+    """Test that local image paths are resolved correctly when base_path is provided."""
+    # Define markdown with a local image path
+    markdown = """# Test
+
+![Local Image](/local/image.png)
+
+![Relative Image](./relative/image.jpg)
+"""
+
+    # Create a base path for testing
+    base_path = "/absolute/base/path"
+
+    # Get chunks with base_path provided
+    chunks = chunk_markdown(markdown, base_path=base_path)
+
+    # Check if paths were resolved correctly
+    local_path_resolved = False
+    relative_path_resolved = False
+
+    for chunk in chunks:
+        for item in chunk:
+            if item["type"] == "image_url":
+                if item["image_url"] == "/absolute/base/path/local/image.png":
+                    local_path_resolved = True
+                elif item["image_url"] == "/absolute/base/path/relative/image.jpg":
+                    relative_path_resolved = True
+
+    # Verify both types of paths were resolved
+    assert local_path_resolved, "Local path with leading slash was not resolved correctly"
+    assert relative_path_resolved, "Relative path with ./ was not resolved correctly"
+
+    # Test with base_path=None (should not resolve paths)
+    chunks_no_base = chunk_markdown(markdown, base_path=None)
+
+    # Check if paths were kept as-is
+    local_path_kept = False
+    relative_path_kept = False
+
+    for chunk in chunks_no_base:
+        for item in chunk:
+            if item["type"] == "image_url":
+                if item["image_url"] == "/local/image.png":
+                    local_path_kept = True
+                elif item["image_url"] == "./relative/image.jpg":
+                    relative_path_kept = True
+
+    # Verify paths are unchanged when base_path is None
+    assert local_path_kept, "Local path should remain unchanged when base_path is None"
+    assert relative_path_kept, "Relative path should remain unchanged when base_path is None"

@@ -1,6 +1,6 @@
 ---
 description: 
-globs: brocc-li/src/brocc_li/*.py
+globs: *.py
 alwaysApply: false
 ---
 # Adding logs

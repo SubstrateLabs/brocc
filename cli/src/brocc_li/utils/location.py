@@ -5,6 +5,8 @@ Provides helper functions for converting between Python tuples and DuckDB GEOMET
 
 from typing import Any, Optional, Tuple
 
+from brocc_li.utils.logger import logger
+
 
 def location_tuple_to_wkt(location: Optional[Tuple[float, float]]) -> Optional[str]:
     """
@@ -57,8 +59,8 @@ def modify_schema_for_geometry(sql: str) -> str:
             modified_lines.append(line)
 
     if not replaced_location:
-        print(
-            "Warning: Could not find 'location' column definition in generated SQL to replace with GEOMETRY."
+        logger.warning(
+            "Could not find 'location' column definition in generated SQL to replace with GEOMETRY."
         )
 
     return "\n".join(modified_lines)

@@ -4,9 +4,45 @@ Used for consistent handling of data between DuckDB, Polars, and Python native o
 """
 
 import json
-from typing import Any, Union, cast
+from typing import Any, TypeVar, Union, cast
 
 import polars as pl
+
+# Type variable for sanitize_input return type
+T = TypeVar("T")
+
+
+def sanitize_input(inputs: Any) -> list[Any]:
+    """
+    Sanitize inputs to ensure they're in a list format.
+    Handles single items, PyArrow arrays, NumPy arrays, and other iterables.
+    """
+    # Handle single inputs (convert to list)
+    if isinstance(inputs, (str, bytes)):
+        return [inputs]
+
+    # Handle PyArrow Arrays if available
+    try:
+        import pyarrow as pa
+
+        if isinstance(inputs, pa.Array):
+            return cast(list[Any], inputs.to_pylist())
+        elif isinstance(inputs, pa.ChunkedArray):
+            return cast(list[Any], inputs.combine_chunks().to_pylist())
+    except ImportError:
+        pass  # PyArrow not available, continue
+
+    # Handle numpy arrays if available
+    try:
+        import numpy as np
+
+        if isinstance(inputs, np.ndarray):
+            return cast(list[Any], inputs.tolist())
+    except ImportError:
+        pass  # NumPy not available, continue
+
+    # Return as list (assumes it's iterable)
+    return list(inputs)
 
 
 def process_array_field(field_value: Any) -> list:

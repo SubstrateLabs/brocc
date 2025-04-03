@@ -1,5 +1,3 @@
-import base64
-import io
 import json
 import os
 import urllib.request
@@ -8,13 +6,14 @@ from typing import (
     Any,
     ClassVar,
     TypeVar,
-    cast,
 )
 from urllib.error import URLError
-from urllib.parse import urlparse
 
 from lancedb.embeddings.base import EmbeddingFunction
 from lancedb.embeddings.registry import register
+
+from brocc_li.utils.image_utils import image_to_base64, is_plain_text, is_url
+from brocc_li.utils.serde import sanitize_input
 
 # Type checking imports
 if TYPE_CHECKING:
@@ -36,24 +35,6 @@ class ContentType:
 class InputType:
     QUERY = "query"
     DOCUMENT = "document"
-
-
-def url_retrieve(url: str) -> bytes:
-    """
-    Retrieve content from a URL
-
-    Parameters
-    ----------
-    url : str
-        URL to retrieve
-
-    Returns
-    -------
-    bytes
-        Content of the URL
-    """
-    with urllib.request.urlopen(url) as response:
-        return response.read()
 
 
 @register("voyageai")
@@ -135,103 +116,6 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         except json.JSONDecodeError as e:
             raise RuntimeError("Failed to parse API response") from e
 
-    def sanitize_input(self, texts: Any) -> list[Any]:
-        """
-        Sanitize the input to the embedding function.
-
-        Parameters
-        ----------
-        texts : str, bytes, PIL.Image.Image, list, or other array-like
-            The inputs to sanitize
-
-        Returns
-        -------
-        List[Any]
-            Sanitized list of inputs
-        """
-        # Handle single inputs (convert to list)
-        if isinstance(texts, (str, bytes)):
-            return [texts]
-
-        # Handle PyArrow Arrays if available
-        try:
-            import pyarrow as pa
-
-            if isinstance(texts, pa.Array):
-                return cast(list[Any], texts.to_pylist())
-            elif isinstance(texts, pa.ChunkedArray):
-                return cast(list[Any], texts.combine_chunks().to_pylist())
-        except ImportError:
-            pass  # PyArrow not available, continue
-
-        # Handle numpy arrays if available
-        try:
-            import numpy as np
-
-            if isinstance(texts, np.ndarray):
-                return cast(list[Any], texts.tolist())
-        except ImportError:
-            pass  # NumPy not available, continue
-
-        # Return as list (assumes it's iterable)
-        return list(texts)
-
-    def _to_pil(self, image: str | bytes) -> Any:
-        """
-        Convert various image formats to PIL Image
-
-        Parameters
-        ----------
-        image : Union[str, bytes]
-            The image to convert. Can be a URL, file path, or raw bytes.
-
-        Returns
-        -------
-        PIL.Image.Image
-            PIL Image object
-        """
-        try:
-            from PIL import Image as PILImage
-        except ImportError as e:
-            raise ImportError(
-                "PIL is required for image processing. Install with 'pip install pillow'"
-            ) from e
-
-        # Handle bytes directly
-        if isinstance(image, (bytes, bytearray, memoryview)):
-            return PILImage.open(io.BytesIO(image if isinstance(image, bytes) else bytes(image)))
-
-        # Handle PIL Image - avoid checking for "save" attribute directly
-        try:
-            # Check if it's a PIL Image without explicitly importing PIL.Image
-            # This is a safer approach than checking for .save attribute
-            if hasattr(image, "__class__") and "PIL" in image.__class__.__module__:
-                return image
-        except Exception:
-            pass
-
-        # Handle string (URL or path)
-        if isinstance(image, str):
-            parsed = urlparse(image)
-
-            # Handle remote URLs
-            if parsed.scheme.startswith("http"):
-                return PILImage.open(io.BytesIO(url_retrieve(image)))
-
-            # Handle file URLs
-            elif parsed.scheme == "file":
-                return PILImage.open(parsed.path)
-
-            # Handle local paths
-            elif parsed.scheme == "":
-                # Handle Windows paths differently
-                return PILImage.open(image if os.name == "nt" else parsed.path)
-
-            else:
-                raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
-
-        raise TypeError(f"Unsupported image type: {type(image)}")
-
     def _process_image(self, image) -> dict[str, Any]:
         """
         Process an image input into the format expected by the API
@@ -247,25 +131,13 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
             Dictionary with the properly formatted image content
         """
         # If it's a URL, use it directly for image_url type
-        if isinstance(image, str):
-            parsed = urlparse(image)
-            if parsed.scheme.startswith("http"):
-                return {"type": ContentType.IMAGE_URL, "image_url": image}
+        if isinstance(image, str) and is_url(image):
+            return {"type": ContentType.IMAGE_URL, "image_url": image}
 
         # For all other cases, try to convert to base64
         try:
-            # Convert to PIL first
-            pil_image = None
-
-            # First try to use _to_pil which already has proper type handling
-            pil_image = self._to_pil(image)
-
-            # Convert PIL to base64
-            img_byte_arr = io.BytesIO()
-            pil_image.save(img_byte_arr, format="PNG")
-            image_bytes = img_byte_arr.getvalue()
-            base64_str = base64.b64encode(image_bytes).decode("utf-8")
-
+            # Convert the image to base64
+            base64_str = image_to_base64(image)
             return {"type": ContentType.IMAGE_BASE64, "image_base64": base64_str}
         except Exception as e:
             # If all else fails and it's a string, treat as text
@@ -291,12 +163,7 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
         content = []
 
         # Process query based on type
-        if isinstance(query, str) and not (
-            query.startswith("http://")
-            or query.startswith("https://")
-            or query.startswith("file://")
-            or os.path.isfile(query)
-        ):
+        if is_plain_text(query):
             # It's a text query
             content.append({"type": ContentType.TEXT, "text": query})
         else:
@@ -330,7 +197,7 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
             List of inputs to embed. Can be text, image bytes, or PIL Images.
         """
         # Sanitize inputs
-        inputs = self.sanitize_input(inputs)
+        inputs = sanitize_input(inputs)
 
         # Process all inputs in a single request
         payload = {
@@ -341,12 +208,7 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
 
         # Process each item
         for item in inputs:
-            if isinstance(item, str) and not (
-                item.startswith("http://")
-                or item.startswith("https://")
-                or item.startswith("file://")
-                or os.path.isfile(item)
-            ):
+            if is_plain_text(item):
                 # It's a text item
                 payload["inputs"].append({"content": [{"type": ContentType.TEXT, "text": item}]})
             else:

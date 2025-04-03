@@ -36,6 +36,7 @@ from brocc_li.utils.location import (
 )
 from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
 from brocc_li.utils.serde import polars_to_dicts, process_array_field, process_json_field
+from brocc_li.utils.logger import logger
 
 # Define app information for appdirs
 APP_NAME = "brocc"
@@ -81,13 +82,13 @@ class DocDB:
         except Exception as e:
             # If loading fails, try installing first (might not be present)
             try:
-                print("Spatial extension not loaded, attempting install...")
+                logger.info("Spatial extension not loaded, attempting install...")
                 conn.execute("INSTALL spatial;")
                 conn.execute("LOAD spatial;")
-                print("Spatial extension installed and loaded successfully.")
+                logger.success("Spatial extension installed and loaded successfully.")
             except Exception as install_e:
-                print(
-                    f"Warning: Could not install/load spatial extension. Location features may fail. Load error: {e}, Install error: {install_e}"
+                logger.warning(
+                    f"Could not install/load spatial extension. Location features may fail. Load error: {e}, Install error: {install_e}"
                 )
         return conn
 
@@ -103,12 +104,10 @@ class DocDB:
             # Modify the generated SQL to use GEOMETRY type for location
             create_documents_sql = modify_schema_for_geometry(create_documents_sql)
 
-            print(f"Generated Documents Schema:\n{create_documents_sql}")
             conn.execute(create_documents_sql)
 
             # Generate the CREATE TABLE statement for chunks
             create_chunks_sql = generate_create_table_sql(Chunk, CHUNKS_TABLE)
-            print(f"Generated Chunks Schema:\n{create_chunks_sql}")
             conn.execute(create_chunks_sql)
 
     def url_exists(self, url: str) -> bool:
@@ -198,7 +197,7 @@ class DocDB:
             prepared_doc = doc.model_dump()
         except Exception as e:
             # Consider logging the actual error and invalid data here
-            print(f"Validation Error: {e}\nData: {doc_data}")  # Temp print
+            logger.warning(f"Validation Error: {e}\nData: {doc_data}")  # Temp print
             raise ValueError(f"Invalid document structure: {str(e)}") from e
 
         # Add/Update timestamps *after* validation
@@ -377,7 +376,7 @@ class DocDB:
                     params.append(value)
 
         if not set_clauses:
-            print(f"Warning: No fields to update for document ID {doc_id}")
+            logger.warning(f"No fields to update for document ID {doc_id}")
             return
 
         params.append(doc_id)  # Add the ID for the WHERE clause
@@ -667,16 +666,16 @@ def launch_ui() -> None:
 def delete_db(db_path: str | None = None) -> bool:
     """Delete the database file at the given path or the default path."""
     path = db_path or get_default_db_path()
-    print(f"Attempting to delete database at: {path}")
+    logger.info(f"Attempting to delete database at: {path}")
     if os.path.exists(path):
         try:
             os.remove(path)
-            print("Successfully deleted database")
+            logger.success("Successfully deleted database")
             return True
         except Exception as e:
-            print(f"Failed to delete database: {e}")
+            logger.error(f"Failed to delete database: {e}")
             return False
-    print("Database file not found")
+    logger.info("Database file not found")
     return False
 
 
@@ -691,7 +690,7 @@ def open_db_folder() -> None:
 
         url = f"file://{data_dir}"
         webbrowser.open(url)
-        print(f"Opened data directory: {data_dir}")
+        logger.info(f"Opened data directory: {data_dir}")
     except Exception as e:
-        print(f"Failed to open data directory: {e}")
-        print(f"Data directory path: {data_dir}")
+        logger.error(f"Failed to open data directory: {e}")
+        logger.info(f"Data directory path: {data_dir}")

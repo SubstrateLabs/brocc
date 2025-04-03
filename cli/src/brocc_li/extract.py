@@ -12,12 +12,10 @@ from html_to_markdown import convert_to_markdown
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, TimeoutError
 from pydantic import BaseModel
-from rich.console import Console
 
 from brocc_li.types.extract_field import ExtractField
+from brocc_li.utils.logger import logger
 from brocc_li.utils.slugify import slugify
-
-console = Console()
 
 
 class ScrollPattern(Enum):
@@ -185,9 +183,7 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
     if field.children:
         container = element.query_selector(field.selector) if field.selector else element
         if not container:
-            console.print(
-                f"[dim]No container found for {parent_key} with selector {field.selector}[/dim]"
-            )
+            logger.debug(f"No container found for {parent_key} with selector {field.selector}")
             return {}
         return {
             key: extract_field(container, child, f"{parent_key}.{key}")
@@ -207,9 +203,7 @@ def extract_field(element: Any, field: ExtractField, parent_key: str = "") -> An
 
     element = element.query_selector(field.selector) if field.selector else element
     if not element:
-        console.print(
-            f"[dim]No element found for {parent_key} with selector {field.selector}[/dim]"
-        )
+        logger.debug(f"No element found for {parent_key} with selector {field.selector}")
         return None
 
     value = element.get_attribute(field.attribute) if field.attribute else element.inner_text()
@@ -234,7 +228,7 @@ def scrape_schema(
                 raise ValueError("No container selector found in schema")
 
         containers = page.query_selector_all(container_selector)
-        console.print(f"[dim]Found {len(containers)} containers[/dim]")
+        logger.debug(f"Found {len(containers)} containers")
 
         # Save feed page HTML if debug is enabled
         if config and config.debug:
@@ -249,7 +243,7 @@ def scrape_schema(
         for i, container in enumerate(containers):
             try:
                 if not container.is_visible():
-                    console.print(f"[dim]Container {i} is not visible, skipping[/dim]")
+                    logger.debug(f"Container {i} is not visible, skipping")
                     continue
 
                 # Save container HTML if debug is enabled
@@ -267,9 +261,7 @@ def scrape_schema(
                         try:
                             data[field_name] = extract_field(container, field, field_name)
                         except Exception as e:
-                            console.print(
-                                f"[red]Failed to extract field {field_name}: {str(e)}[/red]"
-                            )
+                            logger.error(f"Failed to extract field {field_name}: {str(e)}")
                             data[field_name] = None
 
                 # Save extract results if debug is enabled
@@ -283,12 +275,12 @@ def scrape_schema(
 
                 items.append(data)
             except Exception as e:
-                console.print(f"[red]Failed to process container {i}: {str(e)}[/red]")
+                logger.error(f"Failed to process container {i}: {str(e)}")
                 continue
 
         return items
     except Exception as e:
-        console.print(f"[red]Failed to scrape data: {str(e)}[/red]")
+        logger.error(f"Failed to scrape data: {str(e)}")
         return []
 
 
@@ -329,8 +321,8 @@ def human_scroll(page: Page, pattern: ScrollPattern, seen_only_multiplier: float
 
         # When using a large multiplier for aggressive scrolling, log it
         if seen_only_multiplier > 1.5:
-            console.print(
-                f"[dim]Fast-scrolling with {seen_only_multiplier:.1f}x multiplier ({scroll_amount} pixels)[/dim]"
+            logger.debug(
+                f"Fast-scrolling with {seen_only_multiplier:.1f}x multiplier ({scroll_amount} pixels)"
             )
 
 
@@ -341,7 +333,7 @@ def random_delay_with_jitter(min_ms: int, max_ms: int, jitter_factor: float = 0.
     base_delay = random.uniform(min_delay, max_delay)
     jitter = base_delay * jitter_factor * random.choice([-1, 1])
     final_delay = min(max_delay, max(0.1, base_delay + jitter))
-    console.print(f"[dim]Waiting for {final_delay:.2f} seconds...[/dim]")
+    logger.debug(f"Waiting for {final_delay:.2f} seconds...")
     time.sleep(final_delay)
 
 
@@ -368,13 +360,11 @@ def extract_content_from_page(
                 ),
             )
             cooldown_s = cooldown_ms / 1000
-            console.print(
-                f"[yellow]Rate limit detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
-            )
+            logger.warning(f"Rate limit detected! Cooling down for {cooldown_s:.1f} seconds...")
             time.sleep(cooldown_s)
 
         page.wait_for_selector(selector, timeout=options.content_timeout_ms)
-        console.print(f"[green]Found content with selector: '{selector}'[/green]")
+        logger.success(f"Found content with selector: '{selector}'")
 
         content_elements = page.query_selector_all(selector)
         if not content_elements:
@@ -386,9 +376,7 @@ def extract_content_from_page(
         largest_content = max((el.inner_html() for el in content_elements), key=len, default="")
 
         if len(largest_content) > MIN_CONTENT_LENGTH:
-            console.print(
-                f"[green]Selected content from '{selector}' ({len(largest_content)} chars)[/green]"
-            )
+            logger.success(f"Selected content from '{selector}' ({len(largest_content)} chars)")
             # On success, decrease the timeout counter but don't fully reset
             # This ensures we remain cautious if we've had multiple timeouts
             if consecutive_timeouts > 0:
@@ -398,7 +386,7 @@ def extract_content_from_page(
     except TimeoutError as e:
         # Increment timeout counter for rate limiting detection
         consecutive_timeouts += 1
-        console.print(f"[yellow]Timeout error with selector '{selector}': {str(e)}[/yellow]")
+        logger.warning(f"Timeout error with selector '{selector}': {str(e)}")
 
         # Adaptive cooldown - apply a brief cooldown even on first timeout
         # Scale from 0.5s for first timeout up to full exponential backoff
@@ -413,25 +401,23 @@ def extract_content_from_page(
                 ),
             )
             cooldown_s = cooldown_ms / 1000
-            console.print(
-                f"[yellow]Multiple timeouts detected! Cooling down for {cooldown_s:.1f} seconds...[/yellow]"
+            logger.warning(
+                f"Multiple timeouts detected! Cooling down for {cooldown_s:.1f} seconds..."
             )
         else:
             # For early timeouts, scale cooldown gradually
             cooldown_s = 0.5 + (consecutive_timeouts - 1) * 0.5
-            console.print(
-                f"[yellow]Timeout detected, brief cooldown for {cooldown_s:.1f} seconds...[/yellow]"
-            )
+            logger.warning(f"Timeout detected, brief cooldown for {cooldown_s:.1f} seconds...")
 
         time.sleep(cooldown_s)
 
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD:
-            console.print(
-                f"[yellow]Detected {consecutive_timeouts} consecutive timeouts, possible rate limiting[/yellow]"
+            logger.warning(
+                f"Detected {consecutive_timeouts} consecutive timeouts, possible rate limiting"
             )
         return None, consecutive_timeouts
     except Exception as e:
-        console.print(f"[yellow]Error with selector '{selector}': {str(e)}[/yellow]")
+        logger.warning(f"Error with selector '{selector}': {str(e)}")
         # For non-timeout errors, still be a bit cautious if we've had timeouts before
         if consecutive_timeouts > 0:
             return None, max(0, consecutive_timeouts - 1)
@@ -590,9 +576,7 @@ def handle_deep_scraping(
     # First ensure we're on the correct starting page before attempting to navigate
     if page.url != original_url:
         if not ensure_original_page(page, original_url, config, scroll_position):
-            console.print(
-                "[red]Failed to establish starting page for deep scraping, skipping this item[/red]"
-            )
+            logger.error("Failed to establish starting page for deep scraping, skipping this item")
             item[MARKDOWN_FIELD_NAME] = "Error: Navigation failure before scraping"
             return consecutive_timeouts
 
@@ -600,24 +584,18 @@ def handle_deep_scraping(
         try:
             # Check if we're on an about:blank page, which indicates navigation issue
             if page.url == "about:blank" or not page.url:
-                console.print("[yellow]About:blank detected, attempting to recover...[/yellow]")
+                logger.warning("About:blank detected, attempting to recover...")
                 if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
-                    console.print(
-                        "[red]Failed to recover from about:blank, trying next retry[/red]"
-                    )
+                    logger.error("Failed to recover from about:blank, trying next retry")
                     continue
 
             if retry_count > 0:
-                console.print(
-                    f"[yellow]Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}[/yellow]"
-                )
+                logger.warning(f"Retry attempt {retry_count}/{NAVIGATE_MAX_RETRIES}")
                 # Ensure we're back on the original page before retry
                 if not ensure_original_page(page, original_url, config, scroll_position):
                     retry_count += 1
-                    console.print(
-                        "[red]Failed to return to original page for retry, continuing[/red]"
-                    )
+                    logger.error("Failed to return to original page for retry, continuing")
                     continue
 
                 random_delay_with_jitter(
@@ -630,7 +608,7 @@ def handle_deep_scraping(
             navigation_success = navigate_to_item(page, config, item_position)
             if not navigation_success:
                 retry_count += 1
-                console.print("[yellow]Failed to navigate to item, attempting retry[/yellow]")
+                logger.warning("Failed to navigate to item, attempting retry")
                 # Ensure we're back at the original page for the next attempt
                 ensure_original_page(page, original_url, config, scroll_position)
                 continue
@@ -641,7 +619,7 @@ def handle_deep_scraping(
             consecutive_timeouts = new_consecutive_timeouts
 
         except Exception as e:
-            console.print(f"[red]Error during deep scraping: {str(e)}[/red]")
+            logger.error(f"Error during deep scraping: {str(e)}")
             retry_count += 1
             if retry_count <= NAVIGATE_MAX_RETRIES:
                 # Try to recover by ensuring we're back at the original page
@@ -658,19 +636,19 @@ def handle_deep_scraping(
     if not ensure_original_page(page, original_url, config, scroll_position):
         # If we couldn't get back to the original page, try a more aggressive approach
         try:
-            console.print("[yellow]Final attempt to return to original page...[/yellow]")
+            logger.warning("Final attempt to return to original page...")
             page.goto(original_url, wait_until="domcontentloaded")  # Less strict wait condition
             if page.url == original_url:
                 # Try to restore scroll position one last time
                 if scroll_position > 0:
                     page.evaluate(f"window.scrollTo(0, {scroll_position})")
-                    console.print(f"[dim]Restored scroll position: {scroll_position}px[/dim]")
+                    logger.debug(f"Restored scroll position: {scroll_position}px")
             else:
-                console.print(
-                    f"[red]Failed to return to original page after all attempts. Currently at: {page.url}[/red]"
+                logger.error(
+                    f"Failed to return to original page after all attempts. Currently at: {page.url}"
                 )
         except Exception as e:
-            console.print(f"[red]Fatal navigation error: {str(e)}[/red]")
+            logger.error(f"Fatal navigation error: {str(e)}")
 
     return consecutive_timeouts
 
@@ -689,11 +667,11 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         visible_containers = page.query_selector_all(config.container_selector)
 
         # Log what we found for debugging
-        console.print(f"[dim]Found {len(visible_containers)} containers to navigate[/dim]")
+        logger.debug(f"Found {len(visible_containers)} containers to navigate")
 
         if not visible_containers or item_position >= len(visible_containers):
-            console.print(
-                f"[yellow]Container at position {item_position} not found (total: {len(visible_containers)})[/yellow]"
+            logger.warning(
+                f"Container at position {item_position} not found (total: {len(visible_containers)})"
             )
             return False
 
@@ -710,23 +688,21 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
         )
 
         if not url_field:
-            console.print("[yellow]URL field not found in schema[/yellow]")
+            logger.warning("URL field not found in schema")
             return False
 
         # Find the clickable element
         clickable = container.query_selector(url_field.selector)
         if not clickable:
-            console.print(
-                f"[yellow]Clickable element not found with selector: {url_field.selector}[/yellow]"
-            )
+            logger.warning(f"Clickable element not found with selector: {url_field.selector}")
             return False
 
         # Log that we're about to navigate
         try:
             href = clickable.get_attribute("href")
-            console.print(f"[dim]Navigating to: {href}[/dim]")
+            logger.debug(f"Navigating to: {href}")
         except Exception as e:
-            console.print(f"[dim]Navigating to item (href not available): {e}[/dim]")
+            logger.debug(f"Navigating to item (href not available): {e}")
 
         # Perform the click
         clickable.click()
@@ -751,13 +727,13 @@ def navigate_to_item(page: Page, config: ExtractFeedConfig, item_position: int) 
 
         # Verify we're not at about:blank (which would indicate navigation failure)
         if page.url == "about:blank" or not page.url:
-            console.print("[yellow]Navigation resulted in about:blank page[/yellow]")
+            logger.warning("Navigation resulted in about:blank page")
             return False
 
         return True
 
     except Exception as e:
-        console.print(f"[yellow]Navigation error: {str(e)}[/yellow]")
+        logger.warning(f"Navigation error: {str(e)}")
         return False
 
 
@@ -784,9 +760,7 @@ def ensure_original_page(
 
     # Handle about:blank case explicitly
     if page.url == "about:blank" or not page.url:
-        console.print(
-            "[yellow]Detected about:blank page, navigating directly to original URL[/yellow]"
-        )
+        logger.warning("Detected about:blank page, navigating directly to original URL")
         try:
             page.goto(
                 original_url,
@@ -797,23 +771,21 @@ def ensure_original_page(
             )
             # Verify we're actually back at the original URL
             if page.url == original_url:
-                console.print("[green]Successfully returned to original page[/green]")
+                logger.success("Successfully returned to original page")
                 # Restore scroll position with verification
                 if scroll_position > 0:
                     _restore_scroll_with_verification(page, scroll_position)
                 return True
             else:
-                console.print(
-                    f"[red]Failed to return to original page. Currently at: {page.url}[/red]"
-                )
+                logger.error(f"Failed to return to original page. Currently at: {page.url}")
                 return False
         except (TimeoutError, PlaywrightError) as e:
-            console.print(f"[red]Failed navigation to original URL: {str(e)}[/red]")
+            logger.error(f"Failed navigation to original URL: {str(e)}")
             return False
 
     # Try using browser history first
     try:
-        console.print("[dim]Attempting to use browser history to return to original page...[/dim]")
+        logger.debug("Attempting to use browser history to return to original page...")
         page.go_back()
         random_delay(0.5, 0.1)  # Brief delay to let the navigation complete
 
@@ -825,9 +797,7 @@ def ensure_original_page(
             return True
 
         # Otherwise try direct navigation
-        console.print(
-            "[yellow]Browser history navigation failed, trying direct navigation...[/yellow]"
-        )
+        logger.warning("Browser history navigation failed, trying direct navigation...")
         page.goto(
             original_url,
             wait_until="networkidle"
@@ -838,17 +808,17 @@ def ensure_original_page(
 
         # Verify we're actually back at the original URL
         if page.url == original_url:
-            console.print("[green]Successfully returned to original page[/green]")
+            logger.success("Successfully returned to original page")
             # Restore scroll position with verification
             if scroll_position > 0:
                 _restore_scroll_with_verification(page, scroll_position)
             return True
         else:
-            console.print(f"[red]Failed to return to original page. Currently at: {page.url}[/red]")
+            logger.error(f"Failed to return to original page. Currently at: {page.url}")
             return False
 
     except (TimeoutError, PlaywrightError) as e:
-        console.print(f"[red]Failed all navigation attempts: {str(e)}[/red]")
+        logger.error(f"Failed all navigation attempts: {str(e)}")
         return False
 
 
@@ -864,25 +834,25 @@ def _restore_scroll_with_verification(
     """
     # First attempt: standard scrollTo
     page.evaluate(f"window.scrollTo(0, {target_position})")
-    console.print(f"[dim]Attempted to restore scroll position: {target_position}px[/dim]")
+    logger.debug(f"Attempted to restore scroll position: {target_position}px")
     time.sleep(0.3)  # Brief delay for scroll to take effect
 
     # Verify if scroll position was actually restored
     current_position = page.evaluate("window.scrollY")
 
     if abs(current_position - target_position) < 500:  # Allow small differences
-        console.print(f"[green]Verified scroll position restored: {current_position}px[/green]")
+        logger.success(f"Verified scroll position restored: {current_position}px")
         return
 
     # If scroll position wasn't restored correctly, try alternative approaches
-    console.print(
-        f"[yellow]Scroll position not restored correctly. Got {current_position}px, expected ~{target_position}px[/yellow]"
+    logger.warning(
+        f"Scroll position not restored correctly. Got {current_position}px, expected ~{target_position}px"
     )
 
     for attempt in range(max_attempts):
         if attempt == 0:
             # Try smooth scrolling
-            console.print("[dim]Trying smooth scroll restoration...[/dim]")
+            logger.debug("Trying smooth scroll restoration...")
             page.evaluate(f"""
                 window.scrollTo({{
                     top: {target_position},
@@ -892,14 +862,14 @@ def _restore_scroll_with_verification(
             """)
         elif attempt == 1:
             # Try scrolling in steps
-            console.print("[dim]Trying step-by-step scroll restoration...[/dim]")
+            logger.debug("Trying step-by-step scroll restoration...")
             step_size = target_position / 4
             for step in range(1, 5):
                 page.evaluate(f"window.scrollTo(0, {int(step_size * step)})")
                 time.sleep(0.1)
         else:
             # Last resort: scroll to bottom then partially back up
-            console.print("[dim]Force-scrolling to bottom of page then adjusting...[/dim]")
+            logger.debug("Force-scrolling to bottom of page then adjusting...")
             # First scroll all the way to bottom
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(0.3)
@@ -913,17 +883,15 @@ def _restore_scroll_with_verification(
         current_position = page.evaluate("window.scrollY")
 
         if abs(current_position - target_position) < 500:  # Allow small differences
-            console.print(
-                f"[green]Scroll position restored on attempt {attempt + 1}: {current_position}px[/green]"
+            logger.success(
+                f"Scroll position restored on attempt {attempt + 1}: {current_position}px"
             )
             return
 
-    console.print(
-        "[yellow]Could not precisely restore scroll position after multiple attempts[/yellow]"
-    )
+    logger.warning("Could not precisely restore scroll position after multiple attempts")
     # As a last resort, just make sure we're not at the top of the page
     if current_position < 500:
-        console.print("[yellow]Emergency scroll to middle/bottom of page[/yellow]")
+        logger.warning("Emergency scroll to middle/bottom of page")
         page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
 
 
@@ -956,7 +924,7 @@ def handle_scrolling(
     # Turbo mode - after many consecutive scrolls with only seen items and continuously finding more
     # containers, enter a super-fast mode to get to the bottom as quickly as possible
     if is_turbo_mode:
-        console.print("[yellow]Continuing turbo mode to reach unseen content faster...[/yellow]")
+        logger.warning("Continuing turbo mode to reach unseen content faster...")
         # In turbo mode, use more aggressive scrolling - jump directly to the very bottom
         # with a larger scroll to ensure we're going far down the page
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
@@ -971,7 +939,7 @@ def handle_scrolling(
 
     # Activate turbo mode after seeing only seen items for several consecutive scrolls
     if all_items_seen and consecutive_all_seen >= 5:
-        console.print("[yellow]Entering turbo mode to reach unseen content faster...[/yellow]")
+        logger.warning("Entering turbo mode to reach unseen content faster...")
         # Initial turbo mode - multiple aggressive scrolls
         # First scroll to the very bottom
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 2)")
@@ -984,9 +952,7 @@ def handle_scrolling(
 
     # Jump directly to bottom after several consecutive all-seen scrolls
     if all_items_seen and consecutive_all_seen >= 3:
-        console.print(
-            "[yellow]Multiple scrolls with only seen items, jumping to bottom of page...[/yellow]"
-        )
+        logger.warning("Multiple scrolls with only seen items, jumping to bottom of page...")
         # Scroll to very bottom of page
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
         time.sleep(0.5)  # Reduced wait time from 1.0 to 0.5
@@ -999,8 +965,8 @@ def handle_scrolling(
         if (page_height - (scroll_pos + viewport_height)) < 200:  # We're at the bottom
             # Use shorter wait times when we've been in this mode a while
             wait_time = 1.0 if consecutive_all_seen < 6 else 0.3
-            console.print(
-                f"[green]Reached bottom of page, waiting {wait_time}s for new content to load...[/green]"
+            logger.success(
+                f"Reached bottom of page, waiting {wait_time}s for new content to load..."
             )
             time.sleep(wait_time)
 
@@ -1031,7 +997,7 @@ def handle_scrolling(
         if consecutive_same_height >= config.scroll_config.max_consecutive_same_height:
             if consecutive_same_height % 2 == 0:
                 # When stuck at same height for a while, try a dramatic jump to bottom
-                console.print("[dim]Stuck at same height, jumping to bottom of page...[/dim]")
+                logger.warning("Stuck at same height, jumping to bottom of page...")
                 # Instead of scrolling up and down, go directly to bottom
                 page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
                 random_delay(0.5, 0.2)  # Reduced delay from 1.0 to 0.5
@@ -1047,7 +1013,7 @@ def handle_scrolling(
         consecutive_same_height = 0
         if all_items_seen and consecutive_all_seen > 2:
             # Page height changed but still all seen - scroll faster toward bottom
-            console.print("[dim]Page height changed, continuing fast scroll to bottom...[/dim]")
+            logger.warning("Page height changed, continuing fast scroll to bottom...")
             human_scroll(page, ScrollPattern.FAST, scroll_multiplier)
         else:
             human_scroll(page, random.choice(list(ScrollPattern)), scroll_multiplier)
@@ -1090,7 +1056,7 @@ def scroll_and_extract(
 
         page.wait_for_selector(config.container_selector, timeout=config.initial_load_timeout_ms)
     except Exception as e:
-        console.print(f"[red]Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}[/red]")
+        logger.error(f"Timeout waiting for {PROGRESS_LABEL} to load: {str(e)}")
         return
 
     # Initialize storage if configured
@@ -1100,14 +1066,14 @@ def scroll_and_extract(
         from brocc_li.doc_db import DocDB
 
         storage = DocDB(config.storage_path)
-        console.print(f"[dim]Using document storage: {storage.db_path}[/dim]")
+        logger.debug(f"Using document storage: {storage.db_path}")
 
     # Get seen URLs if using storage
     seen_urls: set[str] = set()
     if storage:
         # Always load the seen URLs that have been seen for this source (across all locations)
         seen_urls = storage.get_seen_urls(source=config.source)
-        console.print(f"[dim]Found {len(seen_urls)} previously seen URLs for {config.source}[/dim]")
+        logger.debug(f"Found {len(seen_urls)} previously seen URLs for {config.source}")
 
     items_yielded = 0
     no_new_items_count = 0
@@ -1128,14 +1094,14 @@ def scroll_and_extract(
     ):
         # If we've experienced significant rate limiting, abort the extraction
         if consecutive_timeouts >= RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD * 2:
-            console.print(
-                f"[red]Aborting extraction due to persistent rate limiting ({consecutive_timeouts} timeouts)[/red]"
+            logger.error(
+                f"Aborting extraction due to persistent rate limiting ({consecutive_timeouts} timeouts)"
             )
             return
 
         # Log the current consecutive timeouts count if it's non-zero
         if consecutive_timeouts > 0:
-            console.print(f"[yellow]Current consecutive timeouts: {consecutive_timeouts}[/yellow]")
+            logger.warning(f"Current consecutive timeouts: {consecutive_timeouts}")
 
         # Skip expandable elements in turbo mode to speed things up
         if not is_turbo_mode and config.expand_item_selector:
@@ -1145,7 +1111,7 @@ def scroll_and_extract(
                         element.click()
                         page.wait_for_timeout(config.click_wait_timeout_ms)
                 except Exception as e:
-                    console.print(f"[red]Failed to expand element: {str(e)}[/red]")
+                    logger.error(f"Failed to expand element: {str(e)}")
 
         # In turbo mode, use a simpler extraction approach - just check how many containers we have
         # but don't process them individually yet - speeds up the loop significantly
@@ -1155,8 +1121,8 @@ def scroll_and_extract(
             current_container_count = len(current_containers)
 
             if current_container_count > last_container_count:
-                console.print(
-                    f"[dim]Turbo mode: Found {current_container_count} containers (vs {last_container_count} previously)[/dim]"
+                logger.debug(
+                    f"Turbo mode: Found {current_container_count} containers (vs {last_container_count} previously)"
                 )
                 last_container_count = current_container_count
                 consecutive_same_height = (
@@ -1170,8 +1136,8 @@ def scroll_and_extract(
                 )
 
                 if should_check_content:
-                    console.print(
-                        f"[yellow]Turbo mode: Checking for unseen content at {current_container_count} containers[/yellow]"
+                    logger.warning(
+                        f"Turbo mode: Checking for unseen content at {current_container_count} containers"
                     )
                     # Extract a sample of the latest containers to check for unseen URLs
                     # Take the 10 most recent containers to check
@@ -1208,36 +1174,30 @@ def scroll_and_extract(
 
                                     # Check if this URL is unseen
                                     if url and url not in seen_urls:
-                                        console.print(
-                                            f"[green]Found unseen URL in turbo mode: {url}[/green]"
-                                        )
-                                        console.print(
-                                            "[green]Exiting turbo mode to process new content[/green]"
-                                        )
+                                        logger.success(f"Found unseen URL in turbo mode: {url}")
+                                        logger.success("Exiting turbo mode to process new content")
                                         is_turbo_mode = False
 
                                         # Instead of just breaking out, let's force a full content extraction now
-                                        console.print(
-                                            "[yellow]Performing full extraction of current content[/yellow]"
+                                        logger.warning(
+                                            "Performing full extraction of current content"
                                         )
                                         # Don't break - instead continue checking other containers to find all unseen content
 
                         except Exception as e:
                             # Just log and continue if there's an error extracting URL
-                            console.print(
-                                f"[dim]Error checking container URL in turbo mode: {str(e)}[/dim]"
-                            )
+                            logger.debug(f"Error checking container URL in turbo mode: {str(e)}")
 
                     # If we've exited turbo mode, fully process the current containers
                     if not is_turbo_mode:
-                        console.print(
-                            f"[yellow]Processing {len(current_containers)} containers for new content[/yellow]"
+                        logger.warning(
+                            f"Processing {len(current_containers)} containers for new content"
                         )
                         # Process the current containers immediately to extract the unseen content
                         normal_items = scrape_schema(
                             page, config.feed_schema, config.container_selector, config
                         )
-                        console.print(f"[green]Found {len(normal_items)} items to process[/green]")
+                        logger.success(f"Found {len(normal_items)} items to process")
 
                         last_container_count = len(normal_items)
                         new_items = 0
@@ -1267,13 +1227,13 @@ def scroll_and_extract(
                                             item_date = parse(item_date)
 
                                     if item_date < config.stop_after_date:
-                                        console.print(
-                                            f"[yellow]Reached date cutoff: item from {item_date} is older than {config.stop_after_date}[/yellow]"
+                                        logger.warning(
+                                            f"Reached date cutoff: item from {item_date} is older than {config.stop_after_date}"
                                         )
                                         date_cutoff_reached = True
                                         break
                                 except Exception as e:
-                                    console.print(f"[yellow]Error parsing date: {str(e)}[/yellow]")
+                                    logger.warning(f"Error parsing date: {str(e)}")
 
                             url = item.get(URL_FIELD)
                             if not url:
@@ -1327,23 +1287,17 @@ def scroll_and_extract(
                             new_items += 1
 
                         if new_items > 0:
-                            console.print(
-                                f"[green]Successfully extracted {new_items} new items after exiting turbo mode[/green]"
+                            logger.success(
+                                f"Successfully extracted {new_items} new items after exiting turbo mode"
                             )
                         elif skipped_items > 0:
-                            console.print(
-                                f"[yellow]All {skipped_items} items were already seen[/yellow]"
-                            )
+                            logger.warning(f"All {skipped_items} items were already seen")
                         else:
-                            console.print(
-                                "[yellow]No items found in the current containers[/yellow]"
-                            )
+                            logger.warning("No items found in the current containers")
 
                         # If we've reached date cutoff, we should exit the entire extraction loop
                         if date_cutoff_reached:
-                            console.print(
-                                f"[yellow]Stopping extraction as date cutoff {config.stop_after_date} has been reached[/yellow]"
-                            )
+                            logger.warning("Stopping extraction as date cutoff has been reached")
                             # We'll break out of the main loop on the next iteration when it checks date_cutoff_reached
 
                         # Continue with the next iteration of the main loop to resume normal extraction
@@ -1365,14 +1319,14 @@ def scroll_and_extract(
                 consecutive_same_height += 1
                 if consecutive_same_height >= 5:
                     # Only exit turbo mode if we've tried multiple times with no progress
-                    console.print(
-                        f"[yellow]No progress in turbo mode after {consecutive_same_height} attempts, checking for content...[/yellow]"
+                    logger.warning(
+                        f"No progress in turbo mode after {consecutive_same_height} attempts, checking for content..."
                     )
                     # Don't exit turbo mode yet, just proceed to content examination
                 else:
                     # Try again with even more aggressive scrolling
-                    console.print(
-                        f"[yellow]No new containers in turbo mode, trying more aggressive scrolling (attempt {consecutive_same_height}/5)[/yellow]"
+                    logger.warning(
+                        f"No new containers in turbo mode, trying more aggressive scrolling (attempt {consecutive_same_height}/5)"
                     )
                     # Use increasingly aggressive scrolling based on attempt number
                     scroll_multiplier = 2 + consecutive_same_height
@@ -1414,13 +1368,13 @@ def scroll_and_extract(
                             item_date = parse(item_date)
 
                     if item_date < config.stop_after_date:
-                        console.print(
-                            f"[yellow]Reached date cutoff: item from {item_date} is older than {config.stop_after_date}[/yellow]"
+                        logger.warning(
+                            f"Reached date cutoff: item from {item_date} is older than {config.stop_after_date}"
                         )
                         date_cutoff_reached = True
                         break
                 except Exception as e:
-                    console.print(f"[yellow]Error parsing date: {str(e)}[/yellow]")
+                    logger.warning(f"Error parsing date: {str(e)}")
 
             url = item.get(URL_FIELD)
             if not url:
@@ -1433,10 +1387,8 @@ def scroll_and_extract(
 
                 # If continue_on_seen is False, we should STOP extraction when we hit a seen URL
                 if not config.continue_on_seen:
-                    console.print(f"[yellow]Found already seen URL: {url}[/yellow]")
-                    console.print(
-                        "[yellow]Stopping extraction as continue_on_seen is False[/yellow]"
-                    )
+                    logger.warning(f"Found already seen URL: {url}")
+                    logger.warning("Stopping extraction as continue_on_seen is False")
                     return  # Stop the generator immediately
 
                 # Otherwise, skip this item and continue
@@ -1444,9 +1396,7 @@ def scroll_and_extract(
 
             # Found an unseen URL - if we're in turbo mode, exit it to process content properly
             if is_turbo_mode:
-                console.print(
-                    "[green]Found unseen content, exiting turbo mode to process it properly[/green]"
-                )
+                logger.success("Found unseen content, exiting turbo mode to process it properly")
                 is_turbo_mode = False
 
             # Add to seen URLs to avoid duplicates in this session
@@ -1492,11 +1442,11 @@ def scroll_and_extract(
 
             # If we've found some unseen content, exit turbo mode
             if new_items > 0 and is_turbo_mode:
-                console.print("[green]Found new items, exiting turbo mode[/green]")
+                logger.success("Found new items, exiting turbo mode")
                 is_turbo_mode = False
 
         if skipped_items > 0:
-            console.print(f"[dim]Skipped {skipped_items} already seen items[/dim]")
+            logger.debug(f"Skipped {skipped_items} already seen items")
 
         # Track if all items in this batch were already seen
         all_items_seen = skipped_items > 0 and skipped_items == len(current_items)
@@ -1505,14 +1455,12 @@ def scroll_and_extract(
         if all_items_seen:
             consecutive_all_seen += 1
             if consecutive_all_seen > 3 and not is_turbo_mode:
-                console.print(
-                    "[yellow]Multiple scrolls with only seen items, using fast-scroll mode...[/yellow]"
-                )
+                logger.warning("Multiple scrolls with only seen items, using fast-scroll mode...")
         else:
             consecutive_all_seen = 0
             # If we find new items, exit turbo mode
             if new_items > 0 and is_turbo_mode:
-                console.print("[green]Found new items, exiting turbo mode[/green]")
+                logger.success("Found new items, exiting turbo mode")
                 is_turbo_mode = False
 
         # If we're continuing on seen items but still finding new ones,
@@ -1527,8 +1475,8 @@ def scroll_and_extract(
                 and total_skipped > 0
                 and no_new_items_count < config.scroll_config.max_no_new_items
             ):
-                console.print(
-                    "[dim]No new items this scroll, but continuing to look for unseen content...[/dim]"
+                logger.debug(
+                    "No new items this scroll, but continuing to look for unseen content..."
                 )
 
         # NEW: Track container count to detect when we've truly reached the end of the feed
@@ -1555,9 +1503,7 @@ def scroll_and_extract(
             if should_enter_turbo and not is_turbo_mode and all_items_seen:
                 is_turbo_mode = True
                 consecutive_same_height = 0
-                console.print(
-                    "[yellow]Entering turbo mode to reach unseen content faster...[/yellow]"
-                )
+                logger.warning("Entering turbo mode to reach unseen content faster...")
         # When in turbo mode, we manage scrolling directly in the turbo mode section
 
         # NEW: Check if we've reached the true end of the feed by seeing if more containers appear
@@ -1572,15 +1518,15 @@ def scroll_and_extract(
                 and consecutive_same_height >= config.scroll_config.max_consecutive_same_height - 1
                 and no_new_items_count >= config.scroll_config.max_no_new_items - 1
             ):
-                console.print(
-                    f"[yellow]Reached end of feed: No new containers after {no_new_items_count} scrolls[/yellow]"
+                logger.warning(
+                    f"Reached end of feed: No new containers after {no_new_items_count} scrolls"
                 )
                 break  # Exit loop - we've truly reached the end
 
             # If we're getting more containers but they're all seen, be persistent and keep scrolling
             if len(new_containers) > previous_container_count:
-                console.print(
-                    f"[dim]Found more containers ({len(new_containers)} vs {previous_container_count}), continuing to scroll...[/dim]"
+                logger.debug(
+                    f"Found more containers ({len(new_containers)} vs {previous_container_count}), continuing to scroll..."
                 )
                 # Be more lenient with no_new_items_count when we're finding more containers
                 if no_new_items_count > 0 and skipped_items > 0:
@@ -1594,7 +1540,7 @@ def scroll_and_extract(
 
         # If we've reached the date cutoff, exit the loop
         if date_cutoff_reached:
-            console.print(
-                f"[yellow]Stopping extraction as items older than {config.stop_after_date} have been reached[/yellow]"
+            logger.warning(
+                f"Stopping extraction as items older than {config.stop_after_date} have been reached"
             )
             break

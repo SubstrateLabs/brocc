@@ -335,8 +335,7 @@ class ChromeManager:
 def gui_confirm(message: str, default: bool = True) -> bool:
     """Example of a GUI confirmation function."""
     # This would be replaced with actual GUI code, e.g., using PyQt, Tkinter, etc.
-    # For demonstration, we'll just print and return True
-    print(f"CONFIRM: {message} [Y/n]: ")
+    logger.info(f"CONFIRM: {message} [Y/n]: ")
     return True  # Always confirm in this example
 
 
