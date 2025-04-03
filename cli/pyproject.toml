@@ -25,6 +25,7 @@ dependencies = [
     "html-to-markdown>=1.2.0",
     "lancedb>=0.21.2",
     "numpy>=2.2.4",
+    "pandas>=2.2.3",
     "pillow>=11.2.0",
     "platformdirs>=4.3.7",
     "playwright>=1.51.0",

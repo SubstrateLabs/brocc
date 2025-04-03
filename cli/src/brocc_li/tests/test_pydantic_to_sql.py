@@ -36,11 +36,21 @@ def test_generate_create_table_sql():
     """Test if the generated CREATE TABLE SQL matches the expected schema."""
     generated_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
 
-    # Normalize whitespace for comparison (optional, but helps avoid trivial differences)
-    normalized_generated = " ".join(generated_sql.split())
-    normalized_expected = " ".join(EXPECTED_SCHEMA.split())
-
     print("\nGenerated SQL:\n", generated_sql)
     print("\nExpected SQL:\n", EXPECTED_SCHEMA)
 
-    assert normalized_generated == normalized_expected
+    # Extract field definitions (ignoring order) for comparison
+    def extract_fields(sql):
+        # Get everything between the parentheses
+        fields_section = sql.split("(")[1].split(")")[0].strip()
+        # Split into individual field definitions and clean them up
+        fields = [field.strip() for field in fields_section.split(",")]
+        return set(fields)
+
+    generated_fields = extract_fields(generated_sql)
+    expected_fields = extract_fields(EXPECTED_SCHEMA)
+
+    # Compare the sets of fields (order-insensitive)
+    assert generated_fields == expected_fields, (
+        f"Field definitions don't match.\nMissing: {expected_fields - generated_fields}\nExtra: {generated_fields - expected_fields}"
+    )

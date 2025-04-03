@@ -16,16 +16,19 @@ Document update/versioning behavior:
   * Docs with different content (even with same URL or ID) will create new versions
 """
 
+from __future__ import annotations
+
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import duckdb
 import lancedb
 import polars as pl
 from lancedb.embeddings import get_registry
+from lancedb.pydantic import LanceModel, Vector
 from platformdirs import user_data_dir
 
 from brocc_li.embed.chunk_header import chunk_header
@@ -115,33 +118,26 @@ class DocDB:
             tables = self.lance_db.table_names()
 
             if LANCE_CHUNKS_TABLE not in tables:
-                # Define LanceModel for chunks with embedding
-                try:
-                    # Get registry and embedding function
-                    registry = get_registry()
-                    voyage_ai = registry.get("voyageai").create()
-                    logger.info("Successfully loaded VoyageAI embedding function")
+                # Get registry and embedding function
+                registry = get_registry()
+                voyage_ai = registry.get("voyageai").create()
+                logger.info("Successfully loaded VoyageAI embedding function")
 
-                    # Create a subclass of ChunkModel to add the embedding fields
-                    # ChunkModel already inherits from LanceModel in doc.py
-                    class ChunkModelWithEmbedding(ChunkModel):
-                        content_json: str = (
-                            voyage_ai.SourceField()
-                        )  # JSON serialized multimodal content
-                        vector: Any = voyage_ai.VectorField()
+                # Create a subclass of ChunkModel to add the embedding fields
+                class ChunkModelWithEmbedding(ChunkModel):
+                    # Override content to be a SourceField for embedding
+                    # Make type match the base class (now non-optional)
+                    content: str = voyage_ai.SourceField()
+                    # Specify vector field with proper inline Vector factory function
+                    # The string annotation allows this to work with __future__.annotations
+                    vector: "Vector(voyage_ai.ndims())" = voyage_ai.VectorField()  # pyright: ignore[reportInvalidTypeForm]
 
-                    # Create the table with the ChunkModel schema
-                    self.lance_db.create_table(
-                        LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
-                    )
-                    logger.info(
-                        f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}"
-                    )
+                # Create the table with the ChunkModel schema
+                self.lance_db.create_table(
+                    LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
+                )
+                logger.info(f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}")
 
-                except Exception as e:
-                    logger.error(f"Failed to set up embedding function: {e}")
-                    self.lance_db = None
-                    logger.warning("Vector search will not be available - embedding setup failed")
             else:
                 logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
 
@@ -245,9 +241,9 @@ class DocDB:
                 row = {
                     **chunk_dict,  # Basic chunk fields (id, doc_id, chunk_index, etc.)
                     **doc_fields,  # Document metadata fields
-                    "content_json": json.dumps(
+                    "content": json.dumps(
                         structured_content
-                    ),  # The field that will be automatically embedded
+                    ),  # Store content as a serialized string
                 }
 
                 lance_data.append(row)
@@ -839,7 +835,8 @@ class DocDB:
 
             # With the LanceModel approach, we can search directly with the text query
             # The embedding will be generated automatically
-            search_query = table.search(query)
+            # Explicitly specify vector column name
+            search_query = table.search(query, vector_column_name="vector")
 
             # Apply filter if provided
             if filter_str:
@@ -886,10 +883,10 @@ class DocDB:
                             except json.JSONDecodeError:
                                 result[array_field] = []
 
-                # Extract text content from multimodal content_json if available
-                if "content_json" in item and item["content_json"]:
+                # Extract text content from multimodal content if available
+                if "content" in item and item["content"]:
                     try:
-                        content_data = json.loads(item["content_json"])
+                        content_data = json.loads(item["content"])
                         content_items = content_data.get("content", [])
 
                         # Extract text and image URLs
@@ -915,7 +912,7 @@ class DocDB:
                             result["has_images"] = True
                     except json.JSONDecodeError:
                         # Fallback for backward compatibility
-                        result["text"] = item.get("content_json", "")
+                        result["text"] = item.get("content", "")
                 elif "text" in item:
                     # Backward compatibility for old schema
                     result["text"] = item["text"]

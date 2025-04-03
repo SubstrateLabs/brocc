@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -46,22 +47,16 @@ class DocExtractor(BaseModel):
 
 
 # Base model with common fields shared between Doc and ChunkModel
+# Only simple scalar fields that LanceDB can handle are included here
 class BaseDocFields(BaseModel):
     url: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     contact_name: Optional[str] = None
     contact_identifier: Optional[str] = None
-    contact_metadata: Dict[str, Any] = Field(default_factory=dict)
-    participant_names: Optional[List[str]] = None
-    participant_identifiers: Optional[List[str]] = None
-    participant_metadatas: Optional[List[Dict[str, Any]]] = None
-    # location stored as (longitude, latitude)
-    location: Optional[tuple[float, float]] = None
-    keywords: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    source: Union[Source, str, None] = None
-    source_type: Union[SourceType, str, None] = None
+    # Use simple strings rather than Union types for LanceDB compatibility
+    source: Optional[str] = None
+    source_type: Optional[str] = None
     source_location_identifier: Optional[str] = None
     source_location_name: Optional[str] = None
     created_at: Optional[str] = None
@@ -83,7 +78,16 @@ class BaseDocFields(BaseModel):
         base_fields = set(cls.model_fields.keys())
 
         # Extract matching fields from the data
-        return {k: v for k, v in data.items() if k in base_fields}
+        result = {}
+        for k, v in data.items():
+            if k in base_fields:
+                # For source/source_type fields, convert enum objects to strings
+                if k in ["source", "source_type"] and hasattr(v, "value"):
+                    result[k] = v.value
+                else:
+                    result[k] = v
+
+        return result
 
 
 class Chunk(BaseModel):
@@ -98,6 +102,20 @@ class Chunk(BaseModel):
 
 class Doc(BaseDocFields):
     id: str
+    # Original enum types for source/source_type in the Doc model
+    source: Union[Source, str, None] = None  # Override the string-only version from BaseDocFields
+    source_type: Union[SourceType, str, None] = (
+        None  # Override the string-only version from BaseDocFields
+    )
+    # Complex fields that LanceDB can't handle (moved from BaseDocFields)
+    # Arrays, lists, tuples, and dictionaries
+    participant_names: Optional[List[str]] = None
+    participant_identifiers: Optional[List[str]] = None
+    participant_metadatas: Optional[List[Dict[str, Any]]] = None
+    location: Optional[tuple[float, float]] = None
+    keywords: List[str] = Field(default_factory=list)
+    contact_metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     # text_content is used for temporary storage during document processing
     # It holds the raw content before chunking and is NOT directly persisted in the database
     # Instead, it's processed by store_document and stored separately in the chunks table
@@ -162,25 +180,31 @@ class Doc(BaseDocFields):
 
 
 # ChunkModel inherits from Chunk, BaseDocFields and LanceModel
-class ChunkModel(Chunk, BaseDocFields, LanceModel):
+class ChunkModel(BaseDocFields, LanceModel):
     """
     Model for chunks stored in LanceDB with embeddings.
     Inherits from:
-    - Chunk (for chunk structure)
     - BaseDocFields (for doc metadata)
     - LanceModel (for vector DB storage)
+
+    Rather than inheriting from Chunk directly (which includes complex content field),
+    we define the fields we need from Chunk directly to avoid LanceDB conversion issues.
 
     In doc_db.py, a subclass with embedding fields is created:
 
     class ChunkModelWithEmbedding(ChunkModel):
-        text: str = embedding_func.SourceField()
+        content: str = embedding_func.SourceField()
         vector: Any = embedding_func.VectorField()
 
     This approach keeps ChunkModel reusable while allowing
     specific embedding functions to be used at runtime.
     """
 
-    # Shared fields with Doc are inherited from BaseDocFields
-    # The embedding fields will be added in doc_db.py:
-    # text: str - SourceField for the embedding function
-    # vector: Any - VectorField produced by the embedding function
+    # Fields from Chunk, but excluding 'content'
+    id: str
+    doc_id: str  # Reference to parent document
+    chunk_index: int  # Position of this chunk
+    chunk_total: int  # Total number of chunks in this document
+
+    # JSON serialized version of content for LanceDB storage
+    content: str = ""  # Changed from Optional[str] = None to be compatible with embedding

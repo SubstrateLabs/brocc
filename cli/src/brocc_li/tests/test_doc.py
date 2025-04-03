@@ -235,7 +235,7 @@ def test_extract_base_fields():
         "title": "Test Document",  # In BaseDocFields
         "description": "A test document",  # In BaseDocFields
         "text_content": "This is test content",  # Not in BaseDocFields
-        "participant_names": ["Person 1", "Person 2"],  # In BaseDocFields
+        "participant_names": ["Person 1", "Person 2"],  # Not in BaseDocFields
         "source": "twitter",  # In BaseDocFields
         "random_field": "random value",  # Not in BaseDocFields
     }
@@ -247,12 +247,12 @@ def test_extract_base_fields():
     assert "id" not in base_fields, "id is not a BaseDocFields field"
     assert "random_field" not in base_fields, "random_field is not a BaseDocFields field"
     assert "text_content" not in base_fields, "text_content is not a BaseDocFields field"
+    assert "participant_names" not in base_fields, "participant_names is not a BaseDocFields field"
 
     # Check that all base fields are included
     assert base_fields["url"] == "https://example.com"
     assert base_fields["title"] == "Test Document"
     assert base_fields["description"] == "A test document"
-    assert base_fields["participant_names"] == ["Person 1", "Person 2"]
     assert base_fields["source"] == "twitter"
 
     # Check total count of fields
