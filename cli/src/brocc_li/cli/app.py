@@ -8,9 +8,11 @@ from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedContent
 
 from brocc_li.cli import auth
+from brocc_li.cli.server import HOST, PORT, run_server_in_thread
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
+from brocc_li.utils.version import get_version
 
 load_dotenv()
 
@@ -22,6 +24,7 @@ class AppContent(Static):
 
     def compose(self) -> ComposeResult:
         yield Static(f"Site URL: {self.app_instance.API_URL}", id="site-url")
+        yield Static(f"Local API: http://{HOST}:{PORT}", id="api-url")
         yield Container(
             Label("Not logged in", id="auth-status"),
             Horizontal(
@@ -50,11 +53,12 @@ class LogsPanel(Static):
 
 
 class BroccApp(App):
-    TITLE = "🥦 brocc"
+    TITLE = f"🥦 brocc v{get_version()}"
     BINDINGS = [
         ("ctrl+c", "request_quit", "Quit"),
     ]
     API_URL = get_api_url()
+    API_PORT = PORT  # Port for the local FastAPI server
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
     CSS = """
@@ -96,11 +100,17 @@ class BroccApp(App):
         color: #dddddd;
         overflow-y: scroll;
     }
+    
+    #api-url {
+        color: green;
+        text-style: bold;
+    }
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.auth_data = load_auth_data()
+        self.server_thread = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -152,8 +162,15 @@ class BroccApp(App):
             logger.debug("Could not update auth status: UI not ready")
 
     def on_mount(self) -> None:
-        self.title = "🥦 Brocc"
+        self.title = f"🥦 Brocc v{get_version()}"
         self._update_auth_status()
+
+        # Start the FastAPI server in a background thread
+        try:
+            logger.info("Starting FastAPI server...")
+            self.server_thread = run_server_in_thread()
+        except Exception as e:
+            logger.error(f"Failed to start FastAPI server: {e}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Call the appropriate action based on button name"""
@@ -205,10 +222,7 @@ class BroccApp(App):
     def _logout_worker(self):
         try:
             status_label = self.query_one("#auth-status", Label)
-
-            # Update UI
             status_label.update("Logging out...")
-
             if auth.logout():
                 self.auth_data = None
                 status_label.update("Successfully logged out")

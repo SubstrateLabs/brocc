@@ -21,13 +21,9 @@ class Logger:
         # Clear any existing content in the widget
         if log_widget:
             log_widget.clear()
-
             # Write any existing history to the widget
             if self._log_history:
-                log_widget.write_line("📝 pre-init logs")
                 log_widget.write_lines(self._log_history)
-            # Write test message to verify logging works
-            log_widget.write_line("📝 logger initialized")
 
     def _write_to_log(self, level: str, message: str):
         """Write to the log widget if available and store in history."""
