@@ -1,5 +1,4 @@
 - textualize css
-- site api health endpoint
 - solidify login ux
 - fastapi server
 - logs panel

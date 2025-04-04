@@ -1,12 +1,7 @@
 import threading
 
-try:
-    import uvicorn
-    from fastapi import FastAPI
-except ImportError as err:
-    raise ImportError(
-        "FastAPI dependencies not installed. Run: pip install fastapi uvicorn[standard]"
-    ) from err
+import uvicorn
+from fastapi import FastAPI
 
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version

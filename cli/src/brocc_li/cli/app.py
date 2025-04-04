@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,6 +9,7 @@ from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedContent
 
 from brocc_li.cli import auth
+from brocc_li.cli.api_health import check_and_update_api_status
 from brocc_li.cli.server import HOST, PORT, run_server_in_thread
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
@@ -23,10 +25,7 @@ class AppContent(Static):
         self.app_instance = app_instance
 
     def compose(self) -> ComposeResult:
-        yield Static(f"Site URL: {self.app_instance.API_URL}", id="site-url")
-        yield Static(f"Local API: http://{HOST}:{PORT}", id="api-url")
         yield Container(
-            Label("Not logged in", id="auth-status"),
             Horizontal(
                 Button(label="Login", id="login-btn", variant="default", name="login"),
                 Button(
@@ -40,6 +39,12 @@ class AppContent(Static):
             ),
             Static("", id="auth-url-display"),
             id="auth-container",
+        )
+        yield Container(
+            Static("Site API: Checking...", id="site-health"),
+            Static("Local API: Checking...", id="local-health"),
+            Label("Not logged in", id="auth-status"),
+            id="health-container",
         )
 
 
@@ -67,6 +72,8 @@ class BroccApp(App):
         super().__init__(*args, **kwargs)
         self.auth_data = load_auth_data()
         self.server_thread = None
+        self.site_api_healthy = False
+        self.local_api_healthy = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -79,6 +86,9 @@ class BroccApp(App):
 
     def action_request_quit(self) -> None:
         self.exit()
+
+    def action_check_health(self) -> None:
+        self.run_worker(self._check_health_worker, thread=True)
 
     def action_login(self) -> None:
         self.run_worker(self._login_worker, thread=True)
@@ -98,7 +108,7 @@ class BroccApp(App):
 
             if self.auth_data is None:
                 status_label.update("Not logged in")
-                login_btn.disabled = False
+                login_btn.disabled = False or not self.site_api_healthy
                 logout_btn.disabled = True
                 return
 
@@ -112,10 +122,71 @@ class BroccApp(App):
                 logout_btn.disabled = False
             else:
                 status_label.update("Not logged in")
-                login_btn.disabled = False
+                login_btn.disabled = False or not self.site_api_healthy
                 logout_btn.disabled = True
         except NoMatches:
             logger.debug("Could not update auth status: UI not ready")
+
+    def _update_ui_status(self, message: str, element_id: str) -> None:
+        """Update UI status element with a message"""
+        try:
+            element = self.query_one(f"#{element_id}", Static)
+            element.update(message)
+        except NoMatches:
+            logger.debug(f"Could not update UI status: element #{element_id} not found")
+
+    def _restart_local_server(self) -> bool:
+        """Restart the local API server if it died"""
+        try:
+            if self.server_thread is not None and not self.server_thread.is_alive():
+                logger.info("Previous server thread died, starting a new one")
+                self.server_thread = run_server_in_thread()
+                # Give it a moment to start
+                time.sleep(1)
+                return True
+            return False
+        except Exception as restart_err:
+            logger.error(f"Failed to restart local API: {restart_err}")
+            return False
+
+    def _check_health_worker(self):
+        """Worker to check health of both APIs"""
+        try:
+            # Check site API health
+            local_url = f"http://{HOST}:{PORT}"
+
+            # Update site API health status
+            self.site_api_healthy = check_and_update_api_status(
+                api_name="Site API",
+                api_url=self.API_URL,
+                update_ui_fn=lambda msg: self._update_ui_status(msg, "site-health"),
+            )
+
+            # Update local API health status
+            self.local_api_healthy = check_and_update_api_status(
+                api_name="Local API",
+                api_url=local_url,
+                is_local=True,
+                update_ui_fn=lambda msg: self._update_ui_status(msg, "local-health"),
+                restart_server_fn=self._restart_local_server,
+            )
+
+            # Update login button state based on API health
+            self._update_auth_status()
+
+            # Update login button specifically based on site API health
+            try:
+                login_btn = self.query_one("#login-btn", Button)
+                if not self.site_api_healthy:
+                    login_btn.disabled = True
+                    logger.warning("Login disabled because Site API is not available")
+                elif not self.is_logged_in:
+                    login_btn.disabled = False
+            except NoMatches:
+                pass
+
+        except Exception as e:
+            logger.error(f"Error checking health: {e}")
 
     def on_mount(self) -> None:
         self.title = f"🥦 Brocc v{get_version()}"
@@ -125,8 +196,14 @@ class BroccApp(App):
         try:
             logger.info("Starting FastAPI server...")
             self.server_thread = run_server_in_thread()
+
+            # Wait a moment to give the server time to start
+            time.sleep(0.5)
         except Exception as e:
             logger.error(f"Failed to start FastAPI server: {e}")
+
+        # Check health status
+        self.run_worker(self._check_health_worker, thread=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Call the appropriate action based on button name"""
@@ -151,6 +228,12 @@ class BroccApp(App):
         try:
             status_label = self.query_one("#auth-status", Label)
             auth_url_display = self.query_one("#auth-url-display", Static)
+
+            # Check if Site API is healthy before proceeding
+            if not self.site_api_healthy:
+                status_label.update("[red]Cannot login: Site API is not available[/red]")
+                logger.error("Login aborted: Site API is not available")
+                return
 
             # Clear previous URL display
             auth_url_display.update("")
