@@ -26,16 +26,16 @@ except ImportError as e:
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description="Run system tray icon for Brocc")
-parser.add_argument("--host", type=str, default="127.0.0.1", help="WebUI host")
-parser.add_argument("--port", type=str, default="8023", help="WebUI port")
+parser.add_argument("--host", type=str, default="127.0.0.1", help="WebApp host")
+parser.add_argument("--port", type=str, default="8023", help="WebApp port")
 parser.add_argument("--api-host", type=str, default="127.0.0.1", help="API host")
 parser.add_argument("--api-port", type=str, default="8022", help="API port")
 parser.add_argument("--version", type=str, default="0.0.1", help="App version")
 parser.add_argument("--exit-file", type=str, help="Path to file to watch for exit signal")
 args = parser.parse_args()
 
-# Set up the URL for the WebUI and API
-WEBUI_URL = f"http://{args.host}:{args.port}"
+# Set up the URL for the WebApp and API
+WEBAPP_URL = f"http://{args.host}:{args.port}"
 API_URL = f"http://{args.api_host}:{args.api_port}"
 VERSION = args.version
 
@@ -101,12 +101,12 @@ def create_tray_icon():
 
 
 def on_open_window(icon, item):
-    """Open the WebUI window using the API"""
+    """Open the WebApp window using the API"""
     try:
-        print("Launching WebUI window via API")
+        print("Launching WebApp window via API")
         response = requests.post(
             f"{API_URL}/webview/launch",
-            params={"webui_url": WEBUI_URL, "title": f"🥦 Brocc v{VERSION}"},
+            params={"webapp_url": WEBAPP_URL, "title": f"🥦 Brocc v{VERSION}"},
         )
 
         if response.status_code == 200:
@@ -123,15 +123,15 @@ def on_open_window(icon, item):
             # Fallback to direct browser open if API fails
             import webbrowser
 
-            print(f"Falling back to direct browser open: {WEBUI_URL}")
-            webbrowser.open(WEBUI_URL)
+            print(f"Falling back to direct browser open: {WEBAPP_URL}")
+            webbrowser.open(WEBAPP_URL)
     except Exception as e:
         print(f"Error calling API to launch webview: {e}")
         # Fallback to direct browser open if API fails
         import webbrowser
 
-        print(f"Falling back to direct browser open: {WEBUI_URL}")
-        webbrowser.open(WEBUI_URL)
+        print(f"Falling back to direct browser open: {WEBAPP_URL}")
+        webbrowser.open(WEBAPP_URL)
 
 
 def setup_icon():
@@ -150,7 +150,7 @@ def setup_icon():
     icon = pystray.Icon("brocc", icon=icon_image, title=f"Brocc v{VERSION}", menu=menu)
 
     print(f"Starting system tray icon for Brocc v{VERSION}")
-    print(f"WebUI URL: {WEBUI_URL}")
+    print(f"WebApp URL: {WEBAPP_URL}")
     print(f"API URL: {API_URL}")
 
     # Run the icon

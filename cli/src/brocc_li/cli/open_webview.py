@@ -2,15 +2,15 @@ import atexit
 
 import requests
 
-from brocc_li.cli.server import API_HOST, API_PORT
-from brocc_li.cli.webui import WEBUI_HOST, WEBUI_PORT
+from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT
+from brocc_li.cli.webapp_server import WEBAPP_HOST, WEBAPP_PORT
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
-# URL for the WebUI
-WEBUI_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
+# URL for the WebApp
+WEBAPP_URL = f"http://{WEBAPP_HOST}:{WEBAPP_PORT}"
 # URL for the API
-API_URL = f"http://{API_HOST}:{API_PORT}"
+API_URL = f"http://{FASTAPI_HOST}:{FASTAPI_PORT}"
 
 
 def is_webview_open():
@@ -86,7 +86,7 @@ def open_webview():
         # Call the API to launch the webview
         response = requests.post(
             f"{API_URL}/webview/launch",
-            params={"webui_url": WEBUI_URL, "title": f"🥦 Brocc v{get_version()}"},
+            params={"webapp_url": WEBAPP_URL, "title": f"🥦 Brocc v{get_version()}"},
         )
 
         if response.status_code == 200:

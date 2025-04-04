@@ -19,12 +19,12 @@ from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
 # --- Constants ---
-WEBUI_HOST = "127.0.0.1"
-WEBUI_PORT = 8023  # Using a different port than the FastAPI server
+WEBAPP_HOST = "127.0.0.1"
+WEBAPP_PORT = 8023  # Using a different port than the FastAPI server
 
 
 def create_app():
-    """Create a FastHTML app for the WebUI"""
+    """Create a FastHTML app for the WebApp"""
     app, rt = fast_app(pico=True)  # Enable Pico CSS for nice styling
 
     @rt("/")
@@ -55,7 +55,7 @@ def create_app():
         """Health check endpoint that returns JSON"""
         return {
             "status": "healthy",
-            "service": "brocc-webui",
+            "service": "brocc-webapp",
             "version": get_version(),
             "timestamp": datetime.now().isoformat(),
         }
@@ -71,7 +71,7 @@ class NoSignalUvicornServer(uvicorn.Server):
         pass
 
 
-def start_server(host=WEBUI_HOST, port=WEBUI_PORT):
+def start_server(host=WEBAPP_HOST, port=WEBAPP_PORT):
     """Start the FastHTML server using a custom uvicorn configuration"""
     try:
         # Create and configure the app
@@ -80,7 +80,7 @@ def start_server(host=WEBUI_HOST, port=WEBUI_PORT):
         # FastHTML app is already ASGI-compatible
         # No need to convert it
 
-        logger.info(f"Starting WebUI server at http://{host}:{port}")
+        logger.info(f"Starting WebApp server at http://{host}:{port}")
 
         # Configure Uvicorn with our custom server class
         config = uvicorn.Config(
@@ -96,22 +96,22 @@ def start_server(host=WEBUI_HOST, port=WEBUI_PORT):
         server.run()
 
     except Exception as e:
-        logger.error(f"Error starting WebUI server: {e}")
+        logger.error(f"Error starting WebApp server: {e}")
 
 
-def run_server_in_thread(host=WEBUI_HOST, port=WEBUI_PORT):
-    """Run the WebUI server in a separate thread"""
+def run_server_in_thread(host=WEBAPP_HOST, port=WEBAPP_PORT):
+    """Run the WebApp server in a separate thread"""
     # Use threading instead of multiprocessing to avoid file descriptor issues
     server_thread = threading.Thread(
         target=start_server,
         args=(host, port),
         daemon=True,  # Make sure thread closes when main app closes
-        name="brocc-webui-server",
+        name="brocc-webapp-server",
     )
 
-    logger.info(f"Creating WebUI server thread for {host}:{port}")
+    logger.info(f"Creating WebApp server thread for {host}:{port}")
     server_thread.start()
-    logger.info(f"WebUI server thread started with ID: {server_thread.ident}")
+    logger.info(f"WebApp server thread started with ID: {server_thread.ident}")
 
     # Give the server a moment to start
     time.sleep(0.5)

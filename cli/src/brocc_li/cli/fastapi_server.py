@@ -16,8 +16,8 @@ from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
 # --- Constants ---
-API_HOST = "127.0.0.1"
-API_PORT = 8022
+FASTAPI_HOST = "127.0.0.1"
+FASTAPI_PORT = 8022
 
 # --- Server ---
 app = FastAPI(
@@ -134,9 +134,9 @@ async def health_check():
 # --- Routes ---
 @app.post("/webview/launch")
 async def launch_webview(
-    background_tasks: BackgroundTasks, webui_url: str = "http://127.0.0.1:8023", title: str = ""
+    background_tasks: BackgroundTasks, webapp_url: str = "http://127.0.0.1:8023", title: str = ""
 ):
-    """Launch a webview window pointing to the WebUI"""
+    """Launch a webview window pointing to the WebApp"""
     global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS
 
     # Check if already active
@@ -158,7 +158,7 @@ async def launch_webview(
 
     # Launch in a background task to not block the response
     background_tasks.add_task(
-        _launch_webview_process, webui_url, title if title else f"🥦 Brocc v{get_version()}"
+        _launch_webview_process, webapp_url, title if title else f"🥦 Brocc v{get_version()}"
     )
 
     return {"status": "launching", "message": "Launching webview process"}
@@ -345,17 +345,15 @@ def _focus_webview_window():
         return False
 
 
-def _launch_webview_process(webui_url, title):
+def _launch_webview_process(webapp_url, title):
     """Launch the webview process and monitor it"""
     global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS
 
     try:
-        # Get the launcher script path
         script_dir = Path(__file__).parent
-        launcher_path = script_dir / "webview_launcher.py"
-
+        launcher_path = script_dir / "webview_process.py"
         if not launcher_path.exists():
-            logger.error(f"Webview launcher script not found at: {launcher_path}")
+            logger.error(f"Webview process script not found at: {launcher_path}")
             return
 
         # Get the current Python executable
@@ -365,10 +363,10 @@ def _launch_webview_process(webui_url, title):
         cmd = [
             python_exe,
             str(launcher_path),
-            webui_url,
+            webapp_url,
             title,
-            API_HOST,  # Pass API host for WebSocket connection
-            str(API_PORT),  # Pass API port for WebSocket connection
+            FASTAPI_HOST,  # Pass API host for WebSocket connection
+            str(FASTAPI_PORT),  # Pass API port for WebSocket connection
         ]
 
         logger.info(f"Launching webview process with command: {' '.join(cmd)}")
@@ -432,7 +430,7 @@ def _launch_webview_process(webui_url, title):
 
 
 # --- Server functions ---
-def start_server(host=API_HOST, port=API_PORT):
+def start_server(host=FASTAPI_HOST, port=FASTAPI_PORT):
     """Start the FastAPI server"""
     try:
         logger.info(f"Starting FastAPI server, docs: http://{host}:{port}/docs")
@@ -446,7 +444,7 @@ def start_server(host=API_HOST, port=API_PORT):
         logger.error(f"Error starting FastAPI server: {e}")
 
 
-def run_server_in_thread(host=API_HOST, port=API_PORT):
+def run_server_in_thread(host=FASTAPI_HOST, port=FASTAPI_PORT):
     """Run the server in a separate thread"""
     logger.info(f"Creating server thread for {host}:{port}")
     server_thread = threading.Thread(

@@ -15,16 +15,16 @@ from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
 from brocc_li.cli import auth
 from brocc_li.cli.api_health import check_and_update_api_status
+from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
 from brocc_li.cli.open_webview import (
     close_webview,
     is_webview_open,
     open_webview,
 )
-from brocc_li.cli.server import API_HOST, API_PORT, run_server_in_thread
 from brocc_li.cli.textual_ui.info_panel import InfoPanel
 from brocc_li.cli.textual_ui.logs_panel import LogsPanel
-from brocc_li.cli.webui import WEBUI_HOST, WEBUI_PORT
-from brocc_li.cli.webui import run_server_in_thread as run_webui_in_thread
+from brocc_li.cli.webapp_server import WEBAPP_HOST, WEBAPP_PORT
+from brocc_li.cli.webapp_server import run_server_in_thread as run_webapp_in_thread
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -32,8 +32,44 @@ from brocc_li.utils.version import get_version
 
 load_dotenv()
 
+# Constants for UI messages and labels
+UI_STATUS = {
+    "WINDOW_OPEN": "Window: [green]Open[/green]",
+    "WINDOW_READY": "Window: [blue]Ready to launch[/blue]",
+    "WINDOW_CLOSED": "Window: [blue]Closed after logout[/blue]",
+    "WINDOW_LAUNCHED": "Window: [green]Launched successfully[/green]",
+    "WINDOW_FOCUSED": "Window: [green]Brought to foreground[/green]",
+    "WINDOW_LAUNCH_FAILED": "Window: [red]Failed to launch[/red]",
+    "WINDOW_STATUS_UNCLEAR": "Window: [yellow]Status unclear[/yellow]",
+    "WINDOW_LOGGED_OUT": "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
+    "WEBAPP_OPEN": "WebApp: [green]Open[/green]",
+    "WEBAPP_READY": "WebApp: [blue]Ready to launch[/blue]",
+}
+
+BUTTON_LABELS = {
+    "OPEN_WINDOW": "Open Brocc window",
+    "SHOW_WINDOW": "Show Brocc window",
+    "LOGIN_TO_OPEN": "Login to open app window",
+}
+
 # Global vars for systray
 _SYSTRAY_PROCESS = None
+
+
+def get_service_url(host, port):
+    """Generate service URL from host and port"""
+    return f"http://{host}:{port}"
+
+
+def update_ui_element(app, element_id, message):
+    """Update UI element with message, handling NoMatches exception"""
+    try:
+        element = app.query_one(f"#{element_id}", Static)
+        element.update(message)
+        return True
+    except NoMatches:
+        logger.debug(f"Could not update UI status: element #{element_id} not found")
+        return False
 
 
 class AppContent(Static):
@@ -45,15 +81,15 @@ class AppContent(Static):
         yield Container(
             Horizontal(
                 Button(
-                    label="Open Brocc window",
-                    id="open-webui-btn",
+                    label=BUTTON_LABELS["OPEN_WINDOW"],
+                    id="open-webapp-btn",
                     variant="primary",
                     disabled=True,
-                    name="open_webui",
+                    name="open_webapp",
                 ),
-                id="webui-buttons",
+                id="webapp-buttons",
             ),
-            id="webui-container",
+            id="webapp-container",
         )
 
 
@@ -63,7 +99,7 @@ class BroccApp(App):
         ("ctrl+c", "request_quit", "Quit"),
     ]
     API_URL = get_api_url()
-    LOCAL_API_PORT = API_PORT  # Port for the local FastAPI server
+    LOCAL_API_PORT = FASTAPI_PORT  # Port for the local FastAPI server
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
     CSS_PATH = ["app.tcss", "textual_ui/info_panel.tcss", "textual_ui/logs_panel.tcss"]
@@ -72,7 +108,7 @@ class BroccApp(App):
         super().__init__(*args, **kwargs)
         self.auth_data = load_auth_data()
         self.server_thread = None
-        self.webui_thread = None
+        self.webapp_thread = None
         self.webview_thread = None  # Add reference to webview thread
         self.site_api_healthy = False
         self.local_api_healthy = False
@@ -115,13 +151,13 @@ class BroccApp(App):
                 python_exe,
                 str(launcher_path),
                 "--host",
-                WEBUI_HOST,
+                WEBAPP_HOST,
                 "--port",
-                str(WEBUI_PORT),
+                str(WEBAPP_PORT),
                 "--api-host",
-                API_HOST,
+                FASTAPI_HOST,
                 "--api-port",
-                str(API_PORT),
+                str(FASTAPI_PORT),
                 "--version",
                 get_version(),
                 "--exit-file",
@@ -231,7 +267,7 @@ class BroccApp(App):
                 try:
                     # Call the synchronous endpoint
                     response = requests.post(
-                        f"http://{API_HOST}:{API_PORT}/webview/shutdown",
+                        f"{get_service_url(FASTAPI_HOST, FASTAPI_PORT)}/webview/shutdown",
                         timeout=2.0,  # Give it a reasonable timeout
                     )
 
@@ -256,7 +292,7 @@ class BroccApp(App):
             logger.error(f"Error initiating webview shutdown: {e}")
             # Fall back to direct termination in case API call fails
             try:
-                from brocc_li.cli.server import _WEBVIEW_PROCESS
+                from brocc_li.cli.fastapi_server import _WEBVIEW_PROCESS
 
                 if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                     logger.info("Fallback: Directly terminating webview process")
@@ -285,7 +321,7 @@ class BroccApp(App):
         # First try to quickly terminate any active processes
         try:
             # Try direct termination of the webview process
-            from brocc_li.cli.server import _WEBVIEW_PROCESS
+            from brocc_li.cli.fastapi_server import _WEBVIEW_PROCESS
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                 try:
@@ -326,9 +362,9 @@ class BroccApp(App):
     def action_logout(self) -> None:
         self.run_worker(self._logout_worker, thread=True)
 
-    def action_open_webui(self) -> None:
-        """Action to open the WebUI in a standalone window"""
-        self.run_worker(self._open_webui_worker, thread=True)
+    def action_open_webapp(self) -> None:
+        """Action to open the WebApp in a standalone window"""
+        self.run_worker(self._open_webapp_worker, thread=True)
 
     @property
     def is_logged_in(self) -> bool:
@@ -339,13 +375,13 @@ class BroccApp(App):
             status_label = self.query_one("#auth-status", Label)
             login_btn = self.query_one("#login-btn", Button)
             logout_btn = self.query_one("#logout-btn", Button)
-            open_webui_btn = self.query_one("#open-webui-btn", Button)
+            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
 
             if self.auth_data is None:
                 status_label.update("Not logged in")
                 login_btn.disabled = False or not self.site_api_healthy
                 logout_btn.disabled = True
-                open_webui_btn.disabled = True
+                open_webapp_btn.disabled = True
                 return
 
             if is_logged_in(self.auth_data):
@@ -356,22 +392,18 @@ class BroccApp(App):
                 status_label.update(f"Logged in as: {email} (API Key: {masked_key})")
                 login_btn.disabled = True
                 logout_btn.disabled = False
-                open_webui_btn.disabled = False
+                open_webapp_btn.disabled = False
             else:
                 status_label.update("Not logged in")
                 login_btn.disabled = False or not self.site_api_healthy
                 logout_btn.disabled = True
-                open_webui_btn.disabled = True
+                open_webapp_btn.disabled = True
         except NoMatches:
             logger.debug("Could not update auth status: UI not ready")
 
     def _update_ui_status(self, message: str, element_id: str) -> None:
         """Update UI status element with a message"""
-        try:
-            element = self.query_one(f"#{element_id}", Static)
-            element.update(message)
-        except NoMatches:
-            logger.debug(f"Could not update UI status: element #{element_id} not found")
+        update_ui_element(self, element_id, message)
 
     def _restart_local_server(self) -> bool:
         """Restart the local API server if it died"""
@@ -387,46 +419,44 @@ class BroccApp(App):
             logger.error(f"Failed to restart local API: {restart_err}")
             return False
 
-    def _restart_webui_server(self) -> bool:
-        """Restart the WebUI server if it died"""
+    def _restart_webapp_server(self) -> bool:
+        """Restart the WebApp server if it died"""
         try:
-            if self.webui_thread is not None and not self.webui_thread.is_alive():
-                logger.info("Previous WebUI thread died, starting a new one")
-                self.webui_thread = run_webui_in_thread()
+            if self.webapp_thread is not None and not self.webapp_thread.is_alive():
+                logger.info("Previous WebApp thread died, starting a new one")
+                self.webapp_thread = run_webapp_in_thread()
                 # Give it a moment to start
                 time.sleep(1)
                 return True
             return False
         except Exception as restart_err:
-            logger.error(f"Failed to restart WebUI server: {restart_err}")
+            logger.error(f"Failed to restart WebApp server: {restart_err}")
             return False
 
-    def _update_webui_status(self):
-        """Update the WebUI status in the UI based on current state"""
+    def _update_webapp_status(self):
+        """Update the WebApp status in the UI based on current state"""
         try:
-            webui_status = self.query_one("#webui-health", Static)
-            open_webui_btn = self.query_one("#open-webui-btn", Button)
+            webapp_status = self.query_one("#webapp-health", Static)
+            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
 
             # Check if webview is already open
             if is_webview_open():
-                webui_status.update("WebUI: [green]Open[/green]")
-                open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                open_webui_btn.label = (
-                    "Show Brocc window"  # Change label to indicate focus behavior
-                )
+                webapp_status.update(UI_STATUS["WEBAPP_OPEN"])
+                open_webapp_btn.disabled = False  # Keep enabled for focus functionality
+                open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
             else:
-                webui_status.update("WebUI: [blue]Ready to launch[/blue]")
-                open_webui_btn.disabled = False
-                open_webui_btn.label = "Open Brocc window"
+                webapp_status.update(UI_STATUS["WEBAPP_READY"])
+                open_webapp_btn.disabled = False
+                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
         except NoMatches:
-            logger.debug("Could not update WebUI status: UI component not found")
+            logger.debug("Could not update WebApp status: UI component not found")
 
     def _check_health_worker(self):
         """Worker to check health of both APIs"""
         try:
             # Check site API health
-            local_url = f"http://{API_HOST}:{API_PORT}"
-            webui_url = f"http://{WEBUI_HOST}:{WEBUI_PORT}"  # FastHTML server port
+            local_url = get_service_url(FASTAPI_HOST, FASTAPI_PORT)
+            webapp_url = get_service_url(WEBAPP_HOST, WEBAPP_PORT)
 
             # Update site API health status
             self.site_api_healthy = check_and_update_api_status(
@@ -444,18 +474,18 @@ class BroccApp(App):
                 restart_server_fn=self._restart_local_server,
             )
 
-            # Check WebUI health status
-            webui_healthy = check_and_update_api_status(
-                api_name="WebUI",
-                api_url=webui_url,
+            # Check WebApp health status
+            webapp_healthy = check_and_update_api_status(
+                api_name="WebApp",
+                api_url=webapp_url,
                 is_local=True,
-                update_ui_fn=lambda msg: self._update_ui_status(msg, "webui-health"),
-                restart_server_fn=self._restart_webui_server,
+                update_ui_fn=lambda msg: self._update_ui_status(msg, "webapp-health"),
+                restart_server_fn=self._restart_webapp_server,
             )
 
-            # Update WebUI status including whether the webview is open
-            if webui_healthy:
-                self._update_webui_status()
+            # Update WebApp status including whether the webview is open
+            if webapp_healthy:
+                self._update_webapp_status()
 
             # Update login button state based on API health
             self._update_auth_status()
@@ -463,7 +493,7 @@ class BroccApp(App):
             # Update login button specifically based on site API health
             try:
                 login_btn = self.query_one("#login-btn", Button)
-                open_webui_btn = self.query_one("#open-webui-btn", Button)
+                open_webapp_btn = self.query_one("#open-webapp-btn", Button)
 
                 if not self.site_api_healthy:
                     login_btn.disabled = True
@@ -471,8 +501,8 @@ class BroccApp(App):
                 elif not self.is_logged_in:
                     login_btn.disabled = False
 
-                # Enable/disable Open window button based on WebUI health
-                open_webui_btn.disabled = not webui_healthy
+                # Enable/disable Open window button based on WebApp health
+                open_webapp_btn.disabled = not webapp_healthy
             except NoMatches:
                 pass
 
@@ -496,15 +526,15 @@ class BroccApp(App):
         except Exception as e:
             logger.error(f"Failed to start FastAPI server: {e}")
 
-        # Start the FastHTML WebUI server in a separate thread
+        # Start the FastHTML WebApp server in a separate thread
         try:
-            logger.info("Starting FastHTML WebUI server...")
-            self.webui_thread = run_webui_in_thread()
+            logger.info("Starting FastHTML WebApp server...")
+            self.webapp_thread = run_webapp_in_thread()
 
             # Wait a moment to give the server time to start
             time.sleep(0.5)
         except Exception as e:
-            logger.error(f"Failed to start FastHTML WebUI server: {e}")
+            logger.error(f"Failed to start FastHTML WebApp server: {e}")
 
         # Check health status initially
         self.run_worker(self._check_health_worker, thread=True)
@@ -543,12 +573,12 @@ class BroccApp(App):
             # Automatic launch often doesn't work well due to threading issues
             # Instead, we'll just enable the button and let the user click it
             try:
-                open_webui_btn = self.query_one("#open-webui-btn", Button)
-                open_webui_btn.disabled = False
-                open_webui_btn.label = "Open Brocc window"
+                open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+                open_webapp_btn.disabled = False
+                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
                 self._update_ui_status(
-                    "Window: [blue]Ready to launch[/blue]",
-                    "webui-health",
+                    UI_STATUS["WINDOW_READY"],
+                    "webapp-health",
                 )
             except NoMatches:
                 pass
@@ -603,20 +633,20 @@ class BroccApp(App):
                 if is_webview_open():
                     # Prompt user to close the webview
                     self._update_ui_status(
-                        "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
-                        "webui-health",
+                        UI_STATUS["WINDOW_LOGGED_OUT"],
+                        "webapp-health",
                     )
                     # Close the webview since user is no longer logged in
                     if close_webview():
                         self._update_ui_status(
-                            "Window: [blue]Closed after logout[/blue]",
-                            "webui-health",
+                            UI_STATUS["WINDOW_CLOSED"],
+                            "webapp-health",
                         )
                         # Update button state
                         try:
-                            open_webui_btn = self.query_one("#open-webui-btn", Button)
-                            open_webui_btn.disabled = True
-                            open_webui_btn.label = "Login to open app window"
+                            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+                            open_webapp_btn.disabled = True
+                            open_webapp_btn.label = BUTTON_LABELS["LOGIN_TO_OPEN"]
                         except NoMatches:
                             pass
             else:
@@ -625,9 +655,9 @@ class BroccApp(App):
         except NoMatches:
             logger.error("Logout failed: UI components not found")
 
-    def _open_webui_worker(self):
-        """Worker to open the WebUI in a separate window or focus existing one"""
-        logger.info("Opening WebUI in standalone window or focusing existing window")
+    def _open_webapp_worker(self):
+        """Worker to open the WebApp in a separate window or focus existing one"""
+        logger.info("Opening WebApp in standalone window or focusing existing window")
         success = open_webview()
 
         if success:
@@ -638,27 +668,23 @@ class BroccApp(App):
                     or not self._previous_webview_status
                 ):
                     # It was just launched
-                    self._update_ui_status(
-                        "Window: [green]Launched successfully[/green]", "webui-health"
-                    )
+                    self._update_ui_status(UI_STATUS["WINDOW_LAUNCHED"], "webapp-health")
                 else:
                     # It was already running and focused
-                    self._update_ui_status(
-                        "Window: [green]Brought to foreground[/green]", "webui-health"
-                    )
+                    self._update_ui_status(UI_STATUS["WINDOW_FOCUSED"], "webapp-health")
 
                 # Update button state - keep enabled but change label
                 try:
-                    open_webui_btn = self.query_one("#open-webui-btn", Button)
-                    open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                    open_webui_btn.label = "Show Brocc window"
+                    open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+                    open_webapp_btn.disabled = False  # Keep enabled for focus functionality
+                    open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
                 except NoMatches:
                     pass
             else:
                 # Launching failed despite success=True
-                self._update_ui_status("Window: [yellow]Status unclear[/yellow]", "webui-health")
+                self._update_ui_status(UI_STATUS["WINDOW_STATUS_UNCLEAR"], "webapp-health")
         else:
-            self._update_ui_status("Window: [red]Failed to launch[/red]", "webui-health")
+            self._update_ui_status(UI_STATUS["WINDOW_LAUNCH_FAILED"], "webapp-health")
 
     def _check_webview_status(self) -> None:
         """Periodic check of webview status"""
@@ -668,7 +694,7 @@ class BroccApp(App):
         # Store previous webview state to detect changes
         try:
             # Get the elements we'll need to update
-            open_webui_btn = self.query_one("#open-webui-btn", Button)
+            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
 
             # If webview was previously open but now closed
             if (
@@ -679,15 +705,15 @@ class BroccApp(App):
                 logger.info("Detected webview was manually closed by user")
 
                 # Update UI to reflect closed state
-                open_webui_btn.disabled = False
-                open_webui_btn.label = "Open Brocc window"
-                self._update_ui_status("Window: [blue]Ready to launch[/blue]", "webui-health")
+                open_webapp_btn.disabled = False
+                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                self._update_ui_status(UI_STATUS["WINDOW_READY"], "webapp-health")
 
             # If webview is open, keep button enabled but update label
             elif current_status:
-                open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                open_webui_btn.label = "Show Brocc window"
-                self._update_ui_status("Window: [green]Open[/green]", "webui-health")
+                open_webapp_btn.disabled = False  # Keep enabled for focus functionality
+                open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                self._update_ui_status(UI_STATUS["WINDOW_OPEN"], "webapp-health")
 
             # Store current status for next check
             self._previous_webview_status = current_status

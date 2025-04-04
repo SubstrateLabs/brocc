@@ -12,7 +12,7 @@ class InfoPanel(Static):
         yield Container(
             Static("Site API: Checking...", id="site-health"),
             Static("Local API: Checking...", id="local-health"),
-            Static("Window: Checking...", id="webui-health"),
+            Static("Window: Checking...", id="webapp-health"),
             Label("Not logged in", id="auth-status"),
             id="health-container",
         )
