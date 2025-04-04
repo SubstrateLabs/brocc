@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnvVar } from "@/lib/get-env-var";
+import { requireApiAuth } from "@/lib/api-key-auth";
 
 // DOCS: https://docs.voyageai.com/reference/multimodal-embeddings-api
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/multimodalembeddings";
@@ -75,6 +76,13 @@ function validateContent(content: ContentItem[], imageType: 'url' | 'base64' | n
 }
 
 export async function POST(request: NextRequest) {
+  // Authenticate request
+  const authResult = await requireApiAuth(request);
+  if (authResult instanceof NextResponse) {
+    return authResult; // Return error response if auth failed
+  }
+  // const { userId } = authResult;
+  
   let apiKey: string;
   try {
     apiKey = getEnvVar("VOYAGE_API_KEY");

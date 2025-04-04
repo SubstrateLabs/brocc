@@ -15,6 +15,7 @@ from lancedb.embeddings.base import EmbeddingFunction
 from lancedb.embeddings.registry import register
 
 from brocc_li.utils.api_url import get_api_url
+from brocc_li.utils.auth_data import load_auth_data
 from brocc_li.utils.image_utils import (
     SUPPORTED_MIME_TYPES,
     ImageFormat,
@@ -101,10 +102,15 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
     def _call_api(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Call the API with the given payload"""
         try:
-            # Prepare the request
-            headers = {
-                "Content-Type": "application/json",
-            }
+            # Load auth data to get API key
+            auth_data = load_auth_data()
+            if not auth_data or "apiKey" not in auth_data or not auth_data["apiKey"]:
+                raise RuntimeError("No API key found. Please login first using 'brocc login'")
+
+            api_key = auth_data["apiKey"]
+
+            # Prepare the request with auth header
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             data = json.dumps(payload).encode("utf-8")
 
             # Create request object

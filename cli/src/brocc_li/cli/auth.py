@@ -1,64 +1,11 @@
 import json
 import time
 import webbrowser
-from pathlib import Path
 
 import requests
-from platformdirs import user_config_dir
 
+from brocc_li.utils.auth_data import clear_auth_data, save_auth_data
 from brocc_li.utils.logger import logger
-
-CONFIG_DIR = Path(user_config_dir("brocc"))
-AUTH_FILE = CONFIG_DIR / "auth.json"
-
-
-def is_logged_in(auth_data):
-    """Check if the user is logged in"""
-    if auth_data is None:
-        return False
-    return "apiKey" in auth_data and auth_data["apiKey"]
-
-
-def load_auth_data():
-    """Load auth data from local file"""
-    try:
-        CONFIG_DIR.mkdir(exist_ok=True)
-        if AUTH_FILE.exists():
-            with open(AUTH_FILE) as f:
-                auth_data = json.load(f)
-            logger.info(f"Loaded auth data for user: {auth_data.get('email', 'unknown')}")
-            return auth_data
-        else:
-            logger.debug("No saved auth data found")
-            return None
-    except Exception as e:
-        logger.error(f"Error loading auth data: {e}")
-        return None
-
-
-def save_auth_data(auth_data):
-    """Save auth data to local file"""
-    try:
-        CONFIG_DIR.mkdir(exist_ok=True)
-        with open(AUTH_FILE, "w") as f:
-            json.dump(auth_data, f)
-        logger.info(f"Saved auth data for user: {auth_data.get('email', 'unknown')}")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving auth data: {e}")
-        return False
-
-
-def clear_auth_data():
-    """Clear auth data from local file"""
-    try:
-        if AUTH_FILE.exists():
-            AUTH_FILE.unlink()
-        logger.info("Cleared auth data")
-        return True
-    except Exception as e:
-        logger.error(f"Error clearing auth data: {e}")
-        return False
 
 
 def initiate_login(api_url, update_status_fn=None, display_auth_url_fn=None):

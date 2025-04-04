@@ -1,6 +1,7 @@
 ## 0.0.1
 
-- investigate pil conversion
+- apikey auth for /embed, update voyage
+  - utils for brocc apikey
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool

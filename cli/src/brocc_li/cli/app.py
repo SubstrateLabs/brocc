@@ -8,6 +8,7 @@ from textual.widgets import Button, Footer, Header, Label, Static
 
 from brocc_li.cli import auth
 from brocc_li.utils.api_url import get_api_url
+from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 
 load_dotenv()
 
@@ -25,8 +26,7 @@ class BroccApp(App):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.auth_data = None
-        self._load_auth_data()
+        self.auth_data = load_auth_data()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -58,7 +58,7 @@ class BroccApp(App):
 
     @property
     def is_logged_in(self) -> bool:
-        return auth.is_logged_in(self.auth_data)
+        return is_logged_in(self.auth_data)
 
     def _update_auth_status(self):
         status_label = self.query_one("#auth-status", Label)
@@ -71,7 +71,7 @@ class BroccApp(App):
             logout_btn.disabled = True
             return
 
-        if auth.is_logged_in(self.auth_data):
+        if is_logged_in(self.auth_data):
             email = self.auth_data.get("email", "Unknown user")
             api_key = self.auth_data.get("apiKey", "")
             masked_key = f"{api_key[:8]}...{api_key[-5:]}" if api_key else "None"
@@ -93,10 +93,6 @@ class BroccApp(App):
             self.action_login()
         elif event.button.id == "logout-btn":
             self.action_logout()
-
-    def _load_auth_data(self) -> None:
-        """Load auth data from local file"""
-        self.auth_data = auth.load_auth_data()
 
     def _display_auth_url(self, url: str) -> None:
         """Display auth URL prominently in the UI"""
