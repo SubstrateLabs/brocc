@@ -1,7 +1,4 @@
-- textualize css
-- solidify login ux
-- fastapi server
-- logs panel
+- close webviews on exit
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool
