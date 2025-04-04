@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -26,6 +31,9 @@ from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
 load_dotenv()
+
+# Global vars for systray
+_SYSTRAY_PROCESS = None
 
 
 class AppContent(Static):
@@ -69,6 +77,8 @@ class BroccApp(App):
         self.site_api_healthy = False
         self.local_api_healthy = False
         self._previous_webview_status = False
+        self.tray_icon = None
+        self.exit_file = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -80,6 +90,130 @@ class BroccApp(App):
 
         yield Footer()
 
+    def _setup_systray(self):
+        """Start the system tray icon in a separate process"""
+        global _SYSTRAY_PROCESS
+
+        try:
+            # Create a temp file to monitor for exit
+            fd, self.exit_file = tempfile.mkstemp(prefix="brocc_exit_")
+            os.close(fd)  # We just need the path
+
+            # Get the path to the systray launcher
+            script_dir = Path(__file__).parent
+            launcher_path = script_dir / "systray.py"
+
+            if not launcher_path.exists():
+                logger.error(f"Systray launcher script not found at: {launcher_path}")
+                return False
+
+            # Get the current Python executable
+            python_exe = sys.executable
+
+            # Create the command
+            cmd = [
+                python_exe,
+                str(launcher_path),
+                "--host",
+                WEBUI_HOST,
+                "--port",
+                str(WEBUI_PORT),
+                "--version",
+                get_version(),
+                "--exit-file",
+                self.exit_file,
+            ]
+
+            logger.info(f"Launching systray process: {' '.join(cmd)}")
+
+            # Launch the process
+            _SYSTRAY_PROCESS = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # Line buffered
+            )
+
+            # Start a thread to monitor systray process
+            def monitor_systray():
+                proc = _SYSTRAY_PROCESS  # Local reference
+                if not proc:
+                    return
+
+                logger.info(f"Monitoring systray process PID: {proc.pid}")
+
+                # Read output
+                while proc and proc.poll() is None:
+                    try:
+                        if proc.stdout:
+                            line = proc.stdout.readline().strip()
+                            if line:
+                                logger.info(f"Systray process: {line}")
+                    except (IOError, BrokenPipeError) as e:
+                        logger.debug(f"Error reading from systray stdout: {e}")
+                        break
+
+                # Process has exited
+                exit_code = proc.returncode if proc and proc.returncode is not None else "unknown"
+                logger.info(f"Systray process exited with code: {exit_code}")
+
+                # Check for errors
+                if proc and proc.stderr:
+                    try:
+                        error = proc.stderr.read()
+                        if error:
+                            logger.error(f"Systray process error: {error}")
+                    except (IOError, BrokenPipeError) as e:
+                        logger.debug(f"Error reading from systray stderr: {e}")
+
+            # Start the monitor thread
+            threading.Thread(target=monitor_systray, daemon=True, name="systray-monitor").start()
+
+            # Wait a moment to verify process started
+            time.sleep(0.5)
+
+            if _SYSTRAY_PROCESS and _SYSTRAY_PROCESS.poll() is None:
+                logger.info("Systray process started successfully")
+                return True
+            else:
+                logger.error("Systray process failed to start")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to launch systray: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
+            return False
+
+    def _close_systray(self):
+        """Close the systray process if it's running"""
+        global _SYSTRAY_PROCESS
+
+        if _SYSTRAY_PROCESS:
+            try:
+                logger.info("Terminating systray process")
+                _SYSTRAY_PROCESS.terminate()
+                # Give it a moment to terminate gracefully
+                time.sleep(0.5)
+                if _SYSTRAY_PROCESS.poll() is None:
+                    logger.info("Systray process still running, killing it")
+                    _SYSTRAY_PROCESS.kill()
+                _SYSTRAY_PROCESS = None
+                return True
+            except Exception as e:
+                logger.error(f"Error closing systray process: {e}")
+
+        # Remove the exit file if it exists
+        if self.exit_file and Path(self.exit_file).exists():
+            try:
+                Path(self.exit_file).unlink()
+            except Exception as e:
+                logger.debug(f"Error removing exit file: {e}")
+
+        return False
+
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
         # Close the webview if it's open
@@ -87,6 +221,11 @@ class BroccApp(App):
             logger.info("Closing webview before exit")
         if close_webview():
             logger.info("Successfully closed webview on exit")
+
+        # Close systray process
+        if self._close_systray():
+            logger.info("Successfully closed systray on exit")
+
         self.exit()
 
     def action_check_health(self) -> None:
@@ -252,6 +391,9 @@ class BroccApp(App):
     def on_mount(self) -> None:
         self.title = f"🥦 Brocc v{get_version()}"
         self._update_auth_status()
+
+        # Set up system tray icon in its own process
+        self._setup_systray()
 
         # Start the FastAPI server in a background thread
         try:
