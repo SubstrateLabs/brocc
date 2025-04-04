@@ -218,18 +218,84 @@ class BroccApp(App):
 
         return False
 
+    def _notify_webview_shutdown(self):
+        """Send shutdown message to webview via WebSocket"""
+        try:
+            # Instead of trying to use the WebSocket connections directly,
+            # we'll just make a fire-and-forget API call
+            try:
+                # Use a completely non-blocking approach with no wait
+                import threading
+
+                import requests
+
+                def make_request():
+                    try:
+                        # Use a very short timeout to avoid hanging
+                        requests.post(f"http://{API_HOST}:{API_PORT}/webview/shutdown", timeout=0.5)
+                    except Exception:  # Specify exception type
+                        # Ignore all errors during shutdown
+                        pass
+
+                # Start the thread and don't wait for it
+                thread = threading.Thread(target=make_request, daemon=True)
+                thread.start()
+                logger.info("Sent non-blocking shutdown request")
+            except Exception:  # Specify exception type
+                # Ignore any errors - we're shutting down anyway
+                pass
+        except Exception:  # Specify exception type
+            # Ignore any errors during shutdown
+            pass
+
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
-        # Close the webview if it's open
-        if is_webview_open():
-            logger.info("Closing webview before exit")
-        if close_webview():
-            logger.info("Successfully closed webview on exit")
+        logger.info("Shutdown initiated, closing resources")
 
-        # Close systray process
-        if self._close_systray():
-            logger.info("Successfully closed systray on exit")
+        # Set up a timed force exit in case shutdown hangs
+        def force_exit():
+            time.sleep(3)  # Wait 3 seconds then force exit
+            logger.info("Force exiting after timeout")
+            import os
 
+            os._exit(0)  # Force immediate exit
+
+        # Start force exit timer
+        threading.Thread(target=force_exit, daemon=True).start()
+
+        # First try to quickly terminate any active processes
+        try:
+            # Try direct termination of the webview process
+            from brocc_li.cli.server import _WEBVIEW_PROCESS
+
+            if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
+                try:
+                    logger.info("Directly terminating webview process")
+                    _WEBVIEW_PROCESS.terminate()
+                except Exception:  # Specify exception type
+                    pass
+        except Exception:  # Specify exception type
+            pass
+
+        # Then try to do a clean shutdown via API
+        self._notify_webview_shutdown()
+
+        # Close the systray
+        try:
+            if _SYSTRAY_PROCESS and _SYSTRAY_PROCESS.poll() is None:
+                logger.info("Terminating systray process")
+                _SYSTRAY_PROCESS.terminate()
+                # Remove the exit file if it exists
+                if self.exit_file and Path(self.exit_file).exists():
+                    try:
+                        Path(self.exit_file).unlink()
+                    except Exception:  # Specify exception type
+                        pass
+        except Exception:  # Specify exception type
+            pass
+
+        # Exit immediately without waiting for anything
+        logger.info("Exiting application")
         self.exit()
 
     def action_check_health(self) -> None:

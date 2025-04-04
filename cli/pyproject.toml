@@ -43,6 +43,7 @@ dependencies = [
     "textual>=0.73.0",
     "unstructured[md]>=0.17.2",
     "uvicorn>=0.34.0",
+    "websocket-client>=1.8.0",
 ]
 
 [project.optional-dependencies]

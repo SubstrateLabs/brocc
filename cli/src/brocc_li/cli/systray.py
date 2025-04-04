@@ -161,9 +161,19 @@ def setup_icon():
 def signal_handler(sig, frame):
     """Handle termination signals"""
     print("Received signal to terminate")
-    if icon:
-        icon.stop()
-    sys.exit(0)
+    try:
+        # Attempt to stop the icon gracefully
+        if icon:
+            icon.stop()
+            # Wait briefly for the icon to stop
+            time.sleep(0.1)
+    except Exception as e:
+        print(f"Error stopping icon: {e}")
+
+    # Use os._exit which doesn't raise SystemExit exception
+    # This prevents the "error in main loop" message
+
+    os._exit(0)  # Exit immediately without throwing SystemExit
 
 
 def watch_exit_file():
@@ -178,12 +188,19 @@ def watch_exit_file():
             try:
                 if not os.path.exists(args.exit_file):
                     print("Exit file removed, shutting down")
-                    if icon:
-                        icon.stop()
-                    break
+                    try:
+                        if icon:
+                            icon.stop()
+                            # Wait briefly for the icon to stop
+                            time.sleep(0.1)
+                    except Exception as e:
+                        print(f"Error stopping icon: {e}")
+                    # Use os._exit to exit cleanly
+                    os._exit(0)
                 time.sleep(1)
             except Exception as e:
                 print(f"Error monitoring exit file: {e}")
+                # Don't use bare except
                 pass
 
     threading.Thread(target=monitor_file, daemon=True).start()

@@ -1,12 +1,15 @@
+import atexit
+import json
+import platform
 import subprocess
 import sys
 import threading
 from pathlib import Path
-import psutil
-import platform
 
+import psutil
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
@@ -22,6 +25,84 @@ app = FastAPI(
     version=get_version(),
 )
 
+# --- Webview Management ---
+_WEBVIEW_ACTIVE = False
+_WEBVIEW_PROCESS = None
+# WebSocket connections
+_WEBVIEW_CONNECTIONS = set()
+
+
+# Register cleanup function to ensure webview is terminated on server exit
+def _cleanup_webview():
+    global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS, _WEBVIEW_CONNECTIONS
+
+    # First, try to notify all connected webviews to close (non-blocking)
+    try:
+        # Only attempt this if there are connections
+        if _WEBVIEW_CONNECTIONS:
+            logger.info(f"Sending shutdown to {len(_WEBVIEW_CONNECTIONS)} websocket connection(s)")
+            for ws in list(_WEBVIEW_CONNECTIONS):
+                try:
+                    # Only try to send if connection is still active
+                    # Use _send_raw which is non-blocking instead of send_json which is async
+                    if ws.client_state == WebSocketState.CONNECTED:
+                        ws._send_raw(json.dumps({"action": "shutdown"}))
+                except Exception:  # Specify exception type
+                    # Ignore any errors during shutdown
+                    pass
+    except Exception:  # Specify exception type
+        # Ignore any errors during shutdown
+        pass
+
+    # Then immediately terminate the process without waiting
+    if _WEBVIEW_PROCESS:
+        try:
+            logger.info(f"Terminating webview process {_WEBVIEW_PROCESS.pid}")
+            _WEBVIEW_PROCESS.terminate()
+            # No waiting - just fire and forget
+            _WEBVIEW_ACTIVE = False
+            _WEBVIEW_PROCESS = None
+        except Exception:  # Specify exception type
+            # Ignore any errors during shutdown
+            pass
+
+
+atexit.register(_cleanup_webview)
+
+
+# --- WebSocket Management ---
+@app.websocket("/ws/webview")
+async def webview_websocket(websocket: WebSocket):
+    """WebSocket connection for webview process"""
+    global _WEBVIEW_CONNECTIONS
+
+    await websocket.accept()
+    _WEBVIEW_CONNECTIONS.add(websocket)
+    logger.info(f"WebView WebSocket connected, total connections: {len(_WEBVIEW_CONNECTIONS)}")
+
+    try:
+        # Send initial confirmation
+        await websocket.send_json({"status": "connected", "message": "Connected to Brocc API"})
+
+        # Keep connection alive and process messages
+        while True:
+            data = await websocket.receive_json()
+            logger.info(f"Received WebSocket message: {data}")
+
+            # Handle specific message types
+            if data.get("action") == "heartbeat":
+                await websocket.send_json({"action": "heartbeat", "status": "ok"})
+
+            # Handle other message types as needed
+    except WebSocketDisconnect:
+        logger.info("WebView WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        # Clean up connection
+        _WEBVIEW_CONNECTIONS.remove(websocket)
+        logger.info(f"WebView connection removed, remaining: {len(_WEBVIEW_CONNECTIONS)}")
+
 
 # --- Routes ---
 @app.get("/")
@@ -34,11 +115,7 @@ async def health_check():
     return {"status": "healthy", "service": "brocc-api", "version": get_version()}
 
 
-# --- Webview Management ---
-_WEBVIEW_ACTIVE = False
-_WEBVIEW_PROCESS = None
-
-
+# --- Routes ---
 @app.post("/webview/launch")
 async def launch_webview(
     background_tasks: BackgroundTasks, webui_url: str = "http://127.0.0.1:8023", title: str = ""
@@ -117,6 +194,74 @@ async def close_webview():
     except Exception as e:
         logger.error(f"Error closing webview: {e}")
         return {"status": "error", "message": f"Error closing webview: {e}"}
+
+
+# No-wait version of the async shutdown endpoint
+@app.post("/webview/shutdown")
+def shutdown_webview_sync():
+    """
+    Synchronous, non-blocking version of the shutdown endpoint
+    that won't cause the server to hang while processing
+    """
+    global _WEBVIEW_CONNECTIONS
+
+    # Track success count for logging
+    success_count = 0
+
+    try:
+        # Quick bailout if no connections
+        if not _WEBVIEW_CONNECTIONS:
+            return {
+                "status": "no_connections",
+                "message": "No active webview connections to notify",
+            }
+
+        # Use a non-blocking approach
+        for ws in list(_WEBVIEW_CONNECTIONS):
+            try:
+                # Send raw message without awaiting
+                if ws.client_state == WebSocketState.CONNECTED:
+                    ws._send_raw(json.dumps({"action": "shutdown"}))
+                    success_count += 1
+            except Exception:  # Specify exception type
+                # Ignore errors on shutdown
+                pass
+
+        # Also ensure process is terminated directly
+        if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
+            try:
+                _WEBVIEW_PROCESS.terminate()
+            except Exception:  # Specify exception type
+                pass
+
+        return {"status": "notified", "message": f"Shutdown sent to {success_count} connections"}
+    except Exception:  # Specify exception type
+        # Catch all exceptions during shutdown
+        return {"status": "error", "message": "Error during shutdown"}
+
+
+# Keep the async version for completeness
+@app.post("/webview/shutdown_async")
+async def shutdown_webview_async():
+    """Send a shutdown signal to all connected webviews (async version)"""
+    global _WEBVIEW_CONNECTIONS
+
+    if not _WEBVIEW_CONNECTIONS:
+        return {"status": "no_connections", "message": "No active webview connections to notify"}
+
+    success_count = 0
+    for ws in list(_WEBVIEW_CONNECTIONS):
+        try:
+            if ws.client_state == WebSocketState.CONNECTED:
+                await ws.send_json({"action": "shutdown"})
+                success_count += 1
+        except Exception as e:
+            logger.error(f"Error sending shutdown to webview: {e}")
+
+    return {
+        "status": "notified",
+        "message": f"Sent shutdown to {success_count} of {len(_WEBVIEW_CONNECTIONS)} webviews",
+    }
 
 
 # --- Helper Functions ---
@@ -199,8 +344,15 @@ def _launch_webview_process(webui_url, title):
         # Get the current Python executable
         python_exe = sys.executable
 
-        # Create the command
-        cmd = [python_exe, str(launcher_path), webui_url, title]
+        # Create the command - include API host and port for WebSocket connection
+        cmd = [
+            python_exe,
+            str(launcher_path),
+            webui_url,
+            title,
+            API_HOST,  # Pass API host for WebSocket connection
+            str(API_PORT),  # Pass API port for WebSocket connection
+        ]
 
         logger.info(f"Launching webview process with command: {' '.join(cmd)}")
 

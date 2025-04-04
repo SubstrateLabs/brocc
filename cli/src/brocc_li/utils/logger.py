@@ -33,17 +33,28 @@ class Logger:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"[{timestamp}] [{level}] {message}"
 
+        # Store in history
         if len(self._log_history) >= self._max_history:
             self._log_history.pop(0)
         self._log_history.append(formatted_msg)
 
+        # Write to widget if available
         if self._log_widget:
             try:
-                self._log_widget.write_line(formatted_msg)
-            except Exception as e:
-                # Fall back to console if widget fails
-                self._console.print(f"Error writing to log widget: {e}")
-                self._console.print(formatted_msg)
+                # Check if the log widget has a write_line method
+                # This is a simple check to see if the app is still running
+                # If the app is shutting down, this will likely raise an exception
+                if hasattr(self._log_widget, "write_line") and callable(
+                    self._log_widget.write_line
+                ):
+                    self._log_widget.write_line(formatted_msg)
+                else:
+                    # If the app is shutting down, just suppress output
+                    pass
+            except Exception:
+                # During shutdown, don't show errors about log widget
+                # Just suppress the error and continue
+                pass
 
     def print(self, *args, **kwargs):
         """Print to console if enabled."""
