@@ -6,8 +6,6 @@ from brocc_li.utils.logger import logger
 
 
 class LogsPanel(Static):
-    """Panel for displaying application logs."""
-
     def compose(self) -> ComposeResult:
         with Vertical(id="logs-container"):
             yield Log(highlight=True, auto_scroll=True, id="app-logs")

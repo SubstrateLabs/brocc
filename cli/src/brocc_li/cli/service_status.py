@@ -51,6 +51,29 @@ def check_api_health(api_url: str, is_local: bool = False) -> Dict[str, Any]:
     return {"status": "error", "error": "Unknown error during health check"}
 
 
+def check_webview_status(api_url: str) -> Dict[str, Any]:
+    """
+    Check if the webview is active via the API
+
+    Args:
+        api_url: URL of the API to check (should be local FastAPI server)
+
+    Returns:
+        Dict with status information
+    """
+    try:
+        response = requests.get(f"{api_url}/webview/status", timeout=2)
+        if response.status_code == 200:
+            return {"status": "checked", "data": response.json()}
+        return {"status": "error", "error": f"Status code: {response.status_code}"}
+    except requests.RequestException as e:
+        error_msg = str(e)
+        # Truncate error message if it's too long
+        if len(error_msg) > 100:
+            error_msg = error_msg[:100] + "..."
+        return {"status": "error", "error": error_msg}
+
+
 def check_and_update_api_status(
     api_name: str,
     api_url: str,
@@ -118,3 +141,70 @@ def check_and_update_api_status(
         logger.warning(f"{display_name} is not healthy: {error}")
 
     return is_healthy
+
+
+def check_and_update_webview_status(
+    api_url: str,
+    ui_status_mapping: Optional[Dict[str, str]] = None,
+    update_ui_fn: Optional[Callable[[str], None]] = None,
+    update_button_fn: Optional[Callable[[bool, bool], None]] = None,
+    previous_status: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """
+    Check webview status and update UI accordingly
+
+    Args:
+        api_url: URL of the API to check for webview status
+        ui_status_mapping: Mapping of status strings for UI display
+        update_ui_fn: Function to update UI with status message
+        update_button_fn: Function to update button state (enabled, label)
+        previous_status: Previous webview status for state change detection
+
+    Returns:
+        Dict with status information including:
+        - is_open: Whether the webview is currently open
+        - status_changed: Whether the status changed from previous check
+        - previous_status: The previous status that was passed in
+    """
+    # Get default status messages if not provided
+    if ui_status_mapping is None:
+        ui_status_mapping = {
+            "OPEN": "Window: [green]Open[/green]",
+            "READY": "Window: [blue]Ready to launch[/blue]",
+            "CLOSED": "Window: [yellow]Closed[/yellow]",
+        }
+
+    # Check webview status
+    result = check_webview_status(api_url)
+
+    # Extract actual webview status
+    is_open = False
+    if result["status"] == "checked" and "data" in result:
+        data = result["data"]
+        # Both 'active' and 'process_running' must be True for window to be considered open
+        is_open = data.get("active", False) and data.get("process_running", False)
+
+    # Detect status change
+    status_changed = previous_status is not None and is_open != previous_status
+
+    # Update UI if function provided
+    if update_ui_fn:
+        if is_open:
+            update_ui_fn(ui_status_mapping.get("OPEN", "Window is open"))
+        else:
+            if status_changed and previous_status:
+                update_ui_fn(ui_status_mapping.get("CLOSED", "Window was closed"))
+            else:
+                update_ui_fn(ui_status_mapping.get("READY", "Window ready to launch"))
+
+    # Update button if function provided
+    if update_button_fn:
+        update_button_fn(is_open, status_changed)
+
+    # Return comprehensive status
+    return {
+        "is_open": is_open,
+        "status_changed": status_changed,
+        "previous_status": previous_status,
+        "raw_result": result,
+    }

@@ -14,17 +14,17 @@ from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
 from brocc_li.cli import auth
-from brocc_li.cli.api_health import check_and_update_api_status
 from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
-from brocc_li.cli.open_webview import (
-    close_webview,
-    is_webview_open,
-    open_webview,
-)
+from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
 from brocc_li.cli.textual_ui.info_panel import InfoPanel
 from brocc_li.cli.textual_ui.logs_panel import LogsPanel
 from brocc_li.cli.webapp_server import WEBAPP_HOST, WEBAPP_PORT
 from brocc_li.cli.webapp_server import run_server_in_thread as run_webapp_in_thread
+from brocc_li.cli.webview_manager import (
+    close_webview,
+    is_webview_open,
+    open_webview,
+)
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -688,40 +688,38 @@ class BroccApp(App):
 
     def _check_webview_status(self) -> None:
         """Periodic check of webview status"""
-        # Directly check if webview is still open using the API
-        current_status = is_webview_open()
+        # Get local api URL
+        local_url = get_service_url(FASTAPI_HOST, FASTAPI_PORT)
 
-        # Store previous webview state to detect changes
-        try:
-            # Get the elements we'll need to update
-            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+        # Use the utility function to check webview status and update UI
+        status_mapping = {
+            "OPEN": UI_STATUS["WINDOW_OPEN"],
+            "READY": UI_STATUS["WINDOW_READY"],
+            "CLOSED": UI_STATUS["WINDOW_READY"],  # Use READY status for closed windows
+        }
 
-            # If webview was previously open but now closed
-            if (
-                not current_status
-                and hasattr(self, "_previous_webview_status")
-                and self._previous_webview_status
-            ):
-                logger.info("Detected webview was manually closed by user")
+        def update_button(is_open: bool, status_changed: bool) -> None:
+            try:
+                open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+                if is_open:
+                    open_webapp_btn.disabled = False  # Keep enabled for focus functionality
+                    open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                elif status_changed:  # Was open before but now closed
+                    open_webapp_btn.disabled = False
+                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+            except NoMatches:
+                logger.debug("Could not update button: UI component not found")
 
-                # Update UI to reflect closed state
-                open_webapp_btn.disabled = False
-                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
-                self._update_ui_status(UI_STATUS["WINDOW_READY"], "webapp-health")
+        result = check_and_update_webview_status(
+            api_url=local_url,
+            ui_status_mapping=status_mapping,
+            update_ui_fn=lambda msg: self._update_ui_status(msg, "webapp-health"),
+            update_button_fn=update_button,
+            previous_status=getattr(self, "_previous_webview_status", None),
+        )
 
-            # If webview is open, keep button enabled but update label
-            elif current_status:
-                open_webapp_btn.disabled = False  # Keep enabled for focus functionality
-                open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
-                self._update_ui_status(UI_STATUS["WINDOW_OPEN"], "webapp-health")
-
-            # Store current status for next check
-            self._previous_webview_status = current_status
-
-        except NoMatches:
-            logger.debug("Could not update webview status: UI components not found")
-            # Still store the status even if we couldn't update UI
-            self._previous_webview_status = current_status
+        # Store current status for next check
+        self._previous_webview_status = result["is_open"]
 
 
 if __name__ == "__main__":
