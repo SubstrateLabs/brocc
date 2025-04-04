@@ -3,26 +3,100 @@ from pathlib import Path
 from dotenv import load_dotenv
 from platformdirs import user_config_dir
 from textual.app import App, ComposeResult
-from textual.containers import Container
-from textual.widgets import Button, Footer, Header, Label, Static
+from textual.containers import Container, Horizontal
+from textual.css.query import NoMatches
+from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedContent
 
 from brocc_li.cli import auth
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
+from brocc_li.utils.logger import logger
 
 load_dotenv()
+
+
+class AppContent(Static):
+    def __init__(self, app_instance, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.app_instance = app_instance
+
+    def compose(self) -> ComposeResult:
+        yield Static(f"Site URL: {self.app_instance.API_URL}", id="site-url")
+        yield Container(
+            Label("Not logged in", id="auth-status"),
+            Horizontal(
+                Button(label="Login", id="login-btn", variant="default", name="login"),
+                Button(
+                    label="Logout",
+                    id="logout-btn",
+                    variant="default",
+                    disabled=not self.app_instance.is_logged_in,
+                    name="logout",
+                ),
+                id="auth-buttons",
+            ),
+            Static("", id="auth-url-display"),
+            id="auth-container",
+        )
+
+
+class LogsPanel(Static):
+    def compose(self) -> ComposeResult:
+        yield Log(highlight=True, auto_scroll=True, id="app-logs")
+
+    def on_mount(self) -> None:
+        log_widget = self.query_one("#app-logs", Log)
+        logger.set_log_widget(log_widget)
 
 
 class BroccApp(App):
     TITLE = "🥦 brocc"
     BINDINGS = [
         ("ctrl+c", "request_quit", "Quit"),
-        ("l", "login", "Login"),
-        ("o", "logout", "Logout"),
     ]
     API_URL = get_api_url()
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
+    CSS = """
+    Button:disabled {
+        display: none;
+    }
+    
+    #auth-buttons {
+        width: auto;
+        height: auto;
+        align: center middle;
+    }
+    
+    Tabs {
+        dock: top;
+    }
+    
+    TabbedContent {
+        height: 1fr;
+    }
+    
+    TabPane {
+        height: 1fr;
+        overflow: auto;
+    }
+    
+    #logs-tab {
+        padding: 1;
+        height: 1fr;
+        min-height: 10;
+        display: block;
+    }
+    
+    #app-logs {
+        height: 1fr;
+        min-height: 10;
+        border: solid green;
+        background: #000000;
+        color: #dddddd;
+        overflow-y: scroll;
+    }
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -30,30 +104,20 @@ class BroccApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(f"Site URL: {self.API_URL}", id="site-url")
-        yield Container(
-            Label("Not logged in", id="auth-status"),
-            Button("Login", id="login-btn", variant="primary"),
-            Button(
-                "Logout",
-                id="logout-btn",
-                variant="error",
-                disabled=not self.is_logged_in,
-            ),
-            Static("", id="auth-url-display"),
-            id="auth-container",
-        )
+
+        with TabbedContent("App", "Logs", id="main-content"):
+            yield AppContent(self, id="app-tab")
+            yield LogsPanel(id="logs-tab")
+
         yield Footer()
 
     def action_request_quit(self) -> None:
         self.exit()
 
     def action_login(self) -> None:
-        # Create and run a synchronous worker directly
         self.run_worker(self._login_worker, thread=True)
 
     def action_logout(self) -> None:
-        # Create and run a synchronous worker directly
         self.run_worker(self._logout_worker, thread=True)
 
     @property
@@ -61,83 +125,99 @@ class BroccApp(App):
         return is_logged_in(self.auth_data)
 
     def _update_auth_status(self):
-        status_label = self.query_one("#auth-status", Label)
-        login_btn = self.query_one("#login-btn", Button)
-        logout_btn = self.query_one("#logout-btn", Button)
+        try:
+            status_label = self.query_one("#auth-status", Label)
+            login_btn = self.query_one("#login-btn", Button)
+            logout_btn = self.query_one("#logout-btn", Button)
 
-        if self.auth_data is None:
-            status_label.update("Not logged in")
-            login_btn.disabled = False
-            logout_btn.disabled = True
-            return
+            if self.auth_data is None:
+                status_label.update("Not logged in")
+                login_btn.disabled = False
+                logout_btn.disabled = True
+                return
 
-        if is_logged_in(self.auth_data):
-            email = self.auth_data.get("email", "Unknown user")
-            api_key = self.auth_data.get("apiKey", "")
-            masked_key = f"{api_key[:8]}...{api_key[-5:]}" if api_key else "None"
+            if is_logged_in(self.auth_data):
+                email = self.auth_data.get("email", "Unknown user")
+                api_key = self.auth_data.get("apiKey", "")
+                masked_key = f"{api_key[:8]}...{api_key[-5:]}" if api_key else "None"
 
-            status_label.update(f"Logged in as: {email} (API Key: {masked_key})")
-            login_btn.disabled = True
-            logout_btn.disabled = False
-        else:
-            status_label.update("Not logged in")
-            login_btn.disabled = False
-            logout_btn.disabled = True
+                status_label.update(f"Logged in as: {email} (API Key: {masked_key})")
+                login_btn.disabled = True
+                logout_btn.disabled = False
+            else:
+                status_label.update("Not logged in")
+                login_btn.disabled = False
+                logout_btn.disabled = True
+        except NoMatches:
+            logger.debug("Could not update auth status: UI not ready")
 
     def on_mount(self) -> None:
-        self.title = f"🥦 brocc - {self.API_URL}"
+        self.title = "🥦 Brocc"
         self._update_auth_status()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "login-btn":
-            self.action_login()
-        elif event.button.id == "logout-btn":
-            self.action_logout()
+        """Call the appropriate action based on button name"""
+        button_name = event.button.name
+        if button_name:
+            action_name = f"action_{button_name}"
+            action = getattr(self, action_name, None)
+            if action and callable(action):
+                logger.debug(f"Button pressed: {button_name}")
+                action()
 
     def _display_auth_url(self, url: str) -> None:
-        """Display auth URL prominently in the UI"""
-        auth_url_display = self.query_one("#auth-url-display", Static)
-        auth_url_display.update(
-            f"🔐 Authentication URL:\n[link={url}]{url}[/link]\n\nClick to open in browser"
-        )
+        try:
+            auth_url_display = self.query_one("#auth-url-display", Static)
+            auth_url_display.update(
+                f"🔐 Authentication URL:\n[link={url}]{url}[/link]\n\nClick to open in browser"
+            )
+        except NoMatches:
+            logger.error("Could not display auth URL: UI component not found")
 
     def _login_worker(self):
-        """Worker to handle login flow"""
-        status_label = self.query_one("#auth-status", Label)
-        auth_url_display = self.query_one("#auth-url-display", Static)
+        try:
+            status_label = self.query_one("#auth-status", Label)
+            auth_url_display = self.query_one("#auth-url-display", Static)
 
-        # Clear previous URL display
-        auth_url_display.update("")
-
-        # Define status update callback
-        def update_status(message):
-            status_label.update(message)
-
-        # Start login process with callbacks
-        auth_data = auth.initiate_login(
-            self.API_URL,
-            update_status_fn=update_status,
-            display_auth_url_fn=self._display_auth_url,
-        )
-
-        if auth_data:
-            self.auth_data = auth_data
+            # Clear previous URL display
             auth_url_display.update("")
-            self._update_auth_status()
+
+            # Define status update callback
+            def update_status(message):
+                status_label.update(message)
+
+            # Start login process with callbacks
+            auth_data = auth.initiate_login(
+                self.API_URL,
+                update_status_fn=update_status,
+                display_auth_url_fn=self._display_auth_url,
+            )
+
+            if auth_data:
+                self.auth_data = auth_data
+                auth_url_display.update("")
+                self._update_auth_status()
+            else:
+                logger.error("Login failed")
+        except NoMatches:
+            logger.error("Login failed: UI components not found")
 
     def _logout_worker(self):
-        """Worker to handle logout flow"""
-        status_label = self.query_one("#auth-status", Label)
+        try:
+            status_label = self.query_one("#auth-status", Label)
 
-        # Update UI
-        status_label.update("Logging out...")
+            # Update UI
+            status_label.update("Logging out...")
 
-        if auth.logout():
-            self.auth_data = None
-            status_label.update("Successfully logged out")
-            self._update_auth_status()
-        else:
-            status_label.update("Error during logout")
+            if auth.logout():
+                self.auth_data = None
+                status_label.update("Successfully logged out")
+                self._update_auth_status()
+            else:
+                status_label.update("Error during logout")
+                logger.error("Error during logout")
+        except NoMatches:
+            logger.error("Logout failed: UI components not found")
 
 
 if __name__ == "__main__":

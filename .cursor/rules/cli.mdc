@@ -1,0 +1,6 @@
+---
+description: 
+globs: cli/src/brocc_li/cli/*.py
+alwaysApply: false
+---
+We use Textualize to build Terminal UI.

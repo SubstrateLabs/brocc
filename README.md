@@ -28,21 +28,21 @@ Our general preference is to build robust embedded software that can run locally
 
 ## Primary dependencies
 
-### Local app
+### Local app (`/cli`)
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
 - [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
 - [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
 - [Textual](https://www.textualize.io): Terminal UI framework.
 - [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud LLMs. LLM API requests are made locally from your computer, using your account's OpenRouter API [key](https://github.com/SubstrateLabs/brocc/blob/main/site/lib/user-lifecycle.ts).
-- Embedding API requests (for ingestion + queries) go to [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
+- Embeddings (for ingestion + queries) use [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
 
-### Website
+### Website (`/site`)
 
 - [Neon Postgres](https://neon.tech/docs/introduction): Used to store users, API keys, and collaboration settings.
 - [WorkOS](https://workos.com): Used for auth.
-- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
-- Cloudflare [R2](https://developers.cloudflare.com/r2): Used to store published datasets.
+- [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
+- [Cloudflare R2](https://developers.cloudflare.com/r2): Used to store published datasets.
 
 ### Ingestion
 
@@ -59,14 +59,13 @@ Our general preference is to build robust embedded software that can run locally
 <summary><h2>Roadmap</h2></summary>
 
 - **0.0.1**: Browser sense: connects to your browser history.
-  - [ ] Read browser history up to a selected timeframe
-  - [ ] Index common feeds:
+  - [ ] Ingest recent browser history
+  - [ ] Index feeds:
     - [x] Twitter
     - [x] Substack
     - [ ] Gmail
-  - [ ] Parse PDFs, including metadata for research articles
-  - [ ] Chunk long articles and PDFs semantically
-  - [ ] Search for "AI-related content", and get back feed items from multiple sources with an AI summary.
+  - [ ] Robust PDF ingestion (online only), including article metadata
+  - [ ] Basic hybrid semantic+lexical search
 - **0.0.2**: API sense: connects to web services via OAuth.
   - [ ] OAuth connection to:
     - [ ] Notion

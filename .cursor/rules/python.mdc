@@ -3,7 +3,7 @@ description:
 globs: *.py
 alwaysApply: false
 ---
-Always use terse, concise function docstrings. Only document params that are not self-documenting and have non-obvious behavior.
+DO NOT add docstrings for all methods classes and functions – only document things that are not self-documenting. When you do add docstrings, ONLY document parameters and behavior that is non-obvious based on the signature and implementation.
 Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyproject.toml). Remember:
 - Do not use bare except
 - Do not use f-strings for simple strings without variables 

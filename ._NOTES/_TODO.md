@@ -1,22 +1,18 @@
-## 0.0.1
-
-- apikey auth for /embed, update voyage
-  - utils for brocc apikey
+- fastapi server, fasthtml frontend
+- logs panel
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool
 - pydanticai + openrouter setup
-
-## 0.0.2
-
 - cli oauth flow
 
 ## backlog
 
+- usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
-- rob idea: "reverse engineering" approach monitoring network tab
 
 ## ideas
 
 - contacts sync
 - live transcription (or sync from granola)
+- can you monitor network tab via chrome cdp?
