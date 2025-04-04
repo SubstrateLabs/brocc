@@ -84,7 +84,7 @@ def check_and_update_api_status(
     # Step 3: Handle results and update UI
     if is_healthy:
         if update_ui_fn:
-            update_ui_fn(f"{display_name}: [green]Healthy[/green] - {api_url}/health")
+            update_ui_fn(f"{display_name}: [green]Connected[/green] - {api_url}/health")
         logger.info(f"{display_name} is healthy: {result['data']}")
     else:
         error = result.get("error", "Unknown error")
@@ -107,7 +107,7 @@ def check_and_update_api_status(
                     if is_healthy:
                         if update_ui_fn:
                             update_ui_fn(
-                                f"{display_name}: [green]Healthy[/green] (restarted) - {api_url}/health"
+                                f"{display_name}: [green]Connected[/green] (restarted) - {api_url}/health"
                             )
                         logger.success(f"Successfully restarted {display_name.lower()}")
                         return True

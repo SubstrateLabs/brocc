@@ -118,6 +118,10 @@ class BroccApp(App):
                 WEBUI_HOST,
                 "--port",
                 str(WEBUI_PORT),
+                "--api-host",
+                API_HOST,
+                "--api-port",
+                str(API_PORT),
                 "--version",
                 get_version(),
                 "--exit-file",
@@ -320,9 +324,9 @@ class BroccApp(App):
 
             # Check if webview is already open
             if is_webview_open():
-                webui_status.update("WebUI: [green]Running in webview window[/green]")
-                open_webui_btn.disabled = True
-                open_webui_btn.label = "WebUI already open"
+                webui_status.update("WebUI: [green]Open[/green]")
+                open_webui_btn.disabled = False  # Keep enabled for focus functionality
+                open_webui_btn.label = "Show window"  # Change label to indicate focus behavior
             else:
                 webui_status.update("WebUI: [blue]Ready to launch[/blue]")
                 open_webui_btn.disabled = False
@@ -535,32 +539,43 @@ class BroccApp(App):
             logger.error("Logout failed: UI components not found")
 
     def _open_webui_worker(self):
-        """Worker to open the WebUI in a separate window"""
-        # Only try to open if not already open
-        if not is_webview_open():
-            logger.info("Opening WebUI in standalone window")
-            success = open_webview()
+        """Worker to open the WebUI in a separate window or focus existing one"""
+        logger.info("Opening WebUI in standalone window or focusing existing window")
+        success = open_webview()
 
-            if success:
-                self._update_ui_status(
-                    "Window: [green]Launched successfully[/green]", "webui-health"
-                )
-                # Update button state
+        if success:
+            # Check if it was launched or just focused
+            if is_webview_open():
+                if (
+                    not hasattr(self, "_previous_webview_status")
+                    or not self._previous_webview_status
+                ):
+                    # It was just launched
+                    self._update_ui_status(
+                        "Window: [green]Launched successfully[/green]", "webui-health"
+                    )
+                else:
+                    # It was already running and focused
+                    self._update_ui_status(
+                        "Window: [green]Brought to foreground[/green]", "webui-health"
+                    )
+
+                # Update button state - keep enabled but change label
                 try:
                     open_webui_btn = self.query_one("#open-webui-btn", Button)
-                    open_webui_btn.disabled = True
-                    open_webui_btn.label = "Window already open"
+                    open_webui_btn.disabled = False  # Keep enabled for focus functionality
+                    open_webui_btn.label = "Show window"
                 except NoMatches:
                     pass
             else:
-                self._update_ui_status("Window: [red]Failed to launch[/red]", "webui-health")
+                # Launching failed despite success=True
+                self._update_ui_status("Window: [yellow]Status unclear[/yellow]", "webui-health")
         else:
-            logger.info("WebUI already open, not launching another instance")
+            self._update_ui_status("Window: [red]Failed to launch[/red]", "webui-health")
 
     def _check_webview_status(self) -> None:
         """Periodic check of webview status"""
-        # Directly check if webview is still open
-        # This will internally update _WEBVIEW_ACTIVE if the process has terminated
+        # Directly check if webview is still open using the API
         current_status = is_webview_open()
 
         # Store previous webview state to detect changes
@@ -581,13 +596,11 @@ class BroccApp(App):
                 open_webui_btn.label = "Open window"
                 self._update_ui_status("Window: [blue]Ready to launch[/blue]", "webui-health")
 
-            # If webview is open, make sure button is disabled
+            # If webview is open, keep button enabled but update label
             elif current_status:
-                open_webui_btn.disabled = True
-                open_webui_btn.label = "Window already open"
-                self._update_ui_status(
-                    "Window: [green]Running in webview window[/green]", "webui-health"
-                )
+                open_webui_btn.disabled = False  # Keep enabled for focus functionality
+                open_webui_btn.label = "Show window"
+                self._update_ui_status("Window: [green]Open[/green]", "webui-health")
 
             # Store current status for next check
             self._previous_webview_status = current_status
