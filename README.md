@@ -13,40 +13,44 @@ Try the beta CLI:
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
 1. **Local-first**: Your data belongs on your computer. Brocc never logs or stores your data remotely. Brocc's AI functionality uses cloud services (for now).
-2. **Source-visible**: You can review our architecture below, and inspect the code to verify our promise to never store your data.
+2. **Source-visible**: You can review our system design below, and inspect the code to verify our promise to never store your data.
 3. **Open-contribution**: We aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
 4. **Programmable**: Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
 
 </details>
 
 <details>
-<summary><h2>Architecture</h2></summary>
+<summary><h2>System Design</h2></summary>
+
+- Our general preference is to build robust embedded software that can run locally with minimal system requirements. We carefully choose dependencies that have this quality themselves.
+- However, we make pragmatic exceptions in service of a high quality user experience:
+  - We host a light web application, used primarily for authentication.
+  - We use a specific multimodal embedding model, which must be run remotely.
+  - We believe
+- The codebase is primarily a portable Python framework and CLI.
+- We prefer minimal dependencies.
+- At the moment, all AI models run via cloud services. However, our goal is to offer local inference, enabling fully on-device operation (and offline mode).
 
 ### Local app
-
-We always prefer embedded tech to hosted services. For now, all AI models run via cloud services. However, our goal is to offer local inference, enabling fully on-device operation (and offline mode).
-
-Dependencies:
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
 - [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
 - [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
 - [Textual](https://www.textualize.io): Terminal UI framework.
 - [PydanticAI](https://ai.pydantic.dev): Agent framework.
-- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud AI models.
-
-AI models:
-
-- [voyage-multimodal-3](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3): Embeds text and images in the same latent space, enabling multimodal search. This model must be run in the cloud until open-source alternatives improve in quality.
+- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud LLMs.
+- Embedding API requests (for ingestion + queries) go to [Voyage AI](https://www.voyageai.com/) via Brocc API proxy.
 
 ### Website
-
-The web component of Brocc is intentionally minimal. We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
 
 - [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
 - Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
 - [WorkOS](https://workos.com): Easier maintenance than DIY, cheaper than alternatives.
 - Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
+
+### AI models
+
+- [voyage-multimodal-3](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3): This is the leading multimodal embedding model, capable of embedding interleaved text and images in the same latent space.
 
 </details>
 
