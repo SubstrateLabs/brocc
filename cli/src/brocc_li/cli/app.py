@@ -45,7 +45,7 @@ class AppContent(Static):
         yield Container(
             Horizontal(
                 Button(
-                    label="Open window",
+                    label="Open Brocc window",
                     id="open-webui-btn",
                     variant="primary",
                     disabled=True,
@@ -219,34 +219,50 @@ class BroccApp(App):
         return False
 
     def _notify_webview_shutdown(self):
-        """Send shutdown message to webview via WebSocket"""
+        """Send shutdown message to webview via API"""
         try:
-            # Instead of trying to use the WebSocket connections directly,
-            # we'll just make a fire-and-forget API call
+            logger.info("Sending shutdown signal to webview")
+            # Use a completely non-blocking approach with no wait
+            import threading
+
+            import requests
+
+            def make_request():
+                try:
+                    # Call the synchronous endpoint
+                    response = requests.post(
+                        f"http://{API_HOST}:{API_PORT}/webview/shutdown",
+                        timeout=2.0,  # Give it a reasonable timeout
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        logger.info(f"Webview shutdown response: {result}")
+                        return True
+                    else:
+                        logger.warning(f"Failed to send shutdown signal: {response.status_code}")
+                        return False
+                except Exception as e:
+                    logger.error(f"Error sending shutdown signal: {e}")
+                    return False
+
+            # Start the thread but don't wait for it
+            thread = threading.Thread(target=make_request, daemon=True)
+            thread.start()
+            # Give a short time for the request to complete
+            thread.join(timeout=0.5)
+
+        except Exception as e:
+            logger.error(f"Error initiating webview shutdown: {e}")
+            # Fall back to direct termination in case API call fails
             try:
-                # Use a completely non-blocking approach with no wait
-                import threading
+                from brocc_li.cli.server import _WEBVIEW_PROCESS
 
-                import requests
-
-                def make_request():
-                    try:
-                        # Use a very short timeout to avoid hanging
-                        requests.post(f"http://{API_HOST}:{API_PORT}/webview/shutdown", timeout=0.5)
-                    except Exception:  # Specify exception type
-                        # Ignore all errors during shutdown
-                        pass
-
-                # Start the thread and don't wait for it
-                thread = threading.Thread(target=make_request, daemon=True)
-                thread.start()
-                # Don't log during shutdown
-            except Exception:  # Specify exception type
-                # Ignore any errors - we're shutting down anyway
-                pass
-        except Exception:  # Specify exception type
-            # Ignore any errors during shutdown
-            pass
+                if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
+                    logger.info("Fallback: Directly terminating webview process")
+                    _WEBVIEW_PROCESS.terminate()
+            except Exception as term_err:
+                logger.error(f"Error in fallback termination: {term_err}")
 
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
@@ -395,11 +411,13 @@ class BroccApp(App):
             if is_webview_open():
                 webui_status.update("WebUI: [green]Open[/green]")
                 open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                open_webui_btn.label = "Show window"  # Change label to indicate focus behavior
+                open_webui_btn.label = (
+                    "Show Brocc window"  # Change label to indicate focus behavior
+                )
             else:
                 webui_status.update("WebUI: [blue]Ready to launch[/blue]")
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open window"
+                open_webui_btn.label = "Open Brocc window"
         except NoMatches:
             logger.debug("Could not update WebUI status: UI component not found")
 
@@ -527,7 +545,7 @@ class BroccApp(App):
             try:
                 open_webui_btn = self.query_one("#open-webui-btn", Button)
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open window"
+                open_webui_btn.label = "Open Brocc window"
                 self._update_ui_status(
                     "Window: [blue]Ready to launch[/blue]",
                     "webui-health",
@@ -633,7 +651,7 @@ class BroccApp(App):
                 try:
                     open_webui_btn = self.query_one("#open-webui-btn", Button)
                     open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                    open_webui_btn.label = "Show window"
+                    open_webui_btn.label = "Show Brocc window"
                 except NoMatches:
                     pass
             else:
@@ -662,13 +680,13 @@ class BroccApp(App):
 
                 # Update UI to reflect closed state
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open window"
+                open_webui_btn.label = "Open Brocc window"
                 self._update_ui_status("Window: [blue]Ready to launch[/blue]", "webui-health")
 
             # If webview is open, keep button enabled but update label
             elif current_status:
                 open_webui_btn.disabled = False  # Keep enabled for focus functionality
-                open_webui_btn.label = "Show window"
+                open_webui_btn.label = "Show Brocc window"
                 self._update_ui_status("Window: [green]Open[/green]", "webui-health")
 
             # Store current status for next check

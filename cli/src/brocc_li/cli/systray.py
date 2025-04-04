@@ -143,7 +143,7 @@ def setup_icon():
 
     # Create the menu
     menu = pystray.Menu(
-        pystray.MenuItem("Open Window", on_open_window, default=True),
+        pystray.MenuItem("Show Brocc window", on_open_window, default=True),
     )
 
     # Create the icon

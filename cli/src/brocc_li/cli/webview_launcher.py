@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import atexit
 import json
-import os
+import os  # Re-add this important import
 import platform
 import signal
 import sys
@@ -16,6 +16,10 @@ window = None
 ws_client = None
 # Flag to track if we're shutting down
 shutting_down = False
+# Counter for connection attempts
+reconnect_count = 0
+# Max number of reconnection attempts
+MAX_RECONNECT_ATTEMPTS = 3
 
 # Try to import webview - the import name for pywebview is simply 'webview'
 try:
@@ -56,36 +60,66 @@ def on_ws_message(ws, message):
             shutting_down = True
             cleanup()
             sys.exit(0)
+
+        # Handle heartbeat response
+        if data.get("action") == "heartbeat" and data.get("status") == "ok":
+            print("Heartbeat acknowledged by server")
     except Exception as e:
         print(f"Error processing WebSocket message: {e}")
 
 
 def on_ws_error(ws, error):
-    global shutting_down
+    global shutting_down, reconnect_count
     print(f"WebSocket error: {error}")
-    # Any WebSocket error is likely a sign the server is gone
+
+    # If the main app is shutting down or has stopped, we should close too
     if not shutting_down:
-        print("WebSocket error - server may be gone. Shutting down.")
-        shutting_down = True
-        cleanup()
-        # Use a thread to exit after a short delay to avoid blocking
-        threading.Thread(target=lambda: (time.sleep(0.5), sys.exit(0)), daemon=True).start()
+        # Check if we've hit the max reconnection attempts
+        if reconnect_count >= MAX_RECONNECT_ATTEMPTS:
+            print(
+                f"Failed to maintain connection after {MAX_RECONNECT_ATTEMPTS} attempts. Exiting."
+            )
+            shutting_down = True
+            cleanup()
+            sys.exit(1)
+        else:
+            print(
+                f"WebSocket error - attempting to reconnect (attempt {reconnect_count + 1}/{MAX_RECONNECT_ATTEMPTS})..."
+            )
+            threading.Thread(
+                target=reconnect_websocket_after_delay, args=(reconnect_count + 1,), daemon=True
+            ).start()
 
 
 def on_ws_close(ws, close_status_code, close_msg):
-    global shutting_down
+    global shutting_down, reconnect_count
     print(f"WebSocket connection closed: {close_status_code} - {close_msg}")
-    # If the WebSocket closes unexpectedly, this might mean the server is gone
+
+    # If connection was closed and we're not already shutting down,
+    # it likely means the main app has exited. We should exit too.
     if not shutting_down:
-        print("WebSocket disconnected - server may have terminated. Shutting down.")
-        shutting_down = True
-        cleanup()
-        # Use a thread to exit after a short delay to avoid blocking
-        threading.Thread(target=lambda: (time.sleep(0.5), sys.exit(0)), daemon=True).start()
+        # Check if we've hit the max reconnection attempts
+        if reconnect_count >= MAX_RECONNECT_ATTEMPTS:
+            print(
+                f"WebSocket connection lost - main app may have exited. Shutting down after {MAX_RECONNECT_ATTEMPTS} reconnection attempts."
+            )
+            shutting_down = True
+            cleanup()
+            sys.exit(0)
+        else:
+            print(
+                f"WebSocket disconnected - attempting to reconnect (attempt {reconnect_count + 1}/{MAX_RECONNECT_ATTEMPTS})..."
+            )
+            threading.Thread(
+                target=reconnect_websocket_after_delay, args=(reconnect_count + 1,), daemon=True
+            ).start()
 
 
 def on_ws_open(ws):
+    global reconnect_count
     print(f"WebSocket connection established to {ws_url}")
+    # Reset reconnection counter on successful connection
+    reconnect_count = 0
     # Start heartbeat thread
     threading.Thread(target=heartbeat_thread, daemon=True).start()
 
@@ -93,13 +127,75 @@ def on_ws_open(ws):
 def heartbeat_thread():
     """Send periodic heartbeats to keep the connection alive"""
     global ws_client, shutting_down
+
+    # Counter for consecutive failed heartbeats
+    failed_heartbeats = 0
+
     while ws_client and not shutting_down:
         try:
             if ws_client.sock and ws_client.sock.connected:
+                print("Sending heartbeat to server...")
                 ws_client.send(json.dumps({"action": "heartbeat"}))
+                failed_heartbeats = 0  # Reset on successful send
+            else:
+                failed_heartbeats += 1
+                print(f"WebSocket not connected for heartbeat ({failed_heartbeats})")
+
+                # If multiple heartbeats fail, the server is likely gone
+                if failed_heartbeats >= 3:
+                    print("Multiple heartbeats failed. Server may be gone, shutting down.")
+                    shutting_down = True
+                    cleanup()
+                    # Exit using timer to avoid blocking in heartbeat thread
+                    threading.Timer(0.5, lambda: sys.exit(0)).start()
+                    return
         except Exception as e:
             print(f"Error sending heartbeat: {e}")
-        time.sleep(15)  # Send heartbeat every 15 seconds
+            failed_heartbeats += 1
+
+            # If multiple heartbeats fail, the server is likely gone
+            if failed_heartbeats >= 3:
+                print("Multiple heartbeats failed with error. Server may be gone, shutting down.")
+                shutting_down = True
+                cleanup()
+                # Exit using timer to avoid blocking in heartbeat thread
+                threading.Timer(0.5, lambda: sys.exit(0)).start()
+                return
+
+        time.sleep(5)  # Send heartbeat every 5 seconds instead of 15 for faster detection
+
+
+def reconnect_websocket_after_delay(attempt=1):
+    """Wait a bit and then try to reconnect the WebSocket"""
+    global shutting_down, reconnect_count
+
+    # Update the global counter
+    reconnect_count = attempt
+
+    time.sleep(5)  # Wait 5 seconds before attempting reconnection
+
+    if shutting_down:
+        return
+
+    try:
+        # After multiple failed attempts, we should exit to prevent zombie processes
+        if attempt > MAX_RECONNECT_ATTEMPTS:
+            print(
+                f"Failed to reconnect after {MAX_RECONNECT_ATTEMPTS} attempts. Exiting gracefully."
+            )
+            shutting_down = True
+            cleanup()
+            # Give a moment for cleanup to complete before exit
+            time.sleep(1)
+            sys.exit(1)
+
+        setup_websocket()
+    except Exception as e:
+        print(f"Failed to reconnect WebSocket: {e}")
+        # Try again with increased attempt counter
+        threading.Thread(
+            target=lambda: reconnect_websocket_after_delay(attempt + 1), daemon=True
+        ).start()
 
 
 # Setup WebSocket connection
@@ -167,14 +263,14 @@ def cleanup():
             try:
                 if ws_client.sock and ws_client.sock.connected:
                     ws_client.send(json.dumps({"action": "closing"}))
-            except Exception:  # Specify exception type
+            except Exception:
                 # Ignore errors during shutdown
                 pass
 
             # Close the connection
             try:
                 ws_client.close()
-            except Exception:  # Specify exception type
+            except Exception:
                 # Ignore errors during shutdown
                 pass
 
@@ -182,24 +278,41 @@ def cleanup():
         except Exception as e:
             print(f"Error closing WebSocket: {e}")
 
+    # Force exit the process after cleanup to ensure nothing keeps it alive
+    print("Cleanup complete - exiting process")
+    # Give a moment for cleanup to complete before exit
+    threading.Timer(1.0, lambda: os._exit(0)).start()
+
 
 # Register cleanup handler
 atexit.register(cleanup)
 
 
+# Function to handle window closing
+def on_window_close():
+    """Called when the webview window is closed by the user"""
+    print("Window closed by user - initiating cleanup")
+    global shutting_down
+    shutting_down = True
+    # This will trigger the atexit handler after the function completes
+    sys.exit(0)
+
+
 # Main execution
 if __name__ == "__main__":
-    # Set up a force quit timer
-    def force_exit():
-        global shutting_down
-        # Wait for a bit, then force exit if still running
-        time.sleep(5)
-        if not shutting_down:
-            print("Force quitting after timeout")
-            os._exit(1)  # Force immediate exit
+    # Set up a more reasonable shutdown timer - gives time to start up
+    # but ensures we don't stay alive forever if something gets stuck
+    def delayed_watchdog():
+        global shutting_down, window
+        # Give the app 30 seconds to properly initialize
+        time.sleep(30)
+        # If we're still running (GUI is active) after 30 seconds, don't exit
+        if not shutting_down and window is None:
+            print("Watchdog: Window failed to initialize after 30 seconds. Exiting.")
+            os._exit(1)  # Force exit if window never appears
 
-    # Start force exit timer in case anything hangs
-    threading.Thread(target=force_exit, daemon=True).start()
+    # Start watchdog timer
+    threading.Thread(target=delayed_watchdog, daemon=True).start()
 
     # Set up WebSocket connection
     setup_websocket()
@@ -213,10 +326,24 @@ if __name__ == "__main__":
             print(
                 f"Available webview functions: {[name for name in dir(webview) if not name.startswith('_')]}"
             )
-            window = webview.create_window(title, url, width=1024, height=768, resizable=True)
+            # Create window with on_close handler to ensure cleanup
+            window = webview.create_window(
+                title, url, width=1024, height=768, resizable=True, on_top=False
+            )
+
+            # Set on_close handler if supported
+            if hasattr(window, "events") and hasattr(window.events, "closed"):
+                window.events.closed += on_window_close
+                print("Registered window close handler")
+
             print("Starting webview GUI loop")
-            webview.start()
+            # Start webview in a way that ensures it will exit
+            webview.start(func=lambda: None, debug=False)
             print("Webview closed")
+
+            # If we get here, it means the webview loop has ended
+            # Make sure we exit
+            on_window_close()
         else:
             print("ERROR: The webview module doesn't have create_window attribute")
             print(f"Available attributes: {dir(webview)}")

@@ -4,6 +4,7 @@ import platform
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import psutil
@@ -38,33 +39,45 @@ def _cleanup_webview():
 
     # First, try to notify all connected webviews to close (non-blocking)
     try:
-        # Only attempt this if there are connections
-        if _WEBVIEW_CONNECTIONS:
+        # Log how many connections we're closing
+        connections_count = len(_WEBVIEW_CONNECTIONS)
+        if connections_count > 0:
             # Don't log during shutdown
+            logger.info(f"Notifying {connections_count} webview connections to shut down")
+
+            # Send to all connections
             for ws in list(_WEBVIEW_CONNECTIONS):
                 try:
                     # Only try to send if connection is still active
                     # Use _send_raw which is non-blocking instead of send_json which is async
                     if ws.client_state == WebSocketState.CONNECTED:
+                        logger.debug("Sending shutdown signal to webview")
                         ws._send_raw(json.dumps({"action": "shutdown"}))
-                except Exception:  # Specify exception type
-                    # Ignore any errors during shutdown
-                    pass
-    except Exception:  # Specify exception type
-        # Ignore any errors during shutdown
-        pass
+                except Exception as e:
+                    logger.error(f"Error sending shutdown to webview: {e}")
+    except Exception as e:
+        logger.error(f"Error notifying webviews to shut down: {e}")
 
-    # Then immediately terminate the process without waiting
+    # Give webviews a brief moment to process shutdown message before terminating
+    time.sleep(0.5)
+
+    # Then terminate the process
     if _WEBVIEW_PROCESS:
         try:
-            # Don't log during shutdown
-            _WEBVIEW_PROCESS.terminate()
-            # No waiting - just fire and forget
+            if _WEBVIEW_PROCESS.poll() is None:
+                logger.info(f"Terminating webview process (PID: {_WEBVIEW_PROCESS.pid})")
+                _WEBVIEW_PROCESS.terminate()
+                # Don't wait longer than 1 second - we need to exit
+                try:
+                    _WEBVIEW_PROCESS.wait(1.0)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Webview process did not terminate gracefully, forcing kill")
+                    _WEBVIEW_PROCESS.kill()
+
             _WEBVIEW_ACTIVE = False
             _WEBVIEW_PROCESS = None
-        except Exception:  # Specify exception type
-            # Ignore any errors during shutdown
-            pass
+        except Exception as e:
+            logger.error(f"Error terminating webview process: {e}")
 
 
 atexit.register(_cleanup_webview)
@@ -87,12 +100,14 @@ async def webview_websocket(websocket: WebSocket):
         # Keep connection alive and process messages
         while True:
             data = await websocket.receive_json()
-            logger.info(f"Received WebSocket message: {data}")
+            logger.debug(f"Received WebSocket message: {data}")  # Changed to debug to reduce noise
 
             # Handle specific message types
             if data.get("action") == "heartbeat":
+                # Send immediate heartbeat response
                 await websocket.send_json({"action": "heartbeat", "status": "ok"})
-
+            elif data.get("action") == "closing":
+                logger.info("WebView notified it's closing")
             # Handle other message types as needed
     except WebSocketDisconnect:
         logger.info("WebView WebSocket disconnected")
@@ -100,8 +115,9 @@ async def webview_websocket(websocket: WebSocket):
         logger.error(f"WebSocket error: {e}")
     finally:
         # Clean up connection
-        _WEBVIEW_CONNECTIONS.remove(websocket)
-        logger.info(f"WebView connection removed, remaining: {len(_WEBVIEW_CONNECTIONS)}")
+        if websocket in _WEBVIEW_CONNECTIONS:
+            _WEBVIEW_CONNECTIONS.remove(websocket)
+            logger.info(f"WebView connection removed, remaining: {len(_WEBVIEW_CONNECTIONS)}")
 
 
 # --- Routes ---
