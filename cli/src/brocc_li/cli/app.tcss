@@ -1,0 +1,33 @@
+Button:disabled {
+    display: none;
+}
+
+#auth-buttons {
+    width: auto;
+    height: auto;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+    overflow: auto;
+}
+
+#logs-tab {
+    padding: 0;
+    height: 1fr;
+    min-height: 8;
+    display: block;
+}
+
+#app-logs {
+    height: 1fr;
+    min-height: 8;
+    background: #000000;
+    color: #dddddd;
+    overflow-y: scroll;
+}
+

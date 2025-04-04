@@ -1,4 +1,7 @@
-- fastapi server, fasthtml frontend
+- textualize css
+- site api health endpoint
+- solidify login ux
+- fastapi server
 - logs panel
 - scrape all tabs
 - rework scrape abstraction

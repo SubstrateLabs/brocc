@@ -61,51 +61,7 @@ class BroccApp(App):
     API_PORT = PORT  # Port for the local FastAPI server
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
-    CSS = """
-    Button:disabled {
-        display: none;
-    }
-    
-    #auth-buttons {
-        width: auto;
-        height: auto;
-        align: center middle;
-    }
-    
-    Tabs {
-        dock: top;
-    }
-    
-    TabbedContent {
-        height: 1fr;
-    }
-    
-    TabPane {
-        height: 1fr;
-        overflow: auto;
-    }
-    
-    #logs-tab {
-        padding: 1;
-        height: 1fr;
-        min-height: 10;
-        display: block;
-    }
-    
-    #app-logs {
-        height: 1fr;
-        min-height: 10;
-        border: solid green;
-        background: #000000;
-        color: #dddddd;
-        overflow-y: scroll;
-    }
-    
-    #api-url {
-        color: green;
-        text-style: bold;
-    }
-    """
+    CSS_PATH = "app.tcss"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
