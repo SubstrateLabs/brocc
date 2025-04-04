@@ -137,7 +137,8 @@ def open_webview():
                         line = proc.stdout.readline().strip()
                         if line:
                             logger.info(f"Webview process: {line}")
-                except:
+                except (IOError, BrokenPipeError) as e:
+                    logger.debug(f"Error reading from webview stdout: {e}")
                     break
 
             # Process has exited
@@ -150,8 +151,8 @@ def open_webview():
                     error = proc.stderr.read()
                     if error:
                         logger.error(f"Webview process error: {error}")
-                except:
-                    pass
+                except (IOError, BrokenPipeError) as e:
+                    logger.debug(f"Error reading from webview stderr: {e}")
 
             # Update state
             _WEBVIEW_ACTIVE = False

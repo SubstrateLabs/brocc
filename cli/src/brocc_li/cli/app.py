@@ -6,7 +6,7 @@ from platformdirs import user_config_dir
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
-from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedContent
+from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
 from brocc_li.cli import auth
 from brocc_li.cli.api_health import check_and_update_api_status
@@ -16,6 +16,8 @@ from brocc_li.cli.open_webview import (
     open_webview,
 )
 from brocc_li.cli.server import API_HOST, API_PORT, run_server_in_thread
+from brocc_li.cli.textual_ui.info_panel import InfoPanel
+from brocc_li.cli.textual_ui.logs_panel import LogsPanel
 from brocc_li.cli.webui import WEBUI_HOST, WEBUI_PORT
 from brocc_li.cli.webui import run_server_in_thread as run_webui_in_thread
 from brocc_li.utils.api_url import get_api_url
@@ -34,30 +36,8 @@ class AppContent(Static):
     def compose(self) -> ComposeResult:
         yield Container(
             Horizontal(
-                Button(label="Login", id="login-btn", variant="default", name="login"),
                 Button(
-                    label="Logout",
-                    id="logout-btn",
-                    variant="default",
-                    disabled=not self.app_instance.is_logged_in,
-                    name="logout",
-                ),
-                id="auth-buttons",
-            ),
-            Static("", id="auth-url-display"),
-            id="auth-container",
-        )
-        yield Container(
-            Static("Site API: Checking...", id="site-health"),
-            Static("Local API: Checking...", id="local-health"),
-            Static("WebUI: Checking...", id="webui-health"),
-            Label("Not logged in", id="auth-status"),
-            id="health-container",
-        )
-        yield Container(
-            Horizontal(
-                Button(
-                    label="Open app",
+                    label="Open window",
                     id="open-webui-btn",
                     variant="primary",
                     disabled=True,
@@ -69,15 +49,6 @@ class AppContent(Static):
         )
 
 
-class LogsPanel(Static):
-    def compose(self) -> ComposeResult:
-        yield Log(highlight=True, auto_scroll=True, id="app-logs")
-
-    def on_mount(self) -> None:
-        log_widget = self.query_one("#app-logs", Log)
-        logger.set_log_widget(log_widget)
-
-
 class BroccApp(App):
     TITLE = f"🥦 brocc v{get_version()}"
     BINDINGS = [
@@ -87,7 +58,7 @@ class BroccApp(App):
     LOCAL_API_PORT = API_PORT  # Port for the local FastAPI server
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
-    CSS_PATH = "app.tcss"
+    CSS_PATH = ["app.tcss", "textual_ui/info_panel.tcss", "textual_ui/logs_panel.tcss"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -102,8 +73,9 @@ class BroccApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
 
-        with TabbedContent("App", "Logs", id="main-content"):
+        with TabbedContent("App", "Info", "Logs", id="main-content"):
             yield AppContent(self, id="app-tab")
+            yield InfoPanel(self, id="info-tab")
             yield LogsPanel(id="logs-tab")
 
         yield Footer()
@@ -215,7 +187,7 @@ class BroccApp(App):
             else:
                 webui_status.update("WebUI: [blue]Ready to launch[/blue]")
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open WebUI"
+                open_webui_btn.label = "Open window"
         except NoMatches:
             logger.debug("Could not update WebUI status: UI component not found")
 
@@ -269,7 +241,7 @@ class BroccApp(App):
                 elif not self.is_logged_in:
                     login_btn.disabled = False
 
-                # Enable/disable Open WebUI button based on WebUI health
+                # Enable/disable Open window button based on WebUI health
                 open_webui_btn.disabled = not webui_healthy
             except NoMatches:
                 pass
@@ -340,9 +312,9 @@ class BroccApp(App):
             try:
                 open_webui_btn = self.query_one("#open-webui-btn", Button)
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open WebUI"
+                open_webui_btn.label = "Open window"
                 self._update_ui_status(
-                    "WebView: [blue]Ready to launch (click 'Open WebUI')[/blue]",
+                    "Window: [blue]Ready to launch[/blue]",
                     "webui-health",
                 )
             except NoMatches:
@@ -398,20 +370,20 @@ class BroccApp(App):
                 if is_webview_open():
                     # Prompt user to close the webview
                     self._update_ui_status(
-                        "WebView: [yellow]Running but logged out, closing automatically...[/yellow]",
+                        "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
                         "webui-health",
                     )
                     # Close the webview since user is no longer logged in
                     if close_webview():
                         self._update_ui_status(
-                            "WebView: [blue]Closed after logout[/blue]",
+                            "Window: [blue]Closed after logout[/blue]",
                             "webui-health",
                         )
                         # Update button state
                         try:
                             open_webui_btn = self.query_one("#open-webui-btn", Button)
                             open_webui_btn.disabled = True
-                            open_webui_btn.label = "Login to open WebUI"
+                            open_webui_btn.label = "Login to open app window"
                         except NoMatches:
                             pass
             else:
@@ -429,17 +401,17 @@ class BroccApp(App):
 
             if success:
                 self._update_ui_status(
-                    "WebView: [green]Launched successfully[/green]", "webui-health"
+                    "Window: [green]Launched successfully[/green]", "webui-health"
                 )
                 # Update button state
                 try:
                     open_webui_btn = self.query_one("#open-webui-btn", Button)
                     open_webui_btn.disabled = True
-                    open_webui_btn.label = "WebUI already open"
+                    open_webui_btn.label = "Window already open"
                 except NoMatches:
                     pass
             else:
-                self._update_ui_status("WebView: [red]Failed to launch[/red]", "webui-health")
+                self._update_ui_status("Window: [red]Failed to launch[/red]", "webui-health")
         else:
             logger.info("WebUI already open, not launching another instance")
 
@@ -464,15 +436,15 @@ class BroccApp(App):
 
                 # Update UI to reflect closed state
                 open_webui_btn.disabled = False
-                open_webui_btn.label = "Open WebUI"
-                self._update_ui_status("WebUI: [blue]Ready to launch[/blue]", "webui-health")
+                open_webui_btn.label = "Open window"
+                self._update_ui_status("Window: [blue]Ready to launch[/blue]", "webui-health")
 
             # If webview is open, make sure button is disabled
             elif current_status:
                 open_webui_btn.disabled = True
-                open_webui_btn.label = "WebUI already open"
+                open_webui_btn.label = "Window already open"
                 self._update_ui_status(
-                    "WebUI: [green]Running in webview window[/green]", "webui-health"
+                    "Window: [green]Running in webview window[/green]", "webui-health"
                 )
 
             # Store current status for next check

@@ -1,0 +1,4 @@
+#auth-buttons {
+    width: auto;
+    height: auto;
+}
