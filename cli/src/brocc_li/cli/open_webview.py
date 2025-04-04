@@ -27,7 +27,8 @@ def is_webview_open():
         if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
             return True
         else:
-            # Process has terminated
+            # Process has terminated or was closed by user
+            logger.info("Webview process detected as terminated")
             _WEBVIEW_ACTIVE = False
             _WEBVIEW_PROCESS = None
 

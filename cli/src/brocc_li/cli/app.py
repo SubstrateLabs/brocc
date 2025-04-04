@@ -11,7 +11,6 @@ from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedCo
 from brocc_li.cli import auth
 from brocc_li.cli.api_health import check_and_update_api_status
 from brocc_li.cli.open_webview import (
-    check_webview_health,
     close_webview,
     is_webview_open,
     open_webview,
@@ -98,6 +97,7 @@ class BroccApp(App):
         self.webview_thread = None  # Add reference to webview thread
         self.site_api_healthy = False
         self.local_api_healthy = False
+        self._previous_webview_status = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -111,6 +111,8 @@ class BroccApp(App):
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
         # Close the webview if it's open
+        if is_webview_open():
+            logger.info("Closing webview before exit")
         if close_webview():
             logger.info("Successfully closed webview on exit")
         self.exit()
@@ -443,24 +445,43 @@ class BroccApp(App):
 
     def _check_webview_status(self) -> None:
         """Periodic check of webview status"""
-        # First check if our understanding of webview status matches reality
+        # Directly check if webview is still open
+        # This will internally update _WEBVIEW_ACTIVE if the process has terminated
         current_status = is_webview_open()
 
-        # If we need a more detailed check, use the thorough checker
-        if current_status:
-            # Verify with a more thorough check
-            actual_status = check_webview_health()
+        # Store previous webview state to detect changes
+        try:
+            # Get the elements we'll need to update
+            open_webui_btn = self.query_one("#open-webui-btn", Button)
 
-            # If status has changed, update the UI
-            if not actual_status:
-                logger.info("Webview was detected as closed, updating UI")
-                try:
-                    open_webui_btn = self.query_one("#open-webui-btn", Button)
-                    open_webui_btn.disabled = False
-                    open_webui_btn.label = "Open WebUI"
-                    self._update_ui_status("WebUI: [blue]Ready to launch[/blue]", "webui-health")
-                except NoMatches:
-                    pass
+            # If webview was previously open but now closed
+            if (
+                not current_status
+                and hasattr(self, "_previous_webview_status")
+                and self._previous_webview_status
+            ):
+                logger.info("Detected webview was manually closed by user")
+
+                # Update UI to reflect closed state
+                open_webui_btn.disabled = False
+                open_webui_btn.label = "Open WebUI"
+                self._update_ui_status("WebUI: [blue]Ready to launch[/blue]", "webui-health")
+
+            # If webview is open, make sure button is disabled
+            elif current_status:
+                open_webui_btn.disabled = True
+                open_webui_btn.label = "WebUI already open"
+                self._update_ui_status(
+                    "WebUI: [green]Running in webview window[/green]", "webui-health"
+                )
+
+            # Store current status for next check
+            self._previous_webview_status = current_status
+
+        except NoMatches:
+            logger.debug("Could not update webview status: UI components not found")
+            # Still store the status even if we couldn't update UI
+            self._previous_webview_status = current_status
 
 
 if __name__ == "__main__":
