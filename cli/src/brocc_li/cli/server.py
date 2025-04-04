@@ -40,7 +40,7 @@ def _cleanup_webview():
     try:
         # Only attempt this if there are connections
         if _WEBVIEW_CONNECTIONS:
-            logger.info(f"Sending shutdown to {len(_WEBVIEW_CONNECTIONS)} websocket connection(s)")
+            # Don't log during shutdown
             for ws in list(_WEBVIEW_CONNECTIONS):
                 try:
                     # Only try to send if connection is still active
@@ -57,7 +57,7 @@ def _cleanup_webview():
     # Then immediately terminate the process without waiting
     if _WEBVIEW_PROCESS:
         try:
-            logger.info(f"Terminating webview process {_WEBVIEW_PROCESS.pid}")
+            # Don't log during shutdown
             _WEBVIEW_PROCESS.terminate()
             # No waiting - just fire and forget
             _WEBVIEW_ACTIVE = False
@@ -234,6 +234,7 @@ def shutdown_webview_sync():
             except Exception:  # Specify exception type
                 pass
 
+        # Don't log during shutdown
         return {"status": "notified", "message": f"Shutdown sent to {success_count} connections"}
     except Exception:  # Specify exception type
         # Catch all exceptions during shutdown

@@ -13,6 +13,7 @@ class Logger:
         self._log_widget = None
         self._log_history = []
         self._max_history = 1000  # Store last 1000 log messages
+        self._shutting_down = False  # Flag to suppress output during shutdown
 
     def set_log_widget(self, log_widget):
         """Set a Textual Log widget to send logs to."""
@@ -56,9 +57,13 @@ class Logger:
                 # Just suppress the error and continue
                 pass
 
+    def mark_shutting_down(self):
+        """Mark logger as shutting down to suppress further output"""
+        self._shutting_down = True
+
     def print(self, *args, **kwargs):
         """Print to console if enabled."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(*args, **kwargs)
             message = " ".join(str(arg) for arg in args)
             self._write_to_log("INFO", message)
@@ -69,31 +74,31 @@ class Logger:
 
     def debug(self, message: Any, *args, **kwargs):
         """Print debug-level messages."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(f"[dim]{message}[/dim]", *args, **kwargs)
             self._write_to_log("DEBUG", str(message))
 
     def info(self, message: Any, *args, **kwargs):
         """Print info-level messages."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(message, *args, **kwargs)
             self._write_to_log("INFO", str(message))
 
     def warning(self, message: Any, *args, **kwargs):
         """Print warning-level messages."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(f"[yellow]{message}[/yellow]", *args, **kwargs)
             self._write_to_log("WARNING", str(message))
 
     def error(self, message: Any, *args, **kwargs):
         """Print error-level messages."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(f"[red]{message}[/red]", *args, **kwargs)
             self._write_to_log("ERROR", str(message))
 
     def success(self, message: Any, *args, **kwargs):
         """Print success messages."""
-        if self.enabled:
+        if self.enabled and not self._shutting_down:
             self._console.print(f"[green]{message}[/green]", *args, **kwargs)
             self._write_to_log("SUCCESS", str(message))
 

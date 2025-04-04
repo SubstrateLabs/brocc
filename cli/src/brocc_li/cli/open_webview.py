@@ -40,10 +40,10 @@ def close_webview():
         if response.status_code == 200:
             result = response.json()
             if result.get("status") == "closed":
-                logger.info("Successfully closed webview")
+                # Don't log this since it often happens during shutdown
                 return True
             elif result.get("status") == "not_running":
-                logger.info("No webview to close")
+                # Don't log this since it often happens during shutdown
                 return True
             else:
                 logger.warning(f"Unexpected close result: {result}")

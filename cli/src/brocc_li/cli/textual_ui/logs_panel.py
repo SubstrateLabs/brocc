@@ -11,3 +11,6 @@ class LogsPanel(Static):
     def on_mount(self) -> None:
         log_widget = self.query_one("#app-logs", Log)
         logger.set_log_widget(log_widget)
+
+        # Re-enable logging now that we have a UI to show logs
+        logger.enabled = True

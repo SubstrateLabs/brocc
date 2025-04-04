@@ -27,7 +27,7 @@ def load_auth_data(auth_file=None):
         if auth_file.exists():
             with open(auth_file) as f:
                 auth_data = json.load(f)
-            logger.info(f"Loaded auth data for user: {auth_data.get('email', 'unknown')}")
+            logger.debug(f"Loaded auth data for user: {auth_data.get('email', 'unknown')}")
             return auth_data
         else:
             logger.debug("No saved auth data found")
@@ -52,7 +52,7 @@ def save_auth_data(auth_data, auth_file=None):
         config_dir.mkdir(exist_ok=True)
         with open(auth_file, "w") as f:
             json.dump(auth_data, f)
-        logger.info(f"Saved auth data for user: {auth_data.get('email', 'unknown')}")
+        logger.debug(f"Saved auth data for user: {auth_data.get('email', 'unknown')}")
         return True
     except Exception as e:
         logger.error(f"Error saving auth data: {e}")
@@ -71,7 +71,7 @@ def clear_auth_data(auth_file=None):
     try:
         if auth_file.exists():
             auth_file.unlink()
-        logger.info("Cleared auth data")
+        logger.debug("Cleared auth data")
         return True
     except Exception as e:
         logger.error(f"Error clearing auth data: {e}")

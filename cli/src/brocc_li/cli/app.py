@@ -240,7 +240,7 @@ class BroccApp(App):
                 # Start the thread and don't wait for it
                 thread = threading.Thread(target=make_request, daemon=True)
                 thread.start()
-                logger.info("Sent non-blocking shutdown request")
+                # Don't log during shutdown
             except Exception:  # Specify exception type
                 # Ignore any errors - we're shutting down anyway
                 pass
@@ -252,10 +252,13 @@ class BroccApp(App):
         """Cleanly exit the application, closing all resources"""
         logger.info("Shutdown initiated, closing resources")
 
+        # Mark logger as shutting down to suppress further output
+        logger.mark_shutting_down()
+
         # Set up a timed force exit in case shutdown hangs
         def force_exit():
             time.sleep(3)  # Wait 3 seconds then force exit
-            logger.info("Force exiting after timeout")
+            # Don't log this since we're suppressing output
             import os
 
             os._exit(0)  # Force immediate exit
@@ -270,7 +273,7 @@ class BroccApp(App):
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                 try:
-                    logger.info("Directly terminating webview process")
+                    # Don't log anything here - suppressed
                     _WEBVIEW_PROCESS.terminate()
                 except Exception:  # Specify exception type
                     pass
@@ -283,7 +286,7 @@ class BroccApp(App):
         # Close the systray
         try:
             if _SYSTRAY_PROCESS and _SYSTRAY_PROCESS.poll() is None:
-                logger.info("Terminating systray process")
+                # Don't log anything here - suppressed
                 _SYSTRAY_PROCESS.terminate()
                 # Remove the exit file if it exists
                 if self.exit_file and Path(self.exit_file).exists():
@@ -295,7 +298,7 @@ class BroccApp(App):
             pass
 
         # Exit immediately without waiting for anything
-        logger.info("Exiting application")
+        # No logging here
         self.exit()
 
     def action_check_health(self) -> None:
