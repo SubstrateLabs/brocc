@@ -7,8 +7,8 @@ from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
 # --- Constants ---
-HOST = "127.0.0.1"
-PORT = 8022
+API_HOST = "127.0.0.1"
+API_PORT = 8022
 
 # --- Server ---
 app = FastAPI(
@@ -30,7 +30,7 @@ async def health_check():
 
 
 # --- Server functions ---
-def start_server(host=HOST, port=PORT):
+def start_server(host=API_HOST, port=API_PORT):
     """Start the FastAPI server"""
     try:
         logger.info(f"Starting FastAPI server, docs: http://{host}:{port}/docs")
@@ -44,7 +44,7 @@ def start_server(host=HOST, port=PORT):
         logger.error(f"Error starting FastAPI server: {e}")
 
 
-def run_server_in_thread(host=HOST, port=PORT):
+def run_server_in_thread(host=API_HOST, port=API_PORT):
     """Run the server in a separate thread"""
     logger.info(f"Creating server thread for {host}:{port}")
     server_thread = threading.Thread(

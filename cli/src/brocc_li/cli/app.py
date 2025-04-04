@@ -10,7 +10,9 @@ from textual.widgets import Button, Footer, Header, Label, Log, Static, TabbedCo
 
 from brocc_li.cli import auth
 from brocc_li.cli.api_health import check_and_update_api_status
-from brocc_li.cli.server import HOST, PORT, run_server_in_thread
+from brocc_li.cli.server import API_HOST, API_PORT, run_server_in_thread
+from brocc_li.cli.webui import WEBUI_HOST, WEBUI_PORT
+from brocc_li.cli.webui import run_server_in_thread as run_webui_in_thread
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -43,6 +45,7 @@ class AppContent(Static):
         yield Container(
             Static("Site API: Checking...", id="site-health"),
             Static("Local API: Checking...", id="local-health"),
+            Static("WebUI: Checking...", id="webui-health"),
             Label("Not logged in", id="auth-status"),
             id="health-container",
         )
@@ -63,7 +66,7 @@ class BroccApp(App):
         ("ctrl+c", "request_quit", "Quit"),
     ]
     API_URL = get_api_url()
-    API_PORT = PORT  # Port for the local FastAPI server
+    LOCAL_API_PORT = API_PORT  # Port for the local FastAPI server
     CONFIG_DIR = Path(user_config_dir("brocc"))
     AUTH_FILE = CONFIG_DIR / "auth.json"
     CSS_PATH = "app.tcss"
@@ -72,6 +75,7 @@ class BroccApp(App):
         super().__init__(*args, **kwargs)
         self.auth_data = load_auth_data()
         self.server_thread = None
+        self.webui_thread = None
         self.site_api_healthy = False
         self.local_api_healthy = False
 
@@ -149,11 +153,26 @@ class BroccApp(App):
             logger.error(f"Failed to restart local API: {restart_err}")
             return False
 
+    def _restart_webui_server(self) -> bool:
+        """Restart the WebUI server if it died"""
+        try:
+            if self.webui_thread is not None and not self.webui_thread.is_alive():
+                logger.info("Previous WebUI thread died, starting a new one")
+                self.webui_thread = run_webui_in_thread()
+                # Give it a moment to start
+                time.sleep(1)
+                return True
+            return False
+        except Exception as restart_err:
+            logger.error(f"Failed to restart WebUI server: {restart_err}")
+            return False
+
     def _check_health_worker(self):
         """Worker to check health of both APIs"""
         try:
             # Check site API health
-            local_url = f"http://{HOST}:{PORT}"
+            local_url = f"http://{API_HOST}:{API_PORT}"
+            webui_url = f"http://{WEBUI_HOST}:{WEBUI_PORT}"  # FastHTML server port
 
             # Update site API health status
             self.site_api_healthy = check_and_update_api_status(
@@ -169,6 +188,15 @@ class BroccApp(App):
                 is_local=True,
                 update_ui_fn=lambda msg: self._update_ui_status(msg, "local-health"),
                 restart_server_fn=self._restart_local_server,
+            )
+
+            # Check WebUI health status
+            check_and_update_api_status(
+                api_name="WebUI",
+                api_url=webui_url,
+                is_local=True,
+                update_ui_fn=lambda msg: self._update_ui_status(msg, "webui-health"),
+                restart_server_fn=self._restart_webui_server,
             )
 
             # Update login button state based on API health
@@ -201,6 +229,16 @@ class BroccApp(App):
             time.sleep(0.5)
         except Exception as e:
             logger.error(f"Failed to start FastAPI server: {e}")
+
+        # Start the FastHTML WebUI server in a separate thread
+        try:
+            logger.info("Starting FastHTML WebUI server...")
+            self.webui_thread = run_webui_in_thread()
+
+            # Wait a moment to give the server time to start
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Failed to start FastHTML WebUI server: {e}")
 
         # Check health status
         self.run_worker(self._check_health_worker, thread=True)
