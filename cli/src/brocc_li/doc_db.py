@@ -60,8 +60,8 @@ APP_AUTHOR = "substratelabs"
 # Database constants
 DEFAULT_DB_FILENAME = "documents.duckdb"
 DEFAULT_LANCE_DIRNAME = "vector_store"
-DOCUMENTS_TABLE = "documents"
-DUCKDB_CHUNKS_TABLE = "chunks"  # Renamed from CHUNKS_TABLE to be more explicit
+DOCUMENTS_TABLE = "docs"
+DUCKDB_CHUNKS_TABLE = "chunks"
 LANCE_CHUNKS_TABLE = "chunks"
 
 
@@ -81,7 +81,7 @@ def get_default_lance_path() -> str:
 
 
 class DocDB:
-    """Handles storage and retrieval of documents using DuckDB and LanceDB."""
+    """Handles storage and retrieval of docs using DuckDB and LanceDB."""
 
     def __init__(self, db_path: str | None = None, lance_path: str | None = None):
         """
@@ -132,7 +132,9 @@ class DocDB:
                 self.lance_db.create_table(
                     LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
                 )
-                logger.info(f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}")
+                logger.info(
+                    f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}"
+                )
 
             else:
                 logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
@@ -166,7 +168,9 @@ class DocDB:
         # Create the parent directory if it doesn't exist
         # Moved to __init__ to ensure it exists before any connection attempt
 
-        with self._get_connection() as conn:  # Use the helper to ensure spatial is loaded
+        with (
+            self._get_connection() as conn
+        ):  # Use the helper to ensure spatial is loaded
             # Generate the CREATE TABLE statement dynamically for documents
             # Generate SQL normally first
             create_documents_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
@@ -200,7 +204,9 @@ class DocDB:
                 query += " WHERE source = ?"
                 params.append(source)
 
-            df: pl.DataFrame | pl.Series = pl.from_arrow(conn.execute(query, params).arrow())
+            df: pl.DataFrame | pl.Series = pl.from_arrow(
+                conn.execute(query, params).arrow()
+            )
             if isinstance(df, pl.DataFrame):
                 return set(df["url"].drop_nulls().to_list())
             else:
@@ -223,7 +229,10 @@ class DocDB:
 
             # Convert to list of native Python dictionaries
             raw_dicts = polars_to_dicts(df)
-            return [process_document_fields(doc, ARRAY_FIELDS, JSON_FIELDS) for doc in raw_dicts]
+            return [
+                process_document_fields(doc, ARRAY_FIELDS, JSON_FIELDS)
+                for doc in raw_dicts
+            ]
 
     def get_duckdb_chunks(self, doc_id: str) -> list[dict[str, Any]]:
         with self._get_connection() as conn:
@@ -370,10 +379,16 @@ class DocDB:
             # Convert to list of native Python dictionaries
             raw_dicts = polars_to_dicts(df)
             # Process fields
-            return [process_document_fields(doc, ARRAY_FIELDS, JSON_FIELDS) for doc in raw_dicts]
+            return [
+                process_document_fields(doc, ARRAY_FIELDS, JSON_FIELDS)
+                for doc in raw_dicts
+            ]
 
     def _find_id_for_update(
-        self, document: dict[str, Any], db_document: dict[str, Any], new_chunks: list[Chunk]
+        self,
+        document: dict[str, Any],
+        db_document: dict[str, Any],
+        new_chunks: list[Chunk],
     ) -> tuple[str | None, bool]:
         """
         Determine if an existing document should be updated, returning its ID if found.
@@ -430,7 +445,9 @@ class DocDB:
                 if key == "location" and value is not None:
                     # Use ST_Point function for location update
                     set_clauses.append(f"{key} = ST_GeomFromText(?)")
-                    params.append(value)  # value is already the WKT string 'POINT (lon lat)'
+                    params.append(
+                        value
+                    )  # value is already the WKT string 'POINT (lon lat)'
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
@@ -440,7 +457,9 @@ class DocDB:
             return
 
         params.append(doc_id)  # Add the ID for the WHERE clause
-        update_query = f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE id = ?"
+        update_query = (
+            f"UPDATE {DOCUMENTS_TABLE} SET {', '.join(set_clauses)} WHERE id = ?"
+        )
         conn.execute(update_query, params)
 
     def _insert_document(self, conn, db_document: dict[str, Any]) -> None:
@@ -449,7 +468,9 @@ class DocDB:
             db_document["id"] = Doc.generate_id()
 
         # The document has been prepared, but still need to filter out excluded fields
-        filtered_doc = {k: v for k, v in db_document.items() if k not in EXCLUDED_FIELDS}
+        filtered_doc = {
+            k: v for k, v in db_document.items() if k not in EXCLUDED_FIELDS
+        }
 
         columns = []
         placeholders = []
@@ -460,14 +481,18 @@ class DocDB:
             if key == "location" and value is not None:
                 # Use ST_Point function for location insert
                 placeholders.append("ST_GeomFromText(?)")
-                values.append(value)  # value is already the WKT string 'POINT (lon lat)'
+                values.append(
+                    value
+                )  # value is already the WKT string 'POINT (lon lat)'
             else:
                 placeholders.append("?")
                 values.append(value)
 
         columns_str = ", ".join(columns)
         placeholders_str = ", ".join(placeholders)
-        insert_query = f"INSERT INTO {DOCUMENTS_TABLE} ({columns_str}) VALUES ({placeholders_str})"
+        insert_query = (
+            f"INSERT INTO {DOCUMENTS_TABLE} ({columns_str}) VALUES ({placeholders_str})"
+        )
         conn.execute(insert_query, values)
 
     def _store_duckdb_chunks(self, conn, chunks: list[Chunk]) -> None:
@@ -488,7 +513,9 @@ class DocDB:
             db_chunk = prepare_chunk_for_storage(chunk)
             columns = ", ".join(db_chunk.keys())
             placeholders = ", ".join(["?"] * len(db_chunk))
-            insert_query = f"INSERT INTO {DUCKDB_CHUNKS_TABLE} ({columns}) VALUES ({placeholders})"
+            insert_query = (
+                f"INSERT INTO {DUCKDB_CHUNKS_TABLE} ({columns}) VALUES ({placeholders})"
+            )
             conn.execute(insert_query, list(db_chunk.values()))
 
     def _store_lance_chunks(self, chunks: list[Chunk], doc: Dict[str, Any]) -> None:
@@ -528,7 +555,9 @@ class DocDB:
             if lance_data:
                 try:
                     table.add(lance_data)
-                    logger.info(f"Added {len(lance_data)} chunks to LanceDB with auto-embeddings")
+                    logger.info(
+                        f"Added {len(lance_data)} chunks to LanceDB with auto-embeddings"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to add data to LanceDB: {e}")
         except Exception as e:
@@ -597,7 +626,9 @@ class DocDB:
         if hasattr(document, "location") and document.location is not None:
             doc_dict["location"] = document.location
         elif "location" not in doc_dict:
-            doc_dict["location"] = None  # Ensure it's present for _prepare_document_for_storage
+            doc_dict["location"] = (
+                None  # Ensure it's present for _prepare_document_for_storage
+            )
 
         # Require text_content
         text_content = doc_dict.pop("text_content", None)
@@ -619,7 +650,9 @@ class DocDB:
 
         with self._get_connection() as conn:
             # Check if an existing document needs to be updated
-            id_to_update, update_chunks = self._find_id_for_update(doc_data, doc_data, chunks)
+            id_to_update, update_chunks = self._find_id_for_update(
+                doc_data, doc_data, chunks
+            )
 
             if id_to_update and not update_chunks:
                 # Content is identical, only update document metadata
@@ -634,7 +667,10 @@ class DocDB:
                 # or we're matching by URL but content differs, we need a new ID
                 if original_id and (
                     self.get_document_by_id(original_id)
-                    or (doc_data.get("url") and self.url_exists(doc_data.get("url") or ""))
+                    or (
+                        doc_data.get("url")
+                        and self.url_exists(doc_data.get("url") or "")
+                    )
                 ):
                     # Generate a new ID
                     new_id = Doc.generate_id()

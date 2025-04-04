@@ -12,45 +12,46 @@ Try the beta CLI:
 
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
-1. **Local-first**: Your data belongs on your computer. Brocc never logs or stores your data remotely. Brocc's AI functionality uses cloud services (for now).
+1. **Local-first**: Your data belongs on your computer. Brocc never logs or stores your data remotely. AI features use cloud services.
 2. **Source-visible**: You can review our system design below, and inspect the code to verify our promise to never store your data.
-3. **Open-contribution**: We aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
-4. **Programmable**: Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
+3. **Open-contribution**: We aspire to build a rich open-contribution community.
 
 </details>
 
 <details>
 <summary><h2>System Design</h2></summary>
 
-- Our general preference is to build robust embedded software that can run locally with minimal system requirements. We carefully choose dependencies that have this quality themselves.
-- However, we make pragmatic exceptions in service of a high quality user experience:
-  - We host a light web application, used primarily for authentication.
-  - We use a specific multimodal embedding model, which must be run remotely.
-  - We believe
-- The codebase is primarily a portable Python framework and CLI.
-- We prefer minimal dependencies.
-- At the moment, all AI models run via cloud services. However, our goal is to offer local inference, enabling fully on-device operation (and offline mode).
+Our general preference is to build robust embedded software that can run locally with minimal system requirements. We carefully choose dependencies that have this quality themselves, making pragmatic exceptions:
+
+1. We host a light web application, used primarily for authentication.
+2. AI models run remotely, because we prefer software with minimal system requirements.
+
+## Primary dependencies
 
 ### Local app
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
-- [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
 - [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
+- [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
 - [Textual](https://www.textualize.io): Terminal UI framework.
-- [PydanticAI](https://ai.pydantic.dev): Agent framework.
-- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud LLMs.
-- Embedding API requests (for ingestion + queries) go to [Voyage AI](https://www.voyageai.com/) via Brocc API proxy.
+- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud LLMs. LLM API requests are made locally from your computer, using your account's OpenRouter API [key](https://github.com/SubstrateLabs/brocc/blob/main/site/lib/user-lifecycle.ts).
+- Embedding API requests (for ingestion + queries) go to [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
 
 ### Website
 
-- [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
-- Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
-- [WorkOS](https://workos.com): Easier maintenance than DIY, cheaper than alternatives.
-- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
+- [Neon Postgres](https://neon.tech/docs/introduction): Used to store users, API keys, and collaboration settings.
+- [WorkOS](https://workos.com): Used for auth.
+- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
+- Cloudflare [R2](https://developers.cloudflare.com/r2): Used to store published datasets.
 
-### AI models
+### Ingestion
 
-- [voyage-multimodal-3](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3): This is the leading multimodal embedding model, capable of embedding interleaved text and images in the same latent space.
+0. Everything is a document. Many ways to "read" documents.
+1. Document is converted to Markdown.
+2. Markdown is chunked using a heuristic that preserves section boundaries.
+3. Document metadata and chunk content are stored in DuckDB. Document metadata is stored in the `docs` table, and chunks stored in `chunks`.
+4. Chunked markdown is embedded multimodally (interleaved text and images).
+5. Chunk embeddings are stored in LanceDB, filterable by metadata.
 
 </details>
 
