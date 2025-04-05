@@ -221,33 +221,32 @@ class DocDB:
             self.lancedb_status["embeddings_status"] = "Not configured"
             self.lancedb_status["embeddings_details"] = None
 
+            # Setup VoyageAI embeddings first - regardless of table existence
+            voyage_ai = None
+            try:
+                registry = get_registry()
+                try:
+                    voyage_ai = registry.get("voyageai").create()
+                    logger.info("Successfully loaded VoyageAI embedding function")
+                    self.lancedb_status["embeddings_available"] = True
+                    self.lancedb_status["embeddings_status"] = "Ready"
+                    self.lancedb_status["embeddings_details"] = "VoyageAI loaded"
+                except Exception as ve:
+                    logger.error(f"Failed to create VoyageAI embedding function: {ve}")
+                    self.lancedb_status["embeddings_status"] = "Error loading VoyageAI"
+                    self.lancedb_status["embeddings_details"] = f"Error: {str(ve)}"
+            except Exception as re:
+                logger.error(f"Failed to get embeddings registry: {re}")
+                self.lancedb_status["embeddings_status"] = "Error with registry"
+                self.lancedb_status["embeddings_details"] = f"Error: {str(re)}"
+
             # Check if chunks table exists, if not create it
             tables = self.lance_db.table_names()
 
             if LANCE_CHUNKS_TABLE not in tables:
-                # Get registry and embedding function
+                # Create table with or without embeddings based on availability
                 try:
-                    registry = get_registry()
-                    try:
-                        voyage_ai = registry.get("voyageai").create()
-                        logger.info("Successfully loaded VoyageAI embedding function")
-                        self.lancedb_status["embeddings_available"] = True
-                        self.lancedb_status["embeddings_status"] = "Ready"
-                        self.lancedb_status["embeddings_details"] = (
-                            "VoyageAI embeddings loaded successfully"
-                        )
-                    except Exception as ve:
-                        logger.error(f"Failed to create VoyageAI embedding function: {ve}")
-                        self.lancedb_status["embeddings_status"] = "Error loading VoyageAI"
-                        self.lancedb_status["embeddings_details"] = f"Error: {str(ve)}"
-                except Exception as re:
-                    logger.error(f"Failed to get embeddings registry: {re}")
-                    self.lancedb_status["embeddings_status"] = "Error with registry"
-                    self.lancedb_status["embeddings_details"] = f"Error: {str(re)}"
-
-                # Even if we have an error, try to create the table with basic ChunkModel
-                try:
-                    if self.lancedb_status["embeddings_available"]:
+                    if self.lancedb_status["embeddings_available"] and voyage_ai is not None:
                         # Create with embeddings
                         class ChunkModelWithEmbedding(LanceChunk):
                             # Override content to be a SourceField for embedding
@@ -280,23 +279,30 @@ class DocDB:
 
             else:
                 logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
-                # Check if embeddings are available by reading table schema
+                # Check if table has a vector field - for backward compatibility
                 try:
                     table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
                     schema = table.schema
-                    if "vector" in schema.names:
-                        self.lancedb_status["embeddings_available"] = True
-                        self.lancedb_status["embeddings_status"] = "Found vector field"
-                        self.lancedb_status["embeddings_details"] = (
-                            "Vector field found in existing table"
+                    if "vector" in schema.names and not self.lancedb_status["embeddings_available"]:
+                        # Vector field exists but VoyageAI failed to load - show warning
+                        self.lancedb_status["embeddings_status"] = (
+                            "Table has vector field but embedding model not available"
                         )
-                    else:
-                        self.lancedb_status["embeddings_status"] = "Missing vector field"
                         self.lancedb_status["embeddings_details"] = (
-                            "Existing table does not have a vector field"
+                            "Existing vectors can be searched but new ones can't be created"
+                        )
+                    elif (
+                        "vector" not in schema.names and self.lancedb_status["embeddings_available"]
+                    ):
+                        # VoyageAI available but table has no vector field - show warning about recreation
+                        self.lancedb_status["embeddings_status"] = (
+                            "Embedding model available but table needs to be recreated"
+                        )
+                        self.lancedb_status["embeddings_details"] = (
+                            "Consider backing up and recreating the database"
                         )
                 except Exception as e:
-                    logger.error(f"Failed to check embeddings availability: {e}")
+                    logger.error(f"Failed to check table schema: {e}")
                     self.lancedb_status["embeddings_status"] = "Schema check failed"
                     self.lancedb_status["embeddings_details"] = f"Error: {str(e)}"
 

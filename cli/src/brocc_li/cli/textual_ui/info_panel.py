@@ -39,7 +39,6 @@ class InfoPanel(Static):
             Static("Window: Checking...", id="webapp-health"),
             Static("DuckDB: Initializing...", id="duckdb-health"),
             Static("LanceDB: Initializing...", id="lancedb-health"),
-            Static("Embeddings: Checking...", id="embeddings-status"),
             Label("Not logged in", id="auth-status"),
             id="health-container",
         )
@@ -161,9 +160,6 @@ class InfoPanel(Static):
                 self.query_one("#lancedb-health", Static).update(
                     "LanceDB: [red]Not initialized[/red]"
                 )
-                self.query_one("#embeddings-status", Static).update(
-                    "Embeddings: [red]Not initialized[/red]"
-                )
             except NoMatches:
                 logger.debug("Could not update DocDB status: UI component not found")
             return
@@ -187,39 +183,59 @@ class InfoPanel(Static):
                 error = duckdb_status.get("error", "Unknown error")
                 duckdb_msg = f"DuckDB: [red]Not initialized[/red] ({error})"
 
-            # Format LanceDB status - without the embeddings info which will go on its own line
+            # Format LanceDB status - including embeddings info on the same line
             if lancedb_status.get("healthy", False):
                 chunk_count = lancedb_status.get("chunk_count", 0)
-                lancedb_msg = f"LanceDB: [green]Connected[/green] ({chunk_count} chunks)"
+
+                # Add embeddings status to the LanceDB line
+                embeddings_status = lancedb_status.get("embeddings_status", "Unknown")
+                embeddings_details = lancedb_status.get("embeddings_details", "")
+
+                if lancedb_status.get("embeddings_available", False):
+                    lancedb_msg = f"LanceDB: [green]Connected[/green] ({chunk_count} chunks) - Embeddings: [green]Ready[/green]"
+                else:
+                    if "Error" in embeddings_status or "failed" in embeddings_status.lower():
+                        lancedb_msg = f"LanceDB: [green]Connected[/green] ({chunk_count} chunks) - Embeddings: [red]Unavailable[/red]"
+                    else:
+                        lancedb_msg = f"LanceDB: [green]Connected[/green] ({chunk_count} chunks) - Embeddings: [yellow]Not configured[/yellow]"
+
+                # Always add details if they exist
+                if embeddings_details:
+                    lancedb_msg += f" - {embeddings_details}"
+
             elif lancedb_status.get("initialized", False):
                 error = lancedb_status.get("error", "Unknown error")
-                lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] ({error})"
+
+                # Add embeddings status
+                embeddings_status = lancedb_status.get("embeddings_status", "Unknown")
+                embeddings_details = lancedb_status.get("embeddings_details", "")
+
+                if lancedb_status.get("embeddings_available", False):
+                    lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [green]Ready[/green]"
+                else:
+                    if "Error" in embeddings_status or "failed" in embeddings_status.lower():
+                        lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [red]Unavailable[/red]"
+                    else:
+                        lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [yellow]Not configured[/yellow]"
+
+                # Add error and details
+                lancedb_msg += f" ({error})"
+                if embeddings_details:
+                    lancedb_msg += f" - {embeddings_details}"
             else:
                 error = lancedb_status.get("error", "Unknown error")
                 lancedb_msg = f"LanceDB: [red]Not initialized[/red] ({error})"
 
-            # Format embeddings status on separate line
-            embeddings_status = lancedb_status.get("embeddings_status", "Unknown")
-            embeddings_details = lancedb_status.get("embeddings_details", "")
-            if lancedb_status.get("embeddings_available", False):
-                embeddings_msg = f"Embeddings: [green]Ready[/green] ({embeddings_status})"
-            else:
-                if "Error" in embeddings_status or "failed" in embeddings_status.lower():
-                    embeddings_msg = f"Embeddings: [red]Unavailable[/red] ({embeddings_status})"
-                else:
-                    embeddings_msg = (
-                        f"Embeddings: [yellow]Not configured[/yellow] ({embeddings_status})"
-                    )
-
-                # Add details if they exist and aren't too long
-                if embeddings_details and len(embeddings_details) < 80:
-                    embeddings_msg += f" - {embeddings_details}"
+                # Add embeddings status if available
+                embeddings_status = lancedb_status.get("embeddings_status", "Unknown")
+                embeddings_details = lancedb_status.get("embeddings_details", "")
+                if embeddings_details:
+                    lancedb_msg += f" - {embeddings_details}"
 
             # Update UI
             try:
                 self.query_one("#duckdb-health", Static).update(duckdb_msg)
                 self.query_one("#lancedb-health", Static).update(lancedb_msg)
-                self.query_one("#embeddings-status", Static).update(embeddings_msg)
             except NoMatches:
                 logger.debug("Could not update DocDB status: UI component not found")
 
@@ -228,9 +244,6 @@ class InfoPanel(Static):
             try:
                 self.query_one("#duckdb-health", Static).update("DuckDB: [red]Status error[/red]")
                 self.query_one("#lancedb-health", Static).update("LanceDB: [red]Status error[/red]")
-                self.query_one("#embeddings-status", Static).update(
-                    "Embeddings: [red]Status error[/red]"
-                )
             except NoMatches:
                 pass
 
