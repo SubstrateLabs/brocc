@@ -19,13 +19,6 @@ class InfoPanel(Static):
         yield Container(
             Horizontal(
                 Button(label="Login", id="login-btn", variant="default", name="login"),
-                Button(
-                    label="Logout",
-                    id="logout-btn",
-                    variant="default",
-                    disabled=not self.app_instance.is_logged_in,
-                    name="logout",
-                ),
                 id="auth-buttons",
             ),
             Static("", id="auth-url-display"),
