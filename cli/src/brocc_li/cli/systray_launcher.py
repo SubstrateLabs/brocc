@@ -14,9 +14,9 @@ _SYSTRAY_PROCESS = None
 
 def launch_systray(
     webapp_host="127.0.0.1",
-    webapp_port="8023",
+    webapp_port=8023,
     api_host="127.0.0.1",
-    api_port="8022",
+    api_port=8022,
     version="0.0.1",
 ):
     """

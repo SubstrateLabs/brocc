@@ -73,11 +73,24 @@ def maybe_launch_webview_if_logged_in(is_logged_in, update_ui_fn=None, update_bu
         update_button_fn: Optional function to update button state
     """
     if is_logged_in and not is_webview_open():
-        logger.info("User is logged in - webview can be launched")
-        # Instead of launching automatically, just update UI to show it's ready
+        logger.info("User is logged in - launching webview")
+        # Launch the webview for logged in users
+        success = open_webview()
+        logger.info(f"Webview launch {'succeeded' if success else 'failed'}")
         if update_ui_fn and update_button_fn:
             update_ui_fn()
             update_button_fn()
+        return success
+    elif is_logged_in and is_webview_open():
+        logger.info("User is logged in but webview is already open")
+        return True
+    else:
+        logger.info("User is not logged in - not launching webview")
+        # Just update UI to show it's ready
+        if update_ui_fn and update_button_fn:
+            update_ui_fn()
+            update_button_fn()
+        return False
 
 
 def handle_webview_after_logout(update_ui_fn=None, update_button_fn=None):

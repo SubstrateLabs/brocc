@@ -8,7 +8,7 @@ from platformdirs import user_config_dir
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
-from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
+from textual.widgets import Button, Footer, Header, Label, LoadingIndicator, Static, TabbedContent
 
 from brocc_li.cli import auth
 from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
@@ -25,7 +25,7 @@ from brocc_li.cli.webview_launcher import (
     notify_webview_shutdown,
     open_or_focus_webview,
 )
-from brocc_li.cli.webview_manager import is_webview_open
+from brocc_li.cli.webview_manager import is_webview_open, open_webview
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -82,7 +82,9 @@ class AppContent(Static):
                     variant="primary",
                     disabled=True,
                     name="open_webapp",
+                    classes="hidden",  # Hide button by default
                 ),
+                LoadingIndicator(id="webapp-loading"),  # Show loading indicator by default
                 id="webapp-buttons",
             ),
             id="webapp-container",
@@ -112,6 +114,7 @@ class BroccApp(App):
         self._previous_webview_status = False
         self.tray_icon = None
         self.exit_file = None
+        self.is_opening_webapp = False  # Track if webapp is currently being opened
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -268,16 +271,24 @@ class BroccApp(App):
         try:
             webapp_status = self.query_one("#webapp-health", Static)
             open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+            loading = self.query_one("#webapp-loading", LoadingIndicator)
 
             # Check if webview is already open
             if is_webview_open():
                 webapp_status.update(UI_STATUS["WEBAPP_OPEN"])
                 open_webapp_btn.disabled = False  # Keep enabled for focus functionality
                 open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                open_webapp_btn.remove_class("hidden")
+                loading.add_class("hidden")
+                self.is_opening_webapp = False
             else:
                 webapp_status.update(UI_STATUS["WEBAPP_READY"])
-                open_webapp_btn.disabled = False
-                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                # If we're not actively opening the webapp, show the button
+                if not self.is_opening_webapp:
+                    open_webapp_btn.disabled = False
+                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                    open_webapp_btn.remove_class("hidden")
+                    loading.add_class("hidden")
         except NoMatches:
             logger.debug("Could not update WebApp status: UI component not found")
 
@@ -375,7 +386,10 @@ class BroccApp(App):
         # Launch webview if already logged in
         if self.is_logged_in:
             # Launch with a small delay to allow servers to start
-            self.set_timer(1, self._maybe_launch_webview)
+            logger.info("Setting timer to auto-launch webview in 2 seconds")
+            self.set_timer(2, self._force_launch_webview)
+        else:
+            logger.info("User not logged in, skipping auto-launch timer")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Call the appropriate action based on button name"""
@@ -397,9 +411,11 @@ class BroccApp(App):
             logger.error("Could not display auth URL: UI component not found")
 
     def _maybe_launch_webview(self):
-        """Launch webview if user is logged in and webview not already running"""
+        """Configure UI to show webview is ready to launch"""
+        logger.info("Setting up UI for webview launch")
 
         def update_ui():
+            logger.info("Updating UI to show webview is ready")
             self._update_ui_status(
                 UI_STATUS["WINDOW_READY"],
                 "webapp-health",
@@ -407,15 +423,96 @@ class BroccApp(App):
 
         def update_button():
             try:
+                logger.info("Updating button state for webview launch")
                 open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                 open_webapp_btn.disabled = False
                 open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
             except NoMatches:
+                logger.error("Could not find open-webapp-btn to update")
                 pass
 
+        logger.info(
+            f"Calling maybe_launch_webview_if_logged_in with is_logged_in={self.is_logged_in}"
+        )
         maybe_launch_webview_if_logged_in(
             is_logged_in=self.is_logged_in, update_ui_fn=update_ui, update_button_fn=update_button
         )
+
+    def _show_loading_indicator(self):
+        """Show loading indicator and hide button while webapp opens"""
+        try:
+            button = self.query_one("#open-webapp-btn", Button)
+            loading = self.query_one("#webapp-loading", LoadingIndicator)
+            button.add_class("hidden")
+            loading.remove_class("hidden")
+            self.is_opening_webapp = True
+        except NoMatches:
+            logger.debug("Could not show loading indicator: UI components not found")
+
+    def _hide_loading_indicator(self):
+        """Hide loading indicator and show button once webapp is open"""
+        try:
+            button = self.query_one("#open-webapp-btn", Button)
+            loading = self.query_one("#webapp-loading", LoadingIndicator)
+            loading.add_class("hidden")
+            button.remove_class("hidden")
+            self.is_opening_webapp = False
+        except NoMatches:
+            logger.debug("Could not hide loading indicator: UI components not found")
+
+    def _delayed_hide_loading_indicator(self):
+        """Schedule hiding of the loading indicator from the main thread"""
+        logger.info("Scheduling delayed hiding of loading indicator")
+        # Post a message to hide loading indicator after a delay
+        # This is safe to call from worker threads
+        self.call_after_refresh(self._schedule_hide_safely)
+
+    def _schedule_hide_safely(self):
+        """Schedule hiding from the main UI thread"""
+        # This method runs in the main thread, so it's safe to use timers
+        logger.info("Setting timer to hide loading indicator")
+        try:
+            self.set_timer(1.0, self._hide_loading_indicator)
+        except RuntimeError as e:
+            logger.error(f"Error setting timer: {e}, hiding immediately instead")
+            self._hide_loading_indicator()
+
+    def _force_launch_webview(self):
+        """Force the webview to launch regardless of state"""
+        logger.info("Force-launching webview")
+        # Reset the flag first to ensure we can launch
+        self.is_opening_webapp = False
+        # Then launch
+        self._auto_launch_webview()
+
+    def _auto_launch_webview(self):
+        """Automatically launch the webview if user is logged in"""
+        if self.is_logged_in and not self.is_opening_webapp:
+            logger.info("Auto-launching webview since user is logged in")
+            self._show_loading_indicator()
+            self.is_opening_webapp = True  # Set flag AFTER the check but before launching
+
+            # Try direct launch instead of going through the worker
+            success = open_webview()
+            logger.info(f"Direct webview launch result: {success}")
+
+            # Still run the worker for UI updates
+            self.run_worker(self._open_webapp_worker, thread=True)
+        elif not self.is_logged_in:
+            logger.info("Not auto-launching webview because user is not logged in")
+        elif self.is_opening_webapp:
+            logger.info("Webview launch already in progress, not launching again")
+            # If it's been more than 10 seconds since we started opening, reset
+            if not hasattr(self, "_opening_start_time"):
+                self._opening_start_time = time.time()
+            elif time.time() - self._opening_start_time > 10:
+                logger.info("Launch has been pending for over 10 seconds, resetting state")
+                self.is_opening_webapp = False
+                self._opening_start_time = time.time()
+                # Try launching again
+                self._auto_launch_webview()
+        else:
+            logger.info("Unknown state - not auto-launching webview")
 
     def _login_worker(self):
         try:
@@ -449,6 +546,8 @@ class BroccApp(App):
 
                 # Launch webview after successful login
                 self._maybe_launch_webview()
+                # Auto-launch the webview after successful login
+                self.set_timer(1, self._auto_launch_webview)
             else:
                 logger.error("Login failed")
         except NoMatches:
@@ -495,26 +594,58 @@ class BroccApp(App):
 
     def _open_webapp_worker(self):
         """Worker to open the WebApp in a separate window or focus existing one"""
+        logger.info("Opening webapp worker started")
+        self._show_loading_indicator()
 
         def update_ui_status(message):
+            logger.info(f"Updating UI status: {message}")
             self._update_ui_status(message, "webapp-health")
 
             # Update button state - keep enabled but change label if needed
             try:
-                open_webapp_btn = self.query_one("#open-webapp-btn", Button)
-
-                # If window is now open, update button label
+                # If window is now open, update button label and hide loading indicator
                 if is_webview_open():
-                    open_webapp_btn.disabled = False  # Keep enabled for focus functionality
-                    open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                    logger.info("Webview is now open, updating UI")
+                    # Request hiding to be scheduled from the main thread
+                    self._delayed_hide_loading_indicator()
+                    # Update UI elements that can be done directly
+                    try:
+                        open_webapp_btn = self.query_one("#open-webapp-btn", Button)
+                        open_webapp_btn.disabled = False  # Keep enabled for focus functionality
+                        open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                    except NoMatches:
+                        logger.error("Could not find button to update")
+                else:
+                    logger.warning("Webview still not open after launch attempt")
             except NoMatches:
+                logger.error("Could not find UI elements to update after webview launch")
                 pass
+            except Exception as e:
+                logger.error(f"Error updating UI after webview launch: {e}")
 
-        open_or_focus_webview(
+        # Double-check webview status before trying to open it
+        logger.info(f"Webview state before launch: open={is_webview_open()}")
+
+        logger.info("Calling open_or_focus_webview")
+        success = open_or_focus_webview(
             ui_status_mapping=UI_STATUS,
             update_ui_fn=update_ui_status,
             previous_status=getattr(self, "_previous_webview_status", None),
         )
+
+        logger.info(f"open_or_focus_webview result: {success}")
+
+        # Check again after attempt
+        logger.info(f"Webview state after launch attempt: open={is_webview_open()}")
+
+        # If we still don't have a webview, try one more direct launch
+        if not is_webview_open():
+            logger.info("Webview still not open after first attempt, trying direct launch")
+            direct_success = open_webview()
+            logger.info(f"Direct webview launch (fallback) result: {direct_success}")
+
+            # Final check
+            logger.info(f"Final webview state: open={is_webview_open()}")
 
     def _check_webview_status(self) -> None:
         """Periodic check of webview status"""
@@ -530,6 +661,11 @@ class BroccApp(App):
 
         def update_button(is_open: bool, status_changed: bool) -> None:
             try:
+                # If we were opening the webapp and it's now open, hide loading indicator with delay
+                if self.is_opening_webapp and is_open:
+                    # Request hiding from main thread
+                    self._delayed_hide_loading_indicator()
+
                 open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                 if is_open:
                     open_webapp_btn.disabled = False  # Keep enabled for focus functionality
@@ -539,6 +675,8 @@ class BroccApp(App):
                     open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
             except NoMatches:
                 logger.debug("Could not update button: UI component not found")
+            except Exception as e:
+                logger.error(f"Error updating button state: {e}")
 
         result = check_and_update_webview_status(
             api_url=local_url,

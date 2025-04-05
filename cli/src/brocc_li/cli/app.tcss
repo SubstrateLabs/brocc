@@ -9,4 +9,15 @@ TabbedContent {
 TabPane {
     height: 1fr;
     overflow: auto;
+}
+
+#webapp-loading {
+    width: auto;
+    height: 1;
+    content-align: center middle;
+    color: $accent;
+}
+
+.hidden {
+    display: none;
 } 
