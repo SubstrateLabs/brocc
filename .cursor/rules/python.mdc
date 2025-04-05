@@ -4,7 +4,7 @@ globs: *.py
 alwaysApply: false
 ---
 DO NOT add docstrings for all methods classes and functions – only document things that are not self-documenting. When you do add docstrings, ONLY document parameters and behavior that is non-obvious based on the signature and implementation.
-DO NOT use dynamic imports, you can assume that we've installed all dependencies already.
+Always assume that we've installed all dependencies already, do not use messy dynamic imports.
 If you get a linter error about a missing dependency, ask me to install it.
 Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyproject.toml). Remember:
 - Do not use bare except
