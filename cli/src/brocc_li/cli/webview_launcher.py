@@ -13,7 +13,7 @@ def get_service_url(host, port):
 def notify_webview_shutdown():
     """Send shutdown message to webview via API"""
     try:
-        logger.info("Sending shutdown signal to webview")
+        logger.debug("Sending shutdown signal to webview")
         # Use a completely non-blocking approach with no wait
         import requests
 
@@ -27,7 +27,7 @@ def notify_webview_shutdown():
 
                 if response.status_code == 200:
                     result = response.json()
-                    logger.info(f"Webview shutdown response: {result}")
+                    logger.debug(f"Webview shutdown response: {result}")
                     return True
                 else:
                     logger.warning(f"Failed to send shutdown signal: {response.status_code}")
@@ -49,7 +49,7 @@ def notify_webview_shutdown():
             from brocc_li.cli.fastapi_server import _WEBVIEW_PROCESS
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
-                logger.info("Fallback: Directly terminating webview process")
+                logger.debug("Fallback: Directly terminating webview process")
                 _WEBVIEW_PROCESS.terminate()
         except Exception as term_err:
             logger.error(f"Error in fallback termination: {term_err}")
@@ -73,19 +73,19 @@ def maybe_launch_webview_if_logged_in(is_logged_in, update_ui_fn=None, update_bu
         update_button_fn: Optional function to update button state
     """
     if is_logged_in and not is_webview_open():
-        logger.info("User is logged in - launching webview")
+        logger.debug("User is logged in - launching webview")
         # Launch the webview for logged in users
         success = open_webview()
-        logger.info(f"Webview launch {'succeeded' if success else 'failed'}")
+        logger.debug(f"Webview launch {'succeeded' if success else 'failed'}")
         if update_ui_fn and update_button_fn:
             update_ui_fn()
             update_button_fn()
         return success
     elif is_logged_in and is_webview_open():
-        logger.info("User is logged in but webview is already open")
+        logger.debug("User is logged in but webview is already open")
         return True
     else:
-        logger.info("User is not logged in - not launching webview")
+        logger.debug("User is not logged in - not launching webview")
         # Just update UI to show it's ready
         if update_ui_fn and update_button_fn:
             update_ui_fn()
@@ -134,7 +134,7 @@ def open_or_focus_webview(ui_status_mapping, update_ui_fn=None, previous_status=
     Returns:
         bool: True if successful
     """
-    logger.info("Opening App in standalone window or focusing existing window")
+    logger.debug("Opening App in standalone window or focusing existing window")
     success = open_webview()
 
     if success and update_ui_fn:

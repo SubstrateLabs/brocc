@@ -108,7 +108,7 @@ def check_and_update_api_status(
     if is_healthy:
         if update_ui_fn:
             update_ui_fn(f"{display_name}: [green]Connected[/green] - {api_url}/health")
-        logger.info(f"{display_name} is healthy: {result['data']}")
+        logger.debug(f"{display_name} is healthy: {result['data']}")
     else:
         error = result.get("error", "Unknown error")
 

@@ -227,7 +227,7 @@ class DocDB:
                 registry = get_registry()
                 try:
                     voyage_ai = registry.get("voyageai").create()
-                    logger.info("Successfully loaded VoyageAI embedding function")
+                    logger.debug("Successfully loaded VoyageAI embedding function")
                     self.lancedb_status["embeddings_available"] = True
                     self.lancedb_status["embeddings_status"] = "Ready"
                     self.lancedb_status["embeddings_details"] = "VoyageAI loaded"
@@ -260,7 +260,7 @@ class DocDB:
                         self.lance_db.create_table(
                             LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
                         )
-                        logger.info(
+                        logger.debug(
                             f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}"
                         )
                     else:
@@ -269,7 +269,7 @@ class DocDB:
                         self.lance_db.create_table(
                             LANCE_CHUNKS_TABLE, schema=LanceChunk, mode="overwrite"
                         )
-                        logger.info(
+                        logger.debug(
                             f"Created LanceDB table without embeddings: {LANCE_CHUNKS_TABLE}"
                         )
                 except Exception as te:
@@ -278,7 +278,7 @@ class DocDB:
                     self.lancedb_status["embeddings_details"] = f"Error: {str(te)}"
 
             else:
-                logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
+                logger.debug(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
                 # Check if table has a vector field - for backward compatibility
                 try:
                     table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
@@ -323,7 +323,7 @@ class DocDB:
         except Exception as e:
             # If loading fails, try installing first (might not be present)
             try:
-                logger.info("Spatial extension not loaded, attempting install...")
+                logger.debug("Spatial extension not loaded, attempting install...")
                 conn.execute("INSTALL spatial;")
                 conn.execute("LOAD spatial;")
                 logger.success("Spatial extension installed and loaded successfully.")
@@ -710,7 +710,7 @@ class DocDB:
             if lance_data:
                 try:
                     table.add(lance_data)
-                    logger.info(f"Added {len(lance_data)} chunks to LanceDB with auto-embeddings")
+                    logger.debug(f"Added {len(lance_data)} chunks to LanceDB with auto-embeddings")
                 except Exception as e:
                     logger.error(f"Failed to add data to LanceDB: {e}")
         except Exception as e:
@@ -740,7 +740,7 @@ class DocDB:
                 table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
                 # Delete where doc_id matches
                 table.delete(f"doc_id = '{doc_id}'")
-                logger.info(f"Deleted chunks for doc_id {doc_id} from LanceDB")
+                logger.debug(f"Deleted chunks for doc_id {doc_id} from LanceDB")
             except Exception as e:
                 logger.error(f"Failed to delete from LanceDB: {e}")
                 # If we encounter an error, mark lance_db as None to avoid future attempts

@@ -26,7 +26,7 @@ def initiate_login(api_url, update_status_fn=None, display_auth_url_fn=None):
     try:
         # Initial auth request
         target_url = f"{api_url}/auth/cli/start"
-        logger.info(f"Connecting to: {target_url}")
+        logger.debug(f"Connecting to: {target_url}")
 
         response = requests.get(target_url)
 
@@ -55,15 +55,15 @@ def initiate_login(api_url, update_status_fn=None, display_auth_url_fn=None):
         if display_auth_url_fn:
             display_auth_url_fn(auth_url)
 
-        logger.info("Authentication URL ready")
-        logger.info("Please open this URL in your browser to authenticate")
+        logger.debug("Authentication URL ready")
+        logger.debug("Please open this URL in your browser to authenticate")
 
         # Open browser
         try:
             webbrowser.open(auth_url)
         except Exception as e:
             logger.error(f"Error opening browser: {e}")
-            logger.info(f"Please open this URL manually: {auth_url}")
+            logger.debug(f"Please open this URL manually: {auth_url}")
 
         if update_status_fn:
             update_status_fn("Waiting for authentication in browser...")
@@ -113,7 +113,7 @@ def poll_for_token(api_url, session_id, max_attempts=120):
     consecutive_errors = 0
 
     token_url = f"{api_url}/auth/cli/token?sessionId={session_id}"
-    logger.info(f"Polling for token at: {token_url}")
+    logger.debug(f"Polling for token at: {token_url}")
 
     while attempts < max_attempts:
         try:

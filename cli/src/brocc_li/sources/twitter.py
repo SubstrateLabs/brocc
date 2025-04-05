@@ -358,7 +358,7 @@ def main() -> None:
             elapsed_time = time.time() - start_time
             tweets_per_minute = (len(docs) / elapsed_time) * 60
             logger.success(f"Successfully extracted {len(docs)} unique tweets")
-            logger.info(f"Collection rate: {tweets_per_minute:.1f} tweets/minute")
+            logger.debug(f"Collection rate: {tweets_per_minute:.1f} tweets/minute")
             logger.debug(f"Time taken: {elapsed_time:.1f} seconds")
             logger.debug(f"Documents stored in database: {storage.db_path}")
         else:

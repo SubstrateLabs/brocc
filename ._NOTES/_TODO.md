@@ -1,4 +1,7 @@
 - chrome manager fastapi
+- ui for chrome://settings/?search=startup
+- review fastapi server best practices for variables
+- try no title bar webview
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool

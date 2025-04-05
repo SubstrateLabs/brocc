@@ -66,14 +66,14 @@ def open_webview():
     """
     # Don't open if already active
     if is_webview_open():
-        logger.info("Webview is already open, trying to bring it to foreground")
+        logger.debug("Webview is already open, trying to bring it to foreground")
         try:
             # Try to focus the existing window
             response = requests.post(f"{API_URL}/webview/focus")
             if response.status_code == 200:
                 result = response.json()
                 if result.get("status") == "focused":
-                    logger.info("Successfully brought existing webview to the foreground")
+                    logger.debug("Successfully brought existing webview to the foreground")
                     return True
                 else:
                     logger.warning("Webview is running but couldn't bring to foreground")
@@ -92,13 +92,13 @@ def open_webview():
         if response.status_code == 200:
             result = response.json()
             if result.get("status") == "launching":
-                logger.info("Successfully triggered webview launch")
+                logger.debug("Successfully triggered webview launch")
                 return True
             elif result.get("status") == "already_running":
-                logger.info("Webview is already running but couldn't bring to foreground")
+                logger.debug("Webview is already running but couldn't bring to foreground")
                 return True
             elif result.get("status") == "focused":
-                logger.info("Successfully brought existing webview to the foreground")
+                logger.debug("Successfully brought existing webview to the foreground")
                 return True
             else:
                 logger.warning(f"Unexpected launch result: {result}")

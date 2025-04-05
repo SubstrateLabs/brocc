@@ -3,7 +3,7 @@ import platform
 import subprocess
 import time
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 import psutil
 import requests
@@ -27,9 +27,54 @@ def default_confirm(message: str, default: bool = True) -> bool:
 class ChromeManager:
     """Manages the connection to a Chrome instance with remote debugging."""
 
-    def __init__(self):
+    def __init__(self, auto_connect: bool = False):
+        """
+        Initialize the Chrome Manager.
+
+        Args:
+            auto_connect: If True, will automatically try to connect to Chrome
+                         if a debug port is detected.
+        """
         self._state: ChromeState = self._get_chrome_state()
-        logger.debug(f"Initial Chrome state: {self.status_description}")
+        self._browser: Optional[Browser] = None
+        self._auto_connect = auto_connect
+
+        # Only log detailed status when used directly, not during import
+        if auto_connect and self._state.has_debug_port:
+            # Attempt auto-connect without detailed logging during import
+            # We'll just log the final result if successful
+            self._try_auto_connect(quiet=True)
+
+    def _try_auto_connect(self, quiet: bool = False) -> bool:
+        """
+        Attempt to automatically connect to Chrome with debug port.
+
+        Args:
+            quiet: If True, suppress most log output during connection
+
+        Returns:
+            bool: True if connection successful, False otherwise
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+
+            # Create a new playwright instance
+            with sync_playwright() as playwright:
+                # Try to connect
+                browser = self._connect_to_chrome(playwright, quiet=quiet)
+                if browser:
+                    self._browser = browser
+                    if not quiet:
+                        logger.debug(f"Auto-connected to Chrome {browser.version}")
+                    return True
+                else:
+                    if not quiet:
+                        logger.warning("Auto-connect: Failed to connect despite active debug port")
+        except Exception as e:
+            if not quiet:
+                logger.error(f"Auto-connect error: {e}")
+
+        return False
 
     def _get_chrome_paths(self) -> list[str]:
         """Get Chrome executable paths based on the current platform."""
@@ -108,7 +153,7 @@ class ChromeManager:
             logger.error("Could not find a valid Chrome/Chromium installation.")
             return False
 
-        logger.info(f"Using Chrome path: {chrome_path}")
+        logger.debug(f"Using Chrome path: {chrome_path}")
         args = [
             chrome_path,
             "--remote-debugging-port=9222",
@@ -124,7 +169,7 @@ class ChromeManager:
         ]
 
         try:
-            logger.info("Launching Chrome with remote debugging...")
+            logger.debug("Launching Chrome with remote debugging...")
             subprocess.Popen(
                 args,
                 stdout=subprocess.DEVNULL,
@@ -147,7 +192,7 @@ class ChromeManager:
 
     def _quit_chrome(self) -> bool:
         """Quit all running Chrome/Chromium processes."""
-        logger.info("Attempting to quit existing Chrome/Chromium processes...")
+        logger.debug("Attempting to quit existing Chrome/Chromium processes...")
         success = False
         killed_pids = []
         for proc in psutil.process_iter(["name", "pid", "cmdline"]):
@@ -202,7 +247,7 @@ class ChromeManager:
             logger.error(f"Failed to quit some Chrome processes: {still_running}")
             return False
 
-    def _connect_to_chrome(self, playwright: Playwright) -> Browser | None:
+    def _connect_to_chrome(self, playwright: Playwright, quiet: bool = False) -> Browser | None:
         """Connect to Chrome using Playwright via debug port."""
         try:
             browser = playwright.chromium.connect_over_cdp(
@@ -210,10 +255,12 @@ class ChromeManager:
                 timeout=10000,
             )
             browser_version = browser.version
-            logger.success(f"Successfully connected to Chrome {browser_version} via debug port")
+            if not quiet:
+                logger.success(f"Successfully connected to Chrome {browser_version} via debug port")
             return browser
         except Exception as e:
-            logger.error(f"Playwright failed to connect to Chrome debug port: {str(e)}")
+            if not quiet:
+                logger.error(f"Playwright failed to connect to Chrome debug port: {str(e)}")
             return None
 
     @property
@@ -227,11 +274,25 @@ class ChromeManager:
         else:
             return "Chrome is not running. Launch required."
 
+    @property
+    def connected_browser(self) -> Browser | None:
+        """Return the currently connected browser if available."""
+        return self._browser
+
+    def refresh_state(self) -> ChromeState:
+        """Refresh and return the current Chrome state."""
+        self._state = self._get_chrome_state()
+        # Try to auto-connect if configured and debug port is active
+        if self._auto_connect and self._state.has_debug_port and self._browser is None:
+            self._try_auto_connect()
+        return self._state
+
     def connect(
         self,
         playwright: Playwright,
         confirm_fn: Callable[[str, bool], bool] | None = None,
         auto_confirm: bool = False,
+        quiet: bool = False,
     ) -> Browser | None:
         """
         Ensures Chrome is running with the debug port and connects to it.
@@ -244,6 +305,7 @@ class ChromeManager:
             confirm_fn: Custom confirmation function that takes a message and default value
                        and returns a boolean. If None, uses the default Rich confirm.
             auto_confirm: If True, bypass all confirmation prompts and proceed automatically.
+            quiet: If True, suppress most logging output.
 
         Returns:
             A Playwright Browser instance if connection is successful, otherwise None.
@@ -263,63 +325,97 @@ class ChromeManager:
 
         self._state = self._get_chrome_state()
 
+        # Check if we already have a connected browser
+        if self._browser and self._browser.is_connected():
+            if not quiet:
+                logger.debug("Already connected to Chrome browser")
+            return self._browser
+
         if self._state.has_debug_port:
-            logger.info("Chrome already running with debug port. Attempting to connect...")
-            browser = self._connect_to_chrome(playwright)
+            if not quiet:
+                logger.debug("Chrome already running with debug port. Attempting to connect...")
+            browser = self._connect_to_chrome(playwright, quiet=quiet)
             if browser:
+                self._browser = browser
                 return browser
             else:
-                logger.warning("Connection failed despite active debug port. Attempting relaunch.")
+                if not quiet:
+                    logger.warning(
+                        "Connection failed despite active debug port. Attempting relaunch."
+                    )
                 if not confirm("Connection failed. Quit existing Chrome and relaunch?", True):
-                    logger.error("Connection aborted by user.")
+                    if not quiet:
+                        logger.error("Connection aborted by user.")
                     return None
                 if not self._quit_chrome():
-                    logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
+                    if not quiet:
+                        logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
                     return None
                 # Fall through to launch logic
 
         elif self._state.is_running:
-            logger.warning("Chrome is running without the debug port.")
+            if not quiet:
+                logger.warning("Chrome is running without the debug port.")
             if not confirm("Quit existing Chrome and relaunch with debug port?", True):
-                logger.error("Relaunch aborted by user.")
+                if not quiet:
+                    logger.error("Relaunch aborted by user.")
                 return None
             if not self._quit_chrome():
-                logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
+                if not quiet:
+                    logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
                 return None
             # Fall through to launch logic
 
         else:
-            logger.info("Chrome is not running.")
+            if not quiet:
+                logger.debug("Chrome is not running.")
             if not confirm("Launch Chrome with debug port?", True):
-                logger.error("Launch aborted by user.")
+                if not quiet:
+                    logger.error("Launch aborted by user.")
                 return None
             # Fall through to launch logic
 
         # Launch logic (reached if not running, or after quitting)
         if self._launch_chrome():
             time.sleep(2)
-            logger.info("Attempting to connect to newly launched Chrome...")
-            browser = self._connect_to_chrome(playwright)
+            if not quiet:
+                logger.debug("Attempting to connect to newly launched Chrome...")
+            browser = self._connect_to_chrome(playwright, quiet=quiet)
             if browser:
+                self._browser = browser
                 return browser
             else:
-                logger.error("Failed to connect even after launching Chrome.")
+                if not quiet:
+                    logger.error("Failed to connect even after launching Chrome.")
                 return None
         else:
-            logger.error("Failed to launch Chrome. Cannot connect.")
+            if not quiet:
+                logger.error("Failed to launch Chrome. Cannot connect.")
             return None
 
-    def open_new_tab(self, browser: Browser, url: str) -> Page | None:
-        """Open a new tab with the given URL in the managed browser instance."""
-        if not browser or not browser.is_connected():
+    def open_new_tab(self, browser: Browser | None = None, url: str = "") -> Page | None:
+        """
+        Open a new tab with the given URL.
+
+        If browser is not provided, will use the internal browser instance if available.
+        """
+        # Use provided browser or the internal one if available
+        browser_to_use = browser or self._browser
+
+        if not browser_to_use or not browser_to_use.is_connected():
             logger.error("Browser is not connected. Cannot open new tab.")
             return None
         try:
-            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            context = (
+                browser_to_use.contexts[0]
+                if browser_to_use.contexts
+                else browser_to_use.new_context()
+            )
             page = context.new_page()
-            logger.info(f"Opening URL: {url}")
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            logger.success(f"Successfully opened {url}")
+            if url:
+                logger.debug(f"Opening URL: {url}")
+                page.goto(url, timeout=60000, wait_until="domcontentloaded")
+                logger.success(f"Successfully opened {url}")
             return page
         except Exception as e:
             logger.error(f"Failed to open URL {url}: {str(e)}")
@@ -330,20 +426,40 @@ class ChromeManager:
                 logger.warning(f"Error closing page after failed navigation: {close_err}")
             return None
 
+    def disconnect(self) -> bool:
+        """
+        Disconnect from Chrome browser if connected.
+
+        Returns:
+            bool: True if disconnected or already not connected, False if error occurs.
+        """
+        if not self._browser:
+            logger.debug("No active browser connection to disconnect")
+            return True
+
+        try:
+            self._browser.close()
+            self._browser = None
+            logger.debug("Successfully disconnected from Chrome")
+            return True
+        except Exception as e:
+            logger.error(f"Error disconnecting from Chrome: {str(e)}")
+            return False
+
 
 # Example of using a custom confirm function with a GUI
 def gui_confirm(message: str, default: bool = True) -> bool:
     """Example of a GUI confirmation function."""
     # This would be replaced with actual GUI code, e.g., using PyQt, Tkinter, etc.
-    logger.info(f"CONFIRM: {message} [Y/n]: ")
+    logger.debug(f"CONFIRM: {message} [Y/n]: ")
     return True  # Always confirm in this example
 
 
 def main() -> None:
     from playwright.sync_api import sync_playwright
 
-    manager = ChromeManager()
-    logger.info(f"Current status: {manager.status_description}")
+    manager = ChromeManager(auto_connect=True)
+    logger.debug(f"Current status: {manager.status_description}")
 
     # Example of different confirmation approaches:
     with sync_playwright() as p:
@@ -359,7 +475,7 @@ def main() -> None:
         if browser:
             page = manager.open_new_tab(browser, "https://example.com")
             if page:
-                logger.info(f"Opened page with title: {page.title()}")
+                logger.debug(f"Opened page with title: {page.title()}")
                 time.sleep(3)
                 page.close()
             else:

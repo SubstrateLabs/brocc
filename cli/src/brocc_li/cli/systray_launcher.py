@@ -36,7 +36,7 @@ def launch_systray(
 
     # If already running, do nothing
     if _SYSTRAY_PROCESS and _SYSTRAY_PROCESS.poll() is None:
-        logger.info("Systray process already running")
+        logger.debug("Systray process already running")
         return True, None
 
     try:
@@ -68,7 +68,7 @@ def launch_systray(
         ]
 
         # Start the process
-        logger.info(f"Starting systray process: {' '.join(cmd)}")
+        logger.debug(f"Starting systray process: {' '.join(cmd)}")
         _SYSTRAY_PROCESS = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -84,21 +84,21 @@ def launch_systray(
             if not proc:
                 return
 
-            logger.info(f"Monitoring systray process (PID: {proc.pid})")
+            logger.debug(f"Monitoring systray process (PID: {proc.pid})")
 
             while proc and proc.poll() is None:
                 try:
                     if proc.stdout:
                         line = proc.stdout.readline().strip()
                         if line:
-                            logger.info(f"Systray: {line}")
+                            logger.debug(f"Systray: {line}")
                 except (IOError, BrokenPipeError) as e:
                     logger.debug(f"Error reading from systray stdout: {e}")
                     break
 
             # Process has exited
             exit_code = proc.returncode if proc else "unknown"
-            logger.info(f"Systray process exited with code: {exit_code}")
+            logger.debug(f"Systray process exited with code: {exit_code}")
 
             # Check for errors
             if proc and proc.stderr:
@@ -122,7 +122,7 @@ def launch_systray(
             )
             return False, None
 
-        logger.info(f"Systray process started successfully (PID: {_SYSTRAY_PROCESS.pid})")
+        logger.debug(f"Systray process started successfully (PID: {_SYSTRAY_PROCESS.pid})")
         return True, None
 
     except Exception as e:
@@ -141,23 +141,23 @@ def terminate_systray():
 
     # If not running, nothing to do
     if not _SYSTRAY_PROCESS or _SYSTRAY_PROCESS.poll() is not None:
-        logger.info("No systray process to terminate")
+        logger.debug("No systray process to terminate")
         return True
 
     try:
         # First try to gracefully shutdown via API
         api_url = "http://127.0.0.1:8022"  # Hard-coded for simplicity
 
-        logger.info("Sending shutdown message to systray via API")
+        logger.debug("Sending shutdown message to systray via API")
         try:
             response = requests.post(f"{api_url}/systray/shutdown", timeout=1)
             if response.status_code == 200:
-                logger.info("Successfully sent shutdown signal to systray")
+                logger.debug("Successfully sent shutdown signal to systray")
 
                 # Wait briefly for process to terminate
                 for _ in range(5):  # Wait up to 500ms
                     if _SYSTRAY_PROCESS.poll() is not None:
-                        logger.info("Systray process terminated gracefully")
+                        logger.debug("Systray process terminated gracefully")
                         return True
                     time.sleep(0.1)
             else:
@@ -167,13 +167,13 @@ def terminate_systray():
 
         # If still running, terminate directly
         if _SYSTRAY_PROCESS.poll() is None:
-            logger.info(f"Terminating systray process (PID: {_SYSTRAY_PROCESS.pid})")
+            logger.debug(f"Terminating systray process (PID: {_SYSTRAY_PROCESS.pid})")
             _SYSTRAY_PROCESS.terminate()
 
             # Wait for process to terminate
             try:
                 _SYSTRAY_PROCESS.wait(timeout=1.0)
-                logger.info("Systray process terminated")
+                logger.debug("Systray process terminated")
             except subprocess.TimeoutExpired:
                 logger.warning("Systray process did not terminate gracefully, killing")
                 _SYSTRAY_PROCESS.kill()

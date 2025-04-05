@@ -15,7 +15,7 @@ class LogsPanel(Static):
         logger.set_log_widget(log_widget)
 
         # Add a startup message to help with debugging
-        logger.info("Logs panel initialized")
+        logger.debug("Logs panel initialized")
 
         # Re-enable logging now that we have a UI to show logs
         logger.enabled = True

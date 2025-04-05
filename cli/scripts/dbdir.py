@@ -21,10 +21,10 @@ def main() -> None:
     try:
         url = f"file://{data_dir}"
         webbrowser.open(url)
-        logger.info(f"Opened data directory: {data_dir}")
+        logger.debug(f"Opened data directory: {data_dir}")
     except Exception as e:
         logger.error(f"Failed to open data directory: {e}")
-        logger.info(f"Data directory path: {data_dir}")
+        logger.debug(f"Data directory path: {data_dir}")
 
 
 if __name__ == "__main__":
