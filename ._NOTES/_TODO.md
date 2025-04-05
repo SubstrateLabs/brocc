@@ -1,4 +1,3 @@
-- initialize db + show status
 - chrome manager fastapi
 - scrape all tabs
 - rework scrape abstraction

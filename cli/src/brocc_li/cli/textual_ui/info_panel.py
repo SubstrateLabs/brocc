@@ -211,12 +211,12 @@ class InfoPanel(Static):
                 embeddings_details = lancedb_status.get("embeddings_details", "")
 
                 if lancedb_status.get("embeddings_available", False):
-                    lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [green]Ready[/green]"
+                    lancedb_msg = "LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [green]Ready[/green]"
                 else:
                     if "Error" in embeddings_status or "failed" in embeddings_status.lower():
-                        lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [red]Unavailable[/red]"
+                        lancedb_msg = "LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [red]Unavailable[/red]"
                     else:
-                        lancedb_msg = f"LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [yellow]Not configured[/yellow]"
+                        lancedb_msg = "LanceDB: [yellow]Initialized with errors[/yellow] - Embeddings: [yellow]Not configured[/yellow]"
 
                 # Add error and details
                 lancedb_msg += f" ({error})"
