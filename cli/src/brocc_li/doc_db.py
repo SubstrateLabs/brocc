@@ -65,14 +65,14 @@ DUCKDB_CHUNKS_TABLE = "chunks"
 LANCE_CHUNKS_TABLE = "chunks"
 
 
-def get_default_db_path() -> str:
+def get_duckdb_path() -> str:
     """Get the default database path in the user's data directory."""
     data_dir = user_data_dir(APP_NAME, APP_AUTHOR)
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, DEFAULT_DB_FILENAME)
 
 
-def get_default_lance_path() -> str:
+def get_lancedb_path() -> str:
     """Get the default LanceDB path in the user's data directory."""
     data_dir = user_data_dir(APP_NAME, APP_AUTHOR)
     lance_dir = os.path.join(data_dir, DEFAULT_LANCE_DIRNAME)
@@ -91,53 +91,219 @@ class DocDB:
             db_path: Path to DuckDB database
             lance_path: Path to LanceDB storage
         """
-        self.db_path = db_path or get_default_db_path()
-        self.lance_path = lance_path or get_default_lance_path()
+        self.db_path = db_path or get_duckdb_path()
+        self.lance_path = lance_path or get_lancedb_path()
+
+        # Status tracking
+        self.duckdb_status = {"initialized": False, "error": None, "path": self.db_path}
+        self.lancedb_status = {
+            "initialized": False,
+            "embeddings_available": False,
+            "error": None,
+            "path": self.lance_path,
+        }
 
         # Ensure parent directories exist before initialization
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.lance_path).mkdir(parents=True, exist_ok=True)
 
         # Initialize DuckDB
-        self._initialize_db()
+        self._initialize_duckdb()
 
         # Initialize LanceDB
-        self._initialize_lance()
+        self._initialize_lancedb()
 
-    def _initialize_lance(self) -> None:
+    def get_duckdb_status(self) -> dict:
+        """Get the current status of DuckDB connection."""
+        # Initialize status if it doesn't exist yet
+        if not hasattr(self, "duckdb_status") or self.duckdb_status is None:
+            self.duckdb_status = {"initialized": False, "error": None, "path": self.db_path}
+
+        try:
+            if not self.duckdb_status.get("initialized", False):
+                return self.duckdb_status
+
+            # Check if we can actually query the database
+            with self._get_connection() as conn:
+                # Add null checks for query results
+                doc_result = conn.execute(f"SELECT COUNT(*) FROM {DOCUMENTS_TABLE}").fetchone()
+                doc_count = doc_result[0] if doc_result is not None else 0
+
+                chunk_result = conn.execute(
+                    f"SELECT COUNT(*) FROM {DUCKDB_CHUNKS_TABLE}"
+                ).fetchone()
+                chunk_count = chunk_result[0] if chunk_result is not None else 0
+
+                # Update status with additional info
+                self.duckdb_status.update(
+                    {"doc_count": doc_count, "chunk_count": chunk_count, "healthy": True}
+                )
+
+                return self.duckdb_status
+        except Exception as e:
+            self.duckdb_status["error"] = str(e)
+            self.duckdb_status["healthy"] = False
+            return self.duckdb_status
+
+    def get_lancedb_status(self) -> dict:
+        """Get the current status of LanceDB connection."""
+        # Initialize status if it doesn't exist yet
+        if not hasattr(self, "lancedb_status") or self.lancedb_status is None:
+            self.lancedb_status = {
+                "initialized": False,
+                "embeddings_available": False,
+                "error": None,
+                "path": self.lance_path,
+            }
+
+        try:
+            if not self.lancedb_status.get("initialized", False):
+                return self.lancedb_status
+
+            if self.lance_db is not None:
+                # Check if we can actually access the table
+                try:
+                    table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
+
+                    # Get chunk count using Polars by following the exact API pattern
+                    try:
+                        # Get Arrow table first (which is what to_polars() does internally)
+                        arrow_table = table.to_arrow()
+
+                        # Convert Arrow table to Polars DataFrame (identical to to_polars implementation)
+                        df = pl.from_arrow(arrow_table)
+
+                        # Now we have a Polars DataFrame to work with!
+                        chunk_count = len(df)
+
+                        # Update status with additional info
+                        self.lancedb_status.update({"chunk_count": chunk_count, "healthy": True})
+                        logger.debug(f"Got count from Polars: {chunk_count} chunks")
+                    except Exception as e:
+                        # If Arrow/Polars conversion fails, just update status
+                        self.lancedb_status.update(
+                            {"healthy": False, "error": f"Failed to convert to Polars: {str(e)}"}
+                        )
+                        logger.warning(f"Error with Arrow/Polars conversion: {e}")
+                except Exception as e:
+                    if self.lancedb_status is not None:  # Extra safety check
+                        self.lancedb_status["error"] = f"Failed to access table: {str(e)}"
+                        self.lancedb_status["healthy"] = False
+            else:
+                if self.lancedb_status is not None:  # Extra safety check
+                    self.lancedb_status["healthy"] = False
+
+            return self.lancedb_status
+        except Exception as e:
+            if self.lancedb_status is not None:  # Extra safety check
+                self.lancedb_status["error"] = str(e)
+                self.lancedb_status["healthy"] = False
+            else:
+                # Create new status dict if it somehow became None
+                self.lancedb_status = {
+                    "initialized": False,
+                    "embeddings_available": False,
+                    "error": str(e),
+                    "healthy": False,
+                    "path": self.lance_path,
+                }
+            return self.lancedb_status
+
+    def _initialize_lancedb(self) -> None:
         """Initialize LanceDB connection and create table if it doesn't exist."""
         try:
             # Connect to LanceDB
             self.lance_db = lancedb.connect(self.lance_path)
+            self.lancedb_status["initialized"] = True
+
+            # Default embedding status
+            self.lancedb_status["embeddings_available"] = False
+            self.lancedb_status["embeddings_status"] = "Not configured"
+            self.lancedb_status["embeddings_details"] = None
 
             # Check if chunks table exists, if not create it
             tables = self.lance_db.table_names()
 
             if LANCE_CHUNKS_TABLE not in tables:
                 # Get registry and embedding function
-                registry = get_registry()
-                voyage_ai = registry.get("voyageai").create()
-                logger.info("Successfully loaded VoyageAI embedding function")
+                try:
+                    registry = get_registry()
+                    try:
+                        voyage_ai = registry.get("voyageai").create()
+                        logger.info("Successfully loaded VoyageAI embedding function")
+                        self.lancedb_status["embeddings_available"] = True
+                        self.lancedb_status["embeddings_status"] = "Ready"
+                        self.lancedb_status["embeddings_details"] = (
+                            "VoyageAI embeddings loaded successfully"
+                        )
+                    except Exception as ve:
+                        logger.error(f"Failed to create VoyageAI embedding function: {ve}")
+                        self.lancedb_status["embeddings_status"] = "Error loading VoyageAI"
+                        self.lancedb_status["embeddings_details"] = f"Error: {str(ve)}"
+                except Exception as re:
+                    logger.error(f"Failed to get embeddings registry: {re}")
+                    self.lancedb_status["embeddings_status"] = "Error with registry"
+                    self.lancedb_status["embeddings_details"] = f"Error: {str(re)}"
 
-                # Create a subclass of ChunkModel to add the embedding fields
-                class ChunkModelWithEmbedding(LanceChunk):
-                    # Override content to be a SourceField for embedding
-                    # Make type match the base class (now non-optional)
-                    content: str = voyage_ai.SourceField()
-                    # Specify vector field with proper inline Vector factory function
-                    # The string annotation allows this to work with __future__.annotations
-                    vector: "Vector(voyage_ai.ndims())" = voyage_ai.VectorField()  # pyright: ignore[reportInvalidTypeForm]
+                # Even if we have an error, try to create the table with basic ChunkModel
+                try:
+                    if self.lancedb_status["embeddings_available"]:
+                        # Create with embeddings
+                        class ChunkModelWithEmbedding(LanceChunk):
+                            # Override content to be a SourceField for embedding
+                            # Make type match the base class (now non-optional)
+                            content: str = voyage_ai.SourceField()
+                            # Specify vector field with proper inline Vector factory function
+                            # The string annotation allows this to work with __future__.annotations
+                            vector: "Vector(voyage_ai.ndims())" = voyage_ai.VectorField()  # pyright: ignore[reportInvalidTypeForm]
 
-                # Create the table with the ChunkModel schema
-                self.lance_db.create_table(
-                    LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
-                )
-                logger.info(f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}")
+                        # Create the table with the ChunkModel schema
+                        self.lance_db.create_table(
+                            LANCE_CHUNKS_TABLE, schema=ChunkModelWithEmbedding, mode="overwrite"
+                        )
+                        logger.info(
+                            f"Created LanceDB table with VoyageAI embeddings: {LANCE_CHUNKS_TABLE}"
+                        )
+                    else:
+                        # Create without embeddings
+                        logger.warning("Creating LanceDB table without embeddings capability")
+                        self.lance_db.create_table(
+                            LANCE_CHUNKS_TABLE, schema=LanceChunk, mode="overwrite"
+                        )
+                        logger.info(
+                            f"Created LanceDB table without embeddings: {LANCE_CHUNKS_TABLE}"
+                        )
+                except Exception as te:
+                    logger.error(f"Failed to create LanceDB table: {te}")
+                    self.lancedb_status["embeddings_status"] = "Table creation failed"
+                    self.lancedb_status["embeddings_details"] = f"Error: {str(te)}"
 
             else:
                 logger.info(f"LanceDB table {LANCE_CHUNKS_TABLE} already exists")
+                # Check if embeddings are available by reading table schema
+                try:
+                    table = self.lance_db.open_table(LANCE_CHUNKS_TABLE)
+                    schema = table.schema
+                    if "vector" in schema.names:
+                        self.lancedb_status["embeddings_available"] = True
+                        self.lancedb_status["embeddings_status"] = "Found vector field"
+                        self.lancedb_status["embeddings_details"] = (
+                            "Vector field found in existing table"
+                        )
+                    else:
+                        self.lancedb_status["embeddings_status"] = "Missing vector field"
+                        self.lancedb_status["embeddings_details"] = (
+                            "Existing table does not have a vector field"
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to check embeddings availability: {e}")
+                    self.lancedb_status["embeddings_status"] = "Schema check failed"
+                    self.lancedb_status["embeddings_details"] = f"Error: {str(e)}"
 
         except Exception as e:
+            self.lancedb_status["error"] = str(e)
+            self.lancedb_status["embeddings_status"] = "LanceDB initialization failed"
+            self.lancedb_status["embeddings_details"] = f"Error: {str(e)}"
             logger.error(f"Failed to initialize LanceDB: {e}")
             # Continue without LanceDB
             self.lance_db = None
@@ -161,23 +327,30 @@ class DocDB:
                 )
         return conn
 
-    def _initialize_db(self) -> None:
+    def _initialize_duckdb(self) -> None:
         """Set up the database and create tables if they don't exist."""
         # Create the parent directory if it doesn't exist
         # Moved to __init__ to ensure it exists before any connection attempt
 
-        with self._get_connection() as conn:  # Use the helper to ensure spatial is loaded
-            # Generate the CREATE TABLE statement dynamically for documents
-            # Generate SQL normally first
-            create_documents_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
-            # Modify the generated SQL to use GEOMETRY type for location
-            create_documents_sql = modify_schema_for_geometry(create_documents_sql)
+        try:
+            with self._get_connection() as conn:  # Use the helper to ensure spatial is loaded
+                # Generate the CREATE TABLE statement dynamically for documents
+                # Generate SQL normally first
+                create_documents_sql = generate_create_table_sql(Doc, DOCUMENTS_TABLE)
+                # Modify the generated SQL to use GEOMETRY type for location
+                create_documents_sql = modify_schema_for_geometry(create_documents_sql)
 
-            conn.execute(create_documents_sql)
+                conn.execute(create_documents_sql)
 
-            # Generate the CREATE TABLE statement for chunks
-            create_chunks_sql = generate_create_table_sql(Chunk, DUCKDB_CHUNKS_TABLE)
-            conn.execute(create_chunks_sql)
+                # Generate the CREATE TABLE statement for chunks
+                create_chunks_sql = generate_create_table_sql(Chunk, DUCKDB_CHUNKS_TABLE)
+                conn.execute(create_chunks_sql)
+
+            # If we get here without exception, DuckDB is initialized
+            self.duckdb_status["initialized"] = True
+        except Exception as e:
+            self.duckdb_status["error"] = str(e)
+            logger.error(f"Failed to initialize DuckDB: {e}")
 
     def url_exists(self, url: str) -> bool:
         """Check if a document with the given URL already exists."""

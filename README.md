@@ -25,19 +25,19 @@ Brocc...
 
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
-1. **Local-first**: Your data belongs on your computer. Brocc never logs or stores your data remotely. AI features use cloud services.
-2. **Source-visible**: You can review our system design below, and inspect the code to verify our promise to never store your data.
-3. **Open-contribution**: We aspire to build a rich open-contribution community.
+1. **Local first**: Your data belongs on your computer. We never log or store your data in the cloud. AI features utilize cloud AI models.
+2. **Open pattern language**: The system design should be legible, and the source code available. You can verify that we never log or store your data in the cloud.
+3. **Open contribution**: The application itself should be malleable, programmable with code or natural language. But the source code is also malleable – we welcome contributions.
 
 </details>
 
 <details>
-<summary><h2>System Design</h2></summary>
+<summary><h2>System design</h2></summary>
 
-Our general preference is to build robust embedded software that can run locally with minimal system requirements. We carefully choose dependencies that have this quality themselves, making pragmatic exceptions:
+Our goal is to build lightweight, durable software with minimal system requirements. We carefully choose dependencies that have this quality themselves, making pragmatic exceptions:
 
 1. We host a light web application, used primarily for authentication.
-2. AI models run remotely, because we prefer software with minimal system requirements.
+2. AI models run remotely. We use a specific multi-modal embedding model.
 
 ### Primary dependencies
 

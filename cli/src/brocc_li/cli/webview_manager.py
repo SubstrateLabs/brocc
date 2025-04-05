@@ -3,11 +3,11 @@ import atexit
 import requests
 
 from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT
-from brocc_li.cli.webapp_server import WEBAPP_HOST, WEBAPP_PORT
+from brocc_li.cli.fasthtml_server import WEBAPP_HOST, WEBAPP_PORT
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 
-# URL for the WebApp
+# URL for the App
 WEBAPP_URL = f"http://{WEBAPP_HOST}:{WEBAPP_PORT}"
 # URL for the API
 API_URL = f"http://{FASTAPI_HOST}:{FASTAPI_PORT}"

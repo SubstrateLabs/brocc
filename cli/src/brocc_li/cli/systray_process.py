@@ -30,8 +30,8 @@ except ImportError as e:
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description="Run system tray icon for Brocc")
-parser.add_argument("--host", type=str, default="127.0.0.1", help="WebApp host")
-parser.add_argument("--port", type=str, default="8023", help="WebApp port")
+parser.add_argument("--host", type=str, default="127.0.0.1", help="App host")
+parser.add_argument("--port", type=str, default="8023", help="App port")
 parser.add_argument("--api-host", type=str, default="127.0.0.1", help="API host")
 parser.add_argument("--api-port", type=str, default="8022", help="API port")
 parser.add_argument("--version", type=str, default="0.0.1", help="App version")
@@ -40,7 +40,7 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# Set up the URL for the WebApp and API
+# Set up the URL for the App and API
 WEBAPP_URL = f"http://{args.host}:{args.port}"
 API_URL = f"http://{args.api_host}:{args.api_port}"
 VERSION = args.version
@@ -287,9 +287,9 @@ def create_tray_icon():
 
 
 def on_open_window(icon, item):
-    """Open the WebApp window using the API"""
+    """Open the App window using the API"""
     try:
-        print("Launching WebApp window via API")
+        print("Launching App window via API")
         response = requests.post(
             f"{API_URL}/webview/launch",
             params={"webapp_url": WEBAPP_URL, "title": f"🥦 Brocc v{VERSION}"},
@@ -336,7 +336,7 @@ def setup_icon():
     icon = pystray.Icon("brocc", icon=icon_image, title=f"Brocc v{VERSION}", menu=menu)
 
     print(f"Starting system tray icon for Brocc v{VERSION}")
-    print(f"WebApp URL: {WEBAPP_URL}")
+    print(f"App URL: {WEBAPP_URL}")
     print(f"API URL: {API_URL}")
 
     # Run the icon

@@ -59,15 +59,12 @@ class VoyageAIEmbeddingFunction(EmbeddingFunction):
     name: str
         The name of the model to use. Currently only supports:
             * voyage-multimodal-3
-    batch_size: int
-        Number of items to process in a single batch
     api_url: Optional[str]
         URL to the Voyage API endpoint. If not provided, uses API_URL from environment.
     """
 
     name: str = "voyage-multimodal-3"
     api_url: str = ""  # Default empty string, will be updated in __init__
-    batch_size: int = 32
     dimensions: ClassVar[dict[str, int]] = {
         "voyage-multimodal-3": 1024,
     }

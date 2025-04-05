@@ -134,7 +134,7 @@ def open_or_focus_webview(ui_status_mapping, update_ui_fn=None, previous_status=
     Returns:
         bool: True if successful
     """
-    logger.info("Opening WebApp in standalone window or focusing existing window")
+    logger.info("Opening App in standalone window or focusing existing window")
     success = open_webview()
 
     if success and update_ui_fn:

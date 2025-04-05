@@ -119,7 +119,6 @@ async def webview_websocket(websocket: WebSocket):
         # Keep connection alive and process messages
         while True:
             data = await websocket.receive_json()
-            logger.debug(f"Received WebSocket message: {data}")  # Changed to debug to reduce noise
 
             # Handle specific message types
             if data.get("action") == "heartbeat":
@@ -155,7 +154,6 @@ async def systray_websocket(websocket: WebSocket):
         # Keep connection alive and process messages
         while True:
             data = await websocket.receive_json()
-            logger.debug(f"Received systray WebSocket message: {data}")
 
             # Handle specific message types
             if data.get("action") == "heartbeat":
@@ -191,7 +189,7 @@ async def health_check():
 async def launch_webview(
     background_tasks: BackgroundTasks, webapp_url: str = "http://127.0.0.1:8023", title: str = ""
 ):
-    """Launch a webview window pointing to the WebApp"""
+    """Launch a webview window pointing to the App"""
     global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS
 
     # Check if already active

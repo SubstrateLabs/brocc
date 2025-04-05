@@ -2,6 +2,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from platformdirs import user_config_dir
@@ -12,12 +13,12 @@ from textual.widgets import Button, Footer, Header, Label, LoadingIndicator, Sta
 
 from brocc_li.cli import auth
 from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
+from brocc_li.cli.fasthtml_server import WEBAPP_HOST, WEBAPP_PORT
+from brocc_li.cli.fasthtml_server import run_server_in_thread as run_webapp_in_thread
 from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
 from brocc_li.cli.systray_launcher import launch_systray, terminate_systray
 from brocc_li.cli.textual_ui.info_panel import InfoPanel
 from brocc_li.cli.textual_ui.logs_panel import LogsPanel
-from brocc_li.cli.webapp_server import WEBAPP_HOST, WEBAPP_PORT
-from brocc_li.cli.webapp_server import run_server_in_thread as run_webapp_in_thread
 from brocc_li.cli.webview_launcher import (
     get_service_url,
     handle_webview_after_logout,
@@ -26,6 +27,7 @@ from brocc_li.cli.webview_launcher import (
     open_or_focus_webview,
 )
 from brocc_li.cli.webview_manager import is_webview_open, open_webview
+from brocc_li.doc_db import DocDB
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -33,40 +35,8 @@ from brocc_li.utils.version import get_version
 
 load_dotenv()
 
-# Constants for UI messages and labels
-UI_STATUS = {
-    "WINDOW_OPEN": "Window: [green]Open[/green]",
-    "WINDOW_READY": "Window: [blue]Ready to launch[/blue]",
-    "WINDOW_CLOSED": "Window: [blue]Closed after logout[/blue]",
-    "WINDOW_LAUNCHED": "Window: [green]Launched successfully[/green]",
-    "WINDOW_FOCUSED": "Window: [green]Brought to foreground[/green]",
-    "WINDOW_LAUNCH_FAILED": "Window: [red]Failed to launch[/red]",
-    "WINDOW_STATUS_UNCLEAR": "Window: [yellow]Status unclear[/yellow]",
-    "WINDOW_LOGGED_OUT": "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
-    "WEBAPP_OPEN": "WebApp: [green]Open[/green]",
-    "WEBAPP_READY": "WebApp: [blue]Ready to launch[/blue]",
-}
-
-BUTTON_LABELS = {
-    "OPENING_WINDOW": "✷  Opening Brocc window...  ✷",
-    "OPEN_WINDOW": "✷  Open Brocc window  ✷",
-    "SHOW_WINDOW": "✷  Show Brocc window  ✷",
-    "LOGIN_TO_OPEN": "✷  Login to start Brocc  ✷",
-}
-
 # Global vars for systray
 _SYSTRAY_PROCESS = None
-
-
-def update_ui_element(app, element_id, message):
-    """Update UI element with message, handling NoMatches exception"""
-    try:
-        element = app.query_one(f"#{element_id}", Static)
-        element.update(message)
-        return True
-    except NoMatches:
-        logger.debug(f"Could not update UI status: element #{element_id} not found")
-        return False
 
 
 class MainContent(Static):
@@ -78,7 +48,7 @@ class MainContent(Static):
         yield Container(
             Horizontal(
                 Button(
-                    label=BUTTON_LABELS["OPENING_WINDOW"],
+                    label="✷  Opening Brocc window...  ✷",
                     id="open-webapp-btn",
                     variant="primary",
                     disabled=True,
@@ -117,6 +87,19 @@ class BroccApp(App):
         self.exit_file = None
         self.is_opening_webapp = False  # Track if webapp is currently being opened
 
+        # Initialize DocDB
+        self.doc_db = None
+        self.doc_db_thread = None
+
+        # Reference to info panel
+        self.info_panel: Optional[InfoPanel] = None
+
+    # Helper method to safely update UI status
+    def _safe_update_ui_status(self, message: str, element_id: str) -> None:
+        """Safe wrapper to update UI status that returns None as required by callbacks"""
+        if self.info_panel is not None:
+            self.info_panel.update_ui_status(message, element_id)
+
     def compose(self) -> ComposeResult:
         yield Header()
 
@@ -126,6 +109,61 @@ class BroccApp(App):
             yield LogsPanel(id="logs-tab")
 
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.title = f"🥦 Brocc v{get_version()}"
+
+        # Get reference to InfoPanel
+        try:
+            self.info_panel = self.query_one(InfoPanel)
+            # Update auth status
+            self.info_panel.update_auth_status()
+        except NoMatches:
+            logger.error("Could not find InfoPanel component")
+
+        # Set up system tray icon in its own process
+        self._setup_systray()
+
+        # Start the FastAPI server in a background thread
+        try:
+            logger.info("Starting FastAPI server...")
+            self.server_thread = run_server_in_thread()
+
+            # Wait a moment to give the server time to start
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Failed to start FastAPI server: {e}")
+
+        # Start the FastHTML App server in a separate thread
+        try:
+            logger.info("Starting FastHTML App server...")
+            self.webapp_thread = run_webapp_in_thread()
+
+            # Wait a moment to give the server time to start
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Failed to start FastHTML App server: {e}")
+
+        # Initialize DocDB in a background thread
+        self.doc_db_thread = threading.Thread(target=self._initialize_doc_db, daemon=True)
+        self.doc_db_thread.start()
+
+        # Check health status initially
+        self.run_worker(self._check_health_worker, thread=True)
+
+        # Set up periodic health check to detect webview closure
+        self.set_interval(2.0, self._check_webview_status)
+
+        # Set up periodic check for DocDB status
+        self.set_interval(60.0, self._update_doc_db_status)
+
+        # Launch webview if already logged in
+        if self.is_logged_in:
+            # Launch with a small delay to allow servers to start
+            logger.info("Setting timer to auto-launch webview in 2 seconds")
+            self.set_timer(2, self._force_launch_webview)
+        else:
+            logger.info("User not logged in, skipping auto-launch timer")
 
     def _setup_systray(self):
         """Start the system tray icon in a separate process"""
@@ -201,43 +239,32 @@ class BroccApp(App):
         self.run_worker(self._logout_worker, thread=True)
 
     def action_open_webapp(self) -> None:
-        """Action to open the WebApp in a standalone window"""
+        """Action to open the App in a standalone window"""
         self.run_worker(self._open_webapp_worker, thread=True)
+
+    def action_launch_duckdb_ui(self) -> None:
+        """Launch the DuckDB UI browser interface"""
+        if self.doc_db is None:
+            logger.error("Cannot launch DuckDB UI: DocDB not initialized")
+            return
+
+        def run_ui():
+            try:
+                # Check again inside the thread in case it became None
+                if self.doc_db is not None:
+                    self.doc_db.launch_duckdb_ui()
+                else:
+                    logger.error("DocDB became None after thread started")
+            except Exception as e:
+                logger.error(f"Error launching DuckDB UI: {e}")
+
+        # Launch in a separate thread to avoid blocking the UI
+        threading.Thread(target=run_ui, daemon=True).start()
+        logger.info("Launched DuckDB UI browser interface")
 
     @property
     def is_logged_in(self) -> bool:
         return is_logged_in(self.auth_data)
-
-    def _update_auth_status(self):
-        try:
-            status_label = self.query_one("#auth-status", Label)
-            login_btn = self.query_one("#login-btn", Button)
-            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
-
-            if self.auth_data is None:
-                status_label.update("Not logged in")
-                login_btn.disabled = False or not self.site_api_healthy
-                open_webapp_btn.disabled = True
-                return
-
-            if is_logged_in(self.auth_data):
-                email = self.auth_data.get("email", "Unknown user")
-                api_key = self.auth_data.get("apiKey", "")
-                masked_key = f"{api_key[:8]}...{api_key[-5:]}" if api_key else "None"
-
-                status_label.update(f"Logged in as: {email} (API Key: {masked_key})")
-                login_btn.disabled = True
-                open_webapp_btn.disabled = False
-            else:
-                status_label.update("Not logged in")
-                login_btn.disabled = False or not self.site_api_healthy
-                open_webapp_btn.disabled = True
-        except NoMatches:
-            logger.debug("Could not update auth status: UI not ready")
-
-    def _update_ui_status(self, message: str, element_id: str) -> None:
-        """Update UI status element with a message"""
-        update_ui_element(self, element_id, message)
 
     def _restart_local_server(self) -> bool:
         """Restart the local API server if it died"""
@@ -254,48 +281,18 @@ class BroccApp(App):
             return False
 
     def _restart_webapp_server(self) -> bool:
-        """Restart the WebApp server if it died"""
+        """Restart the App server if it died"""
         try:
             if self.webapp_thread is not None and not self.webapp_thread.is_alive():
-                logger.info("Previous WebApp thread died, starting a new one")
+                logger.info("Previous App thread died, starting a new one")
                 self.webapp_thread = run_webapp_in_thread()
                 # Give it a moment to start
                 time.sleep(1)
                 return True
             return False
         except Exception as restart_err:
-            logger.error(f"Failed to restart WebApp server: {restart_err}")
+            logger.error(f"Failed to restart App server: {restart_err}")
             return False
-
-    def _update_webapp_status(self):
-        """Update the WebApp status in the UI based on current state"""
-        try:
-            webapp_status = self.query_one("#webapp-health", Static)
-            open_webapp_btn = self.query_one("#open-webapp-btn", Button)
-            loading = self.query_one("#webapp-loading", LoadingIndicator)
-
-            # Check if webview is already open
-            if is_webview_open():
-                webapp_status.update(UI_STATUS["WEBAPP_OPEN"])
-                open_webapp_btn.disabled = False  # Keep enabled for focus functionality
-                open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
-                open_webapp_btn.remove_class("hidden")
-                loading.add_class("hidden")
-                self.is_opening_webapp = False
-            else:
-                webapp_status.update(UI_STATUS["WEBAPP_READY"])
-                # If we're not actively opening the webapp, show the button
-                if not self.is_opening_webapp:
-                    open_webapp_btn.disabled = False
-                    # open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
-                    open_webapp_btn.remove_class("hidden")
-                    loading.add_class("hidden")
-                else:
-                    # open_webapp_btn.label = BUTTON_LABELS["OPENING_WINDOW"]
-                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
-
-        except NoMatches:
-            logger.debug("Could not update WebApp status: UI component not found")
 
     def _check_health_worker(self):
         """Worker to check health of both APIs"""
@@ -308,7 +305,7 @@ class BroccApp(App):
             self.site_api_healthy = check_and_update_api_status(
                 api_name="Site API",
                 api_url=self.API_URL,
-                update_ui_fn=lambda msg: self._update_ui_status(msg, "site-health"),
+                update_ui_fn=lambda msg: self._safe_update_ui_status(msg, "siteapi-health"),
             )
 
             # Update local API health status
@@ -316,25 +313,26 @@ class BroccApp(App):
                 api_name="Local API",
                 api_url=local_url,
                 is_local=True,
-                update_ui_fn=lambda msg: self._update_ui_status(msg, "local-health"),
+                update_ui_fn=lambda msg: self._safe_update_ui_status(msg, "localapi-health"),
                 restart_server_fn=self._restart_local_server,
             )
 
-            # Check WebApp health status
+            # Check App health status
             webapp_healthy = check_and_update_api_status(
-                api_name="WebApp",
+                api_name="App",
                 api_url=webapp_url,
                 is_local=True,
-                update_ui_fn=lambda msg: self._update_ui_status(msg, "webapp-health"),
+                update_ui_fn=lambda msg: self._safe_update_ui_status(msg, "webapp-health"),
                 restart_server_fn=self._restart_webapp_server,
             )
 
-            # Update WebApp status including whether the webview is open
-            if webapp_healthy:
-                self._update_webapp_status()
+            # Update App status including whether the webview is open
+            if webapp_healthy and self.info_panel is not None:
+                self.info_panel.update_webapp_status()
 
             # Update login button state based on API health
-            self._update_auth_status()
+            if self.info_panel is not None:
+                self.info_panel.update_auth_status()
 
             # Update login button specifically based on site API health
             try:
@@ -347,54 +345,13 @@ class BroccApp(App):
                 elif not self.is_logged_in:
                     login_btn.disabled = False
 
-                # Enable/disable Open window button based on WebApp health
+                # Enable/disable Open window button based on App health
                 open_webapp_btn.disabled = not webapp_healthy
             except NoMatches:
                 pass
 
         except Exception as e:
             logger.error(f"Error checking health: {e}")
-
-    def on_mount(self) -> None:
-        self.title = f"🥦 Brocc v{get_version()}"
-        self._update_auth_status()
-
-        # Set up system tray icon in its own process
-        self._setup_systray()
-
-        # Start the FastAPI server in a background thread
-        try:
-            logger.info("Starting FastAPI server...")
-            self.server_thread = run_server_in_thread()
-
-            # Wait a moment to give the server time to start
-            time.sleep(0.5)
-        except Exception as e:
-            logger.error(f"Failed to start FastAPI server: {e}")
-
-        # Start the FastHTML WebApp server in a separate thread
-        try:
-            logger.info("Starting FastHTML WebApp server...")
-            self.webapp_thread = run_webapp_in_thread()
-
-            # Wait a moment to give the server time to start
-            time.sleep(0.5)
-        except Exception as e:
-            logger.error(f"Failed to start FastHTML WebApp server: {e}")
-
-        # Check health status initially
-        self.run_worker(self._check_health_worker, thread=True)
-
-        # Set up periodic health check to detect webview closure
-        self.set_interval(2.0, self._check_webview_status)
-
-        # Launch webview if already logged in
-        if self.is_logged_in:
-            # Launch with a small delay to allow servers to start
-            logger.info("Setting timer to auto-launch webview in 2 seconds")
-            self.set_timer(2, self._force_launch_webview)
-        else:
-            logger.info("User not logged in, skipping auto-launch timer")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Call the appropriate action based on button name"""
@@ -406,23 +363,14 @@ class BroccApp(App):
                 logger.debug(f"Button pressed: {button_name}")
                 action()
 
-    def _display_auth_url(self, url: str) -> None:
-        try:
-            auth_url_display = self.query_one("#auth-url-display", Static)
-            auth_url_display.update(
-                f"🔐 Authentication URL:\n[link={url}]{url}[/link]\n\nClick to open in browser"
-            )
-        except NoMatches:
-            logger.error("Could not display auth URL: UI component not found")
-
     def _maybe_launch_webview(self):
         """Configure UI to show webview is ready to launch"""
         logger.info("Setting up UI for webview launch")
 
         def update_ui():
             logger.info("Updating UI to show webview is ready")
-            self._update_ui_status(
-                UI_STATUS["WINDOW_READY"],
+            self._safe_update_ui_status(
+                "Window: [blue]Ready to launch[/blue]",
                 "webapp-health",
             )
 
@@ -431,7 +379,7 @@ class BroccApp(App):
                 logger.info("Updating button state for webview launch")
                 open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                 open_webapp_btn.disabled = False
-                open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                open_webapp_btn.label = "✷  Open Brocc window  ✷"
             except NoMatches:
                 logger.error("Could not find open-webapp-btn to update")
                 pass
@@ -522,7 +470,6 @@ class BroccApp(App):
     def _login_worker(self):
         try:
             status_label = self.query_one("#auth-status", Label)
-            auth_url_display = self.query_one("#auth-url-display", Static)
 
             # Check if Site API is healthy before proceeding
             if not self.site_api_healthy:
@@ -531,7 +478,8 @@ class BroccApp(App):
                 return
 
             # Clear previous URL display
-            auth_url_display.update("")
+            if self.info_panel is not None:
+                self.info_panel.display_auth_url("")
 
             # Define status update callback
             def update_status(message):
@@ -541,13 +489,15 @@ class BroccApp(App):
             auth_data = auth.initiate_login(
                 self.API_URL,
                 update_status_fn=update_status,
-                display_auth_url_fn=self._display_auth_url,
+                display_auth_url_fn=self.info_panel.display_auth_url
+                if self.info_panel
+                else lambda _: None,
             )
 
             if auth_data:
                 self.auth_data = auth_data
-                auth_url_display.update("")
-                self._update_auth_status()
+                if self.info_panel is not None:
+                    self.info_panel.update_auth_status()
 
                 # Launch webview after successful login
                 self._maybe_launch_webview()
@@ -565,18 +515,19 @@ class BroccApp(App):
             if auth.logout():
                 self.auth_data = None
                 status_label.update("Successfully logged out")
-                self._update_auth_status()
+                if self.info_panel is not None:
+                    self.info_panel.update_auth_status()
 
                 # Handle webview after logout
                 def update_ui_status(status):
                     if status == "LOGGED_OUT":
-                        self._update_ui_status(
-                            UI_STATUS["WINDOW_LOGGED_OUT"],
+                        self._safe_update_ui_status(
+                            "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
                             "webapp-health",
                         )
                     elif status == "CLOSED":
-                        self._update_ui_status(
-                            UI_STATUS["WINDOW_CLOSED"],
+                        self._safe_update_ui_status(
+                            "Window: [blue]Closed after logout[/blue]",
                             "webapp-health",
                         )
 
@@ -584,7 +535,7 @@ class BroccApp(App):
                     try:
                         open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                         open_webapp_btn.disabled = True
-                        open_webapp_btn.label = BUTTON_LABELS["LOGIN_TO_OPEN"]
+                        open_webapp_btn.label = "✷  Login to start Brocc  ✷"
                     except NoMatches:
                         pass
 
@@ -598,13 +549,13 @@ class BroccApp(App):
             logger.error("Logout failed: UI components not found")
 
     def _open_webapp_worker(self):
-        """Worker to open the WebApp in a separate window or focus existing one"""
+        """Worker to open the App in a separate window or focus existing one"""
         logger.info("Opening webapp worker started")
         self._show_loading_indicator()
 
         def update_ui_status(message):
             logger.info(f"Updating UI status: {message}")
-            self._update_ui_status(message, "webapp-health")
+            self._safe_update_ui_status(message, "webapp-health")
 
             # Update button state - keep enabled but change label if needed
             try:
@@ -617,7 +568,7 @@ class BroccApp(App):
                     try:
                         open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                         open_webapp_btn.disabled = False  # Keep enabled for focus functionality
-                        open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                        open_webapp_btn.label = "✷  Show Brocc window  ✷"
                     except NoMatches:
                         logger.error("Could not find button to update")
                 else:
@@ -632,6 +583,8 @@ class BroccApp(App):
         logger.info(f"Webview state before launch: open={is_webview_open()}")
 
         logger.info("Calling open_or_focus_webview")
+        from brocc_li.cli.textual_ui.info_panel import UI_STATUS
+
         success = open_or_focus_webview(
             ui_status_mapping=UI_STATUS,
             update_ui_fn=update_ui_status,
@@ -658,6 +611,8 @@ class BroccApp(App):
         local_url = get_service_url(FASTAPI_HOST, FASTAPI_PORT)
 
         # Use the utility function to check webview status and update UI
+        from brocc_li.cli.textual_ui.info_panel import UI_STATUS
+
         status_mapping = {
             "OPEN": UI_STATUS["WINDOW_OPEN"],
             "READY": UI_STATUS["WINDOW_READY"],
@@ -674,10 +629,10 @@ class BroccApp(App):
                 open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                 if is_open:
                     open_webapp_btn.disabled = False  # Keep enabled for focus functionality
-                    open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
+                    open_webapp_btn.label = "✷  Show Brocc window  ✷"
                 elif status_changed:  # Was open before but now closed
                     open_webapp_btn.disabled = False
-                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                    open_webapp_btn.label = "✷  Open Brocc window  ✷"
             except NoMatches:
                 logger.debug("Could not update button: UI component not found")
             except Exception as e:
@@ -686,13 +641,29 @@ class BroccApp(App):
         result = check_and_update_webview_status(
             api_url=local_url,
             ui_status_mapping=status_mapping,
-            update_ui_fn=lambda msg: self._update_ui_status(msg, "webapp-health"),
+            update_ui_fn=lambda msg: self._safe_update_ui_status(msg, "webapp-health"),
             update_button_fn=update_button,
             previous_status=getattr(self, "_previous_webview_status", None),
         )
 
         # Store current status for next check
         self._previous_webview_status = result["is_open"]
+
+    def _initialize_doc_db(self):
+        """Initialize document database in a background thread"""
+        logger.info("Initializing document database...")
+        try:
+            self.doc_db = DocDB()
+            logger.info("Document database initialized successfully")
+            # Trigger UI update with initial status
+            self._update_doc_db_status()
+        except Exception as e:
+            logger.error(f"Failed to initialize document database: {e}")
+
+    def _update_doc_db_status(self):
+        """Update the document database status in the UI"""
+        if self.info_panel is not None:
+            self.info_panel.update_doc_db_status()
 
 
 if __name__ == "__main__":

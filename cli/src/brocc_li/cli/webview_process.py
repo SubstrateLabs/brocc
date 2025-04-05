@@ -33,7 +33,7 @@ except ImportError as e:
 
 # Get URL and title from command line args
 url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8023"
-title = sys.argv[2] if len(sys.argv) > 2 else "Brocc WebApp"
+title = sys.argv[2] if len(sys.argv) > 2 else "Brocc App"
 # Default API details
 api_host = "127.0.0.1"
 api_port = "8022"

@@ -23,8 +23,8 @@ def launch_systray(
     Launch the system tray icon in a separate process.
 
     Args:
-        webapp_host: Host for the WebApp
-        webapp_port: Port for the WebApp
+        webapp_host: Host for the App
+        webapp_port: Port for the App
         api_host: Host for the API server
         api_port: Port for the API server
         version: App version

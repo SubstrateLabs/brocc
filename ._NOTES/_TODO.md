@@ -1,5 +1,5 @@
-- auto-open webapp
 - initialize db + show status
+- chrome manager fastapi
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool

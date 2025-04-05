@@ -24,7 +24,7 @@ WEBAPP_PORT = 8023  # Using a different port than the FastAPI server
 
 
 def create_app():
-    """Create a FastHTML app for the WebApp"""
+    """Create a FastHTML app for the App"""
     app, rt = fast_app(pico=True)  # Enable Pico CSS for nice styling
 
     @rt("/")
@@ -80,7 +80,7 @@ def start_server(host=WEBAPP_HOST, port=WEBAPP_PORT):
         # FastHTML app is already ASGI-compatible
         # No need to convert it
 
-        logger.info(f"Starting WebApp server at http://{host}:{port}")
+        logger.info(f"Starting App server at http://{host}:{port}")
 
         # Configure Uvicorn with our custom server class
         config = uvicorn.Config(
@@ -96,11 +96,11 @@ def start_server(host=WEBAPP_HOST, port=WEBAPP_PORT):
         server.run()
 
     except Exception as e:
-        logger.error(f"Error starting WebApp server: {e}")
+        logger.error(f"Error starting App server: {e}")
 
 
 def run_server_in_thread(host=WEBAPP_HOST, port=WEBAPP_PORT):
-    """Run the WebApp server in a separate thread"""
+    """Run the App server in a separate thread"""
     # Use threading instead of multiprocessing to avoid file descriptor issues
     server_thread = threading.Thread(
         target=start_server,
@@ -109,9 +109,9 @@ def run_server_in_thread(host=WEBAPP_HOST, port=WEBAPP_PORT):
         name="brocc-webapp-server",
     )
 
-    logger.info(f"Creating WebApp server thread for {host}:{port}")
+    logger.info(f"Creating App server thread for {host}:{port}")
     server_thread.start()
-    logger.info(f"WebApp server thread started with ID: {server_thread.ident}")
+    logger.info(f"App server thread started with ID: {server_thread.ident}")
 
     # Give the server a moment to start
     time.sleep(0.5)
