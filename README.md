@@ -8,6 +8,17 @@ Try the beta CLI:
 2. Run: `brocc`
 
 <details open>
+<summary><h2>Why</h2></summary>
+
+Your documents are scattered. They might be:
+
+1. On your local filesystem (PDFs, photos, iMessages)
+2. Accessible via developer APIs (Notion, Google Docs, Gmail)
+3. In your browser (browsing history)
+
+</details>
+
+<details>
 <summary><h2>Principles</h2></summary>
 
 Indexing personal data is a big responsibility. We believe this kind of software should be:
@@ -28,28 +39,32 @@ Our general preference is to build robust embedded software that can run locally
 
 ## Primary dependencies
 
-### Local app (`/cli`)
+### Local app ([/cli](https://github.com/SubstrateLabs/brocc/tree/main/cli))
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
 - [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
 - [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
-- [Textual](https://www.textualize.io): Terminal UI framework.
-- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud LLMs. LLM API requests are made locally from your computer, using your account's OpenRouter API [key](https://github.com/SubstrateLabs/brocc/blob/main/site/lib/user-lifecycle.ts).
 - Embeddings (for ingestion + queries) use [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
+- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing. LLM API requests are made locally from your computer, using the OpenRouter API key we [provision](https://github.com/SubstrateLabs/brocc/blob/main/site/lib/user-lifecycle.ts) for your account.
+- [Textual](https://www.textualize.io) TUI app manages:
+  - [FastAPI](https://fastapi.tiangolo.com/) local app server
+  - [FastHTML](https://fastht.ml/docs) local frontend
+  - [pywebview](https://pywebview.flowrl.com/guide) and [pystray](https://github.com/moses-palmer/pystray)
+  - [Playwright](https://playwright.dev/docs/intro) to read content from your browser
 
-### Website (`/site`)
+### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
 
 - [Neon Postgres](https://neon.tech/docs/introduction): Used to store users, API keys, and collaboration settings.
 - [WorkOS](https://workos.com): Used for auth.
 - [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
 - [Cloudflare R2](https://developers.cloudflare.com/r2): Used to store published datasets.
 
-### Ingestion
+### Data lifecycle
 
-0. Everything is a document. Many ways to "read" documents.
+0. We ingest documents from sources (1) in your browser, (2) via APIs, and (3) on your local filesystem.
 1. Document is converted to Markdown.
 2. Markdown is chunked using a heuristic that preserves section boundaries.
-3. Document metadata and chunk content are stored in DuckDB. Document metadata is stored in the `docs` table, and chunks stored in `chunks`.
+3. Document metadata and chunk content are stored in DuckDB.
 4. Chunked markdown is embedded multimodally (interleaved text and images).
 5. Chunk embeddings are stored in LanceDB, filterable by metadata.
 
