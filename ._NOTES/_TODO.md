@@ -11,6 +11,7 @@
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
 - wrap python process in minimal app bundle
+  - see https://github.com/linkedin/shiv
 
 ## ideas
 
