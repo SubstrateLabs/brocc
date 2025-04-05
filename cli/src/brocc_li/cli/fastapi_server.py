@@ -31,11 +31,13 @@ _WEBVIEW_ACTIVE = False
 _WEBVIEW_PROCESS = None
 # WebSocket connections
 _WEBVIEW_CONNECTIONS = set()
+# Systray WebSocket connections
+_SYSTRAY_CONNECTIONS = set()
 
 
 # Register cleanup function to ensure webview is terminated on server exit
 def _cleanup_webview():
-    global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS, _WEBVIEW_CONNECTIONS
+    global _WEBVIEW_ACTIVE, _WEBVIEW_PROCESS, _WEBVIEW_CONNECTIONS, _SYSTRAY_CONNECTIONS
 
     # First, try to notify all connected webviews to close (non-blocking)
     try:
@@ -58,7 +60,24 @@ def _cleanup_webview():
     except Exception as e:
         logger.error(f"Error notifying webviews to shut down: {e}")
 
-    # Give webviews a brief moment to process shutdown message before terminating
+    # Also notify all systray processes to shut down
+    try:
+        systray_count = len(_SYSTRAY_CONNECTIONS)
+        if systray_count > 0:
+            logger.info(f"Notifying {systray_count} systray connections to shut down")
+
+            # Send to all systray connections
+            for ws in list(_SYSTRAY_CONNECTIONS):
+                try:
+                    if ws.client_state == WebSocketState.CONNECTED:
+                        logger.debug("Sending shutdown signal to systray")
+                        ws._send_raw(json.dumps({"action": "shutdown"}))
+                except Exception as e:
+                    logger.error(f"Error sending shutdown to systray: {e}")
+    except Exception as e:
+        logger.error(f"Error notifying systray processes to shut down: {e}")
+
+    # Give webviews and systray a brief moment to process shutdown message before terminating
     time.sleep(0.5)
 
     # Then terminate the process
@@ -118,6 +137,42 @@ async def webview_websocket(websocket: WebSocket):
         if websocket in _WEBVIEW_CONNECTIONS:
             _WEBVIEW_CONNECTIONS.remove(websocket)
             logger.info(f"WebView connection removed, remaining: {len(_WEBVIEW_CONNECTIONS)}")
+
+
+@app.websocket("/ws/systray")
+async def systray_websocket(websocket: WebSocket):
+    """WebSocket connection for systray process"""
+    global _SYSTRAY_CONNECTIONS
+
+    await websocket.accept()
+    _SYSTRAY_CONNECTIONS.add(websocket)
+    logger.info(f"Systray WebSocket connected, total connections: {len(_SYSTRAY_CONNECTIONS)}")
+
+    try:
+        # Send initial confirmation
+        await websocket.send_json({"status": "connected", "message": "Connected to Brocc API"})
+
+        # Keep connection alive and process messages
+        while True:
+            data = await websocket.receive_json()
+            logger.debug(f"Received systray WebSocket message: {data}")
+
+            # Handle specific message types
+            if data.get("action") == "heartbeat":
+                # Send immediate heartbeat response
+                await websocket.send_json({"action": "heartbeat", "status": "ok"})
+            elif data.get("action") == "closing":
+                logger.info("Systray notified it's closing")
+            # Handle other message types as needed
+    except WebSocketDisconnect:
+        logger.info("Systray WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Systray WebSocket error: {e}")
+    finally:
+        # Clean up connection
+        if websocket in _SYSTRAY_CONNECTIONS:
+            _SYSTRAY_CONNECTIONS.remove(websocket)
+            logger.info(f"Systray connection removed, remaining: {len(_SYSTRAY_CONNECTIONS)}")
 
 
 # --- Routes ---
@@ -252,6 +307,47 @@ def shutdown_webview_sync():
 
         # Don't log during shutdown
         return {"status": "notified", "message": f"Shutdown sent to {success_count} connections"}
+    except Exception:  # Specify exception type
+        # Catch all exceptions during shutdown
+        return {"status": "error", "message": "Error during shutdown"}
+
+
+# Add systray shutdown endpoint
+@app.post("/systray/shutdown")
+def shutdown_systray_sync():
+    """
+    Synchronous, non-blocking version of the shutdown endpoint
+    for systray processes
+    """
+    global _SYSTRAY_CONNECTIONS
+
+    # Track success count for logging
+    success_count = 0
+
+    try:
+        # Quick bailout if no connections
+        if not _SYSTRAY_CONNECTIONS:
+            return {
+                "status": "no_connections",
+                "message": "No active systray connections to notify",
+            }
+
+        # Use a non-blocking approach
+        for ws in list(_SYSTRAY_CONNECTIONS):
+            try:
+                # Send raw message without awaiting
+                if ws.client_state == WebSocketState.CONNECTED:
+                    ws._send_raw(json.dumps({"action": "shutdown"}))
+                    success_count += 1
+            except Exception:  # Specify exception type
+                # Ignore errors on shutdown
+                pass
+
+        # Don't log during shutdown
+        return {
+            "status": "notified",
+            "message": f"Shutdown sent to {success_count} systray connections",
+        }
     except Exception:  # Specify exception type
         # Catch all exceptions during shutdown
         return {"status": "error", "message": "Error during shutdown"}

@@ -1,6 +1,4 @@
-- brocc sys icon
-- close webviews on exit
-- try launching webapp via fastapi server
+- auto-open webapp
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool
