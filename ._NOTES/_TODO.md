@@ -1,4 +1,5 @@
 - auto-open webapp
+- initialize db + show status
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool
@@ -9,6 +10,7 @@
 
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
+- wrap python process in minimal app bundle
 
 ## ideas
 
