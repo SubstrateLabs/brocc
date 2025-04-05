@@ -2,19 +2,21 @@
 
 Brocc is a new way to index and explore your digital life.
 
-Try the beta CLI:
+Try the beta application:
 
 1. Install: `pipx install brocc-li`
 2. Run: `brocc`
 
 <details open>
-<summary><h2>Why</h2></summary>
+<summary><h2>How it works</h2></summary>
 
 Your documents are scattered. They might be:
 
 1. On your local filesystem (PDFs, photos, iMessages)
 2. Accessible via developer APIs (Notion, Google Docs, Gmail)
 3. In your browser (browsing history)
+
+Brocc (TODO)
 
 </details>
 
