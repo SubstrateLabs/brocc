@@ -48,9 +48,10 @@ UI_STATUS = {
 }
 
 BUTTON_LABELS = {
-    "OPEN_WINDOW": "Open Brocc window",
-    "SHOW_WINDOW": "Show Brocc window",
-    "LOGIN_TO_OPEN": "Login to open app window",
+    "OPENING_WINDOW": "✷  Opening Brocc window...  ✷",
+    "OPEN_WINDOW": "✷  Open Brocc window  ✷",
+    "SHOW_WINDOW": "✷  Show Brocc window  ✷",
+    "LOGIN_TO_OPEN": "✷  Login to start Brocc  ✷",
 }
 
 # Global vars for systray
@@ -68,7 +69,7 @@ def update_ui_element(app, element_id, message):
         return False
 
 
-class AppContent(Static):
+class MainContent(Static):
     def __init__(self, app_instance, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.app_instance = app_instance
@@ -77,7 +78,7 @@ class AppContent(Static):
         yield Container(
             Horizontal(
                 Button(
-                    label=BUTTON_LABELS["OPEN_WINDOW"],
+                    label=BUTTON_LABELS["OPENING_WINDOW"],
                     id="open-webapp-btn",
                     variant="primary",
                     disabled=True,
@@ -119,8 +120,8 @@ class BroccApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
 
-        with TabbedContent("App", "Info", "Logs", id="main-content"):
-            yield AppContent(self, id="app-tab")
+        with TabbedContent("★ Main", "✦ Info", "✧ Logs", id="main-content"):
+            yield MainContent(self, id="main-tab")
             yield InfoPanel(self, id="info-tab")
             yield LogsPanel(id="logs-tab")
 
@@ -286,9 +287,13 @@ class BroccApp(App):
                 # If we're not actively opening the webapp, show the button
                 if not self.is_opening_webapp:
                     open_webapp_btn.disabled = False
-                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+                    # open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
                     open_webapp_btn.remove_class("hidden")
                     loading.add_class("hidden")
+                else:
+                    # open_webapp_btn.label = BUTTON_LABELS["OPENING_WINDOW"]
+                    open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
+
         except NoMatches:
             logger.debug("Could not update WebApp status: UI component not found")
 

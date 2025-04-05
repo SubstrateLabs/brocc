@@ -1,6 +1,6 @@
 ---
 - Licensor: Substrate Labs Inc
-- Licensed Work: Brocc v.0.0 until v.1.9. The Licensed Work is © 2023 – 2025 Substrate Labs Inc.
+- Licensed Work: Brocc v.0.0 until v.1.9. The Licensed Work is © 2025 onwards Substrate Labs Inc.
 - Change Date: 2030-01-01
 - Change License: Version 2 or later of the GNU General Public License as published by the Free Software Foundation.
 ---
