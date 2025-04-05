@@ -10,13 +10,13 @@ Try the beta application:
 <details open>
 <summary><h2>How it works</h2></summary>
 
-Your documents are scattered. They might be:
+Your documents are scattered:
 
-1. On your local filesystem (PDFs, photos, iMessages)
-2. Accessible via developer APIs (Notion, Google Docs, Gmail)
-3. In your browser (browsing history)
+1. On your local filesystem (PDFs, photos, messages...)
+2. In your browser (articles, social feeds, documentation...)
+3. Available via developer APIs (Notion, Slack, Gmail...)
 
-Brocc (TODO)
+Brocc...
 
 </details>
 
@@ -39,9 +39,9 @@ Our general preference is to build robust embedded software that can run locally
 1. We host a light web application, used primarily for authentication.
 2. AI models run remotely, because we prefer software with minimal system requirements.
 
-## Primary dependencies
+### Primary dependencies
 
-### Local app ([/cli](https://github.com/SubstrateLabs/brocc/tree/main/cli))
+#### Local app ([/cli](https://github.com/SubstrateLabs/brocc/tree/main/cli))
 
 - [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
 - [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
@@ -54,7 +54,7 @@ Our general preference is to build robust embedded software that can run locally
   - [pywebview](https://pywebview.flowrl.com/guide) and [pystray](https://github.com/moses-palmer/pystray)
   - [Playwright](https://playwright.dev/docs/intro) to read content from your browser
 
-### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
+#### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
 
 - [Neon Postgres](https://neon.tech/docs/introduction): Used to store users, API keys, and collaboration settings.
 - [WorkOS](https://workos.com): Used for auth.
