@@ -1,7 +1,9 @@
 import { CodeBlock, InlineCode } from "@/components/mdx/CodeBlock";
 import Image from "next/image";
 
-To prevent losing open tabs when Brocc relaunches Chrome, check your startup settings:
+Brocc connects to Chrome in order to sync your browsing activity. Brocc needs Chrome to be running in a specific configuration, and may prompt you to relaunch Chrome. 
+
+To prevent losing your open tabs when Brocc relaunches Chrome, configure your Chrome startup settings to continue where you left off:
 
 1. Copy this URL into your Chrome address bar: <InlineCode code={`chrome://settings/?search=startup`} />
 

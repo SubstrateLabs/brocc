@@ -1,10 +1,8 @@
 - clean up fastapi server
   - review best practice for variables
   - review best practice for modularity
-- fasthtml tailwind
 - chrome tab tracking
 - think about process cleanup edge cases
-- lucide icons in fasthtml
 - source / location: needs another layer 
   - chrome::<location name: twitter>::<location: url>
 - field for parent doc id
@@ -17,9 +15,9 @@
 
 ## backlog
 
-- faq item on chrome-only
-- poll chrome status / websockets between fastapi <> fasthtml
-- faq page anchors + accordion (expand accordion based on anchor)
+- lucide icons in fasthtml
+- faq item: must use chrome
+  - faq page anchors + accordion (expand accordion based on anchor)
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
 - wrap python process in minimal app bundle

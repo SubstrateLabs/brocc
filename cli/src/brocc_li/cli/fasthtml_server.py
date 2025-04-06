@@ -131,10 +131,14 @@ def get_status_content():
             status_text = "Connected to Chrome"
             button_text = None  # No button needed
         elif not is_running:
-            status_text = "Not connected. Launch Chrome to connect:"
+            status_text = (
+                "Not connected. Brocc needs to launch Chrome to sync your browsing activity."
+            )
             button_text = "Launch Chrome"
         elif requires_relaunch:
-            status_text = "Not connected. Relaunch Chrome to connect:"
+            status_text = (
+                "Not connected. Brocc needs to relaunch Chrome to sync your browsing activity."
+            )
             button_text = "Relaunch Chrome"
         else:  # default?
             status_text = "Connected to Chrome"
@@ -157,50 +161,41 @@ def get_status_content():
     # Launch/Relaunch button only if needed - using query parameter instead of form submission
     if button_text:
         if is_running and requires_relaunch:
-            # Create both columns directly in the container
             content.append(
                 Div(
-                    # Left column with status and relaunch button
                     Div(
-                        # Add status text above the button
-                        P(status_text, style="margin: 0 0 0.5rem 0;"),
+                        P(status_text),
                         A(
-                            Button(button_text, style="display: inline;"),
+                            Button(button_text),
                             href="/?action=relaunch",
-                            style="text-decoration: none; display: inline-block;",
                         ),
-                        style="flex: 1 1 auto; max-width: 300px;",
+                        style="padding-bottom: 0.5rem;",
                     ),
-                    # Right column with settings info
                     Div(
                         P(
-                            "Note: To prevent losing your open tabs when Brocc relaunches Chrome, check your settings:",
-                            style="margin: 0 0 0.4rem; font-size: 0.85em; color: #777;",
+                            "Note: you may lose your open tabs when Brocc relaunches Chrome. To prevent this, check your startup settings:",
+                            style="font-size: 0.85em;",
                         ),
                         A(
                             Button(
-                                "Check Chrome settings",
-                                style="display: inline; font-size: 0.85em; padding: 0.4em 0.6em;",
+                                "FAQ: Chrome startup",
+                                style="font-size: 0.85em;",
                             ),
                             href="/?action=faq",
-                            style="text-decoration: none; display: inline-block;",
                         ),
-                        style="flex: 1 1 auto; max-width: 300px;",
                     ),
-                    style="display: flex; gap: 1.5rem; margin-top: 0.8rem;",
+                    style="max-width: 300px;",
                 )
             )
         else:
             # If not showing settings, add status and button together
             content.append(
                 Div(
-                    P(status_text, style="margin: 0 0 0.5rem 0;"),
+                    P(status_text),
                     A(
-                        Button(button_text, style="display: inline;"),
+                        Button(button_text),
                         href="/?action=launch",
-                        style="text-decoration: none; display: inline-block;",
                     ),
-                    style="margin: 0.5rem 0;",
                 )
             )
 
