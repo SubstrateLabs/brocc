@@ -168,15 +168,6 @@ class ChromeManager:
         args = [
             chrome_path,
             "--remote-debugging-port=9222",
-            "--no-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--disable-background-timer-throttling",
-            "--disable-popup-blocking",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--no-first-run",
-            "--no-default-browser-check",
         ]
 
         try:

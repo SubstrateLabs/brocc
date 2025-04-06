@@ -18,6 +18,7 @@
 ## backlog
 
 - faq item on chrome-only
+- poll chrome status / websockets between fastapi <> fasthtml
 - faq page anchors + accordion (expand accordion based on anchor)
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)

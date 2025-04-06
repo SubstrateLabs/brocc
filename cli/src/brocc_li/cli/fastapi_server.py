@@ -693,9 +693,14 @@ async def chrome_status():
     }
 
 
-@app.post("/chrome/connect")
-async def chrome_connect(auto_confirm: bool = False):
-    """Connect to Chrome with debug port"""
+@app.post("/chrome/launch")
+async def launch_chrome(background_tasks: BackgroundTasks, force_relaunch: bool = False):
+    """
+    Launch Chrome with a debug port or connect to an existing instance.
+
+    If force_relaunch is True, will quit existing Chrome instances and start fresh.
+    Otherwise, it will try to connect to an existing Chrome if possible.
+    """
     global _CHROME_BROWSER
 
     # Check if already connected
@@ -708,69 +713,62 @@ async def chrome_connect(auto_confirm: bool = False):
         return {
             "status": "already_connected",
             "message": "Using existing auto-connected Chrome instance",
-            "version": _CHROME_BROWSER.version,
         }
 
-    try:
-        # First check if a browser is already connected
-        if _CHROME_BROWSER and is_connected(_CHROME_BROWSER):
-            return {"status": "Already connected"}
+    # Run the launch/connect operation in the background
+    background_tasks.add_task(_launch_chrome_in_thread, force_relaunch)
 
-        # Check if chrome manager has an auto-connected browser to use
-        if chrome_manager.connected_browser and not _CHROME_BROWSER:
-            _CHROME_BROWSER = chrome_manager.connected_browser
-            logger.debug("Updated _CHROME_BROWSER with auto-connected browser")
-
-        # First check if we have a connected browser
-        if _CHROME_BROWSER and is_connected(_CHROME_BROWSER):
-            return {"status": "Using existing connected browser"}
-
-        # We need a playwright instance now
-        playwright = get_playwright()
-
-        # Connect to Chrome
-        _CHROME_BROWSER = chrome_manager.connect(playwright=playwright, auto_confirm=auto_confirm)
-
-        # Check if connection was successful
-        if _CHROME_BROWSER:
-            version = _CHROME_BROWSER.version if hasattr(_CHROME_BROWSER, "version") else "unknown"
-            return {"status": f"Connected to Chrome {version}"}
-        else:
-            return {"status": "Failed to connect to Chrome"}
-    except Exception as e:
-        logger.error(f"Error connecting to Chrome: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error connecting to Chrome: {str(e)}"
-        ) from e  # Fixed exception chaining
+    return {"status": "launching", "message": "Launching Chrome in background"}
 
 
-@app.post("/chrome/disconnect")
-async def chrome_disconnect():
-    """Disconnect from Chrome"""
+def _launch_chrome_in_thread(force_relaunch: bool = False):
+    """Launch or relaunch Chrome in a background thread"""
     global _CHROME_BROWSER
 
-    # If using ChromeManager's browser, disconnect through it
-    if chrome_manager.connected_browser:
-        success = chrome_manager.disconnect()
-        if success:
-            _CHROME_BROWSER = None
-            return {"status": "disconnected", "message": "Successfully disconnected from Chrome"}
-
-    # Otherwise disconnect directly if we have a browser
-    if not _CHROME_BROWSER:
-        return {"status": "not_connected", "message": "Not connected to Chrome"}
-
     try:
-        if _CHROME_BROWSER:
-            chrome_manager.disconnect()
-            _CHROME_BROWSER = None
+        # Get the current state
+        state = chrome_manager.refresh_state()
 
-        return {"status": "Disconnected from Chrome"}
+        # If we're forcing a relaunch or Chrome is running without debug port
+        if force_relaunch or (state.is_running and not state.has_debug_port):
+            logger.debug("Quitting existing Chrome instances")
+            # Disconnect any existing browser connections
+            if _CHROME_BROWSER or chrome_manager.connected_browser:
+                chrome_manager.disconnect()
+                _CHROME_BROWSER = None
+
+            # Quit all Chrome instances
+            if not chrome_manager._quit_chrome():
+                logger.error("Failed to quit existing Chrome instances")
+                return
+
+            # Chrome needs to be launched with debug port
+            needs_launch = True
+        else:
+            # If Chrome is not running, we need to launch it
+            needs_launch = not state.is_running
+
+        # Launch Chrome if needed
+        if needs_launch:
+            logger.debug("Launching Chrome with debug port")
+            if not chrome_manager._launch_chrome():
+                logger.error("Failed to launch Chrome")
+                return
+
+            # Give Chrome a moment to initialize
+            time.sleep(2)
+
+        # Now connect to Chrome
+        playwright = get_playwright()
+        browser = chrome_manager._connect_to_chrome(playwright)
+
+        if browser:
+            _CHROME_BROWSER = browser
+            logger.debug(f"Successfully connected to Chrome {browser.version}")
+        else:
+            logger.error("Failed to connect to Chrome")
     except Exception as e:
-        logger.error(f"Error disconnecting from Chrome: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error disconnecting from Chrome: {str(e)}"
-        ) from e  # Fixed exception chaining
+        logger.error(f"Error in Chrome launch thread: {e}")
 
 
 @app.post("/chrome/startup-faq")

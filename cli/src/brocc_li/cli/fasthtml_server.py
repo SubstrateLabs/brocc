@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 import uvicorn
-from fasthtml.common import A, Button, P, Titled, fast_app, Div
+from fasthtml.common import A, Button, Div, P, Titled, fast_app
 
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
@@ -18,7 +18,7 @@ API_PORT = 8022  # FastAPI server port
 # API endpoint URLs
 API_URL = f"http://{API_HOST}:{API_PORT}"
 CHROME_STATUS_URL = f"{API_URL}/chrome/status"
-CHROME_CONNECT_URL = f"{API_URL}/chrome/connect"
+CHROME_LAUNCH_URL = f"{API_URL}/chrome/launch"
 CHROME_STARTUP_FAQ_URL = f"{API_URL}/chrome/startup-faq"
 
 
@@ -30,21 +30,32 @@ def create_app():
     @rt("/")
     def get(action: str = ""):
         """Single page that handles all actions inline without navigation"""
-        # Process actions first, if any
-        message = None
 
-        if action == "connect":
-            # Connect to Chrome
+        # Track if we're currently launching Chrome
+        is_launching = False
+
+        if action == "launch":
+            # Launch Chrome
             try:
                 requests.post(
-                    CHROME_CONNECT_URL,
-                    params={"auto_confirm": "true"},
+                    CHROME_LAUNCH_URL,
+                    params={"force_relaunch": "false"},
                     timeout=10,
                 )
-                message = "Connecting to Chrome..."
+                is_launching = True
             except Exception as e:
-                logger.error(f"Error connecting to Chrome: {e}")
-                message = f"Error connecting to Chrome: {str(e)}"
+                logger.error(f"Error launching Chrome: {e}")
+        elif action == "relaunch":
+            # Relaunch Chrome
+            try:
+                requests.post(
+                    CHROME_LAUNCH_URL,
+                    params={"force_relaunch": "true"},
+                    timeout=10,
+                )
+                is_launching = True
+            except Exception as e:
+                logger.error(f"Error relaunching Chrome: {e}")
         elif action == "faq":
             # Open the Chrome startup FAQ
             try:
@@ -52,106 +63,14 @@ def create_app():
                 # No message for opening the FAQ
             except Exception as e:
                 logger.error(f"Error opening Chrome startup FAQ: {e}")
-                message = f"Error opening Chrome startup FAQ: {str(e)}"
 
-        # Get the current Chrome status
-        try:
-            response = requests.get(CHROME_STATUS_URL, timeout=2)
-            chrome_data = response.json() if response.status_code == 200 else None
-        except Exception as e:
-            logger.error(f"Error fetching Chrome status: {e}")
-            chrome_data = None
-            message = f"Error fetching Chrome status: {str(e)}"
+        # Build the main page
+        return build_page(is_launching)
 
-        # Determine status message and button text
-        if chrome_data:
-            is_running = "not running" not in chrome_data.get("status", "")
-            requires_relaunch = chrome_data.get("requires_relaunch", False)
-            is_connected = chrome_data.get("is_connected", False)
-
-            if is_connected:
-                status_text = "Connected to Chrome"
-                button_text = None  # No button needed
-            elif not is_running:
-                status_text = "Chrome is not running"
-                button_text = "Launch Chrome"
-            elif requires_relaunch:
-                status_text = "Not connected to Chrome"
-                button_text = "Relaunch Chrome"
-            else:
-                status_text = "Chrome is running with debug port"
-                button_text = None  # No button needed
-        else:
-            status_text = "Error checking Chrome status"
-            button_text = "Retry"
-            is_running = False
-            requires_relaunch = False
-            is_connected = False
-
-        # Build minimal content
-        content = []
-
-        # Message display if we have one
-        if message:
-            content.append(P(message, style="margin: 0.5rem 0; color: #666;"))
-
-        # Only show status text directly if we don't have a button
-        # (otherwise it will be shown in the flex layout with the button)
-        if not button_text:
-            content.append(P(status_text, style="margin: 0.5rem 0;"))
-
-        # Launch/Relaunch button only if needed - using query parameter instead of form submission
-        if button_text:
-            if is_running and requires_relaunch:
-                # Create both columns directly in the container
-                content.append(
-                    Div(
-                        # Left column with status and relaunch button
-                        Div(
-                            # Add status text above the button
-                            P(status_text, style="margin: 0 0 0.5rem 0;"),
-                            A(
-                                Button(button_text, style="display: inline;"),
-                                href="/?action=connect",
-                                style="text-decoration: none; display: inline-block;",
-                            ),
-                            style="flex: 0 0 auto;",
-                        ),
-                        # Right column with settings info
-                        Div(
-                            P(
-                                "Note: To prevent losing your open tabs when Brocc relaunches Chrome, check your startup settings:",
-                                style="margin: 0 0 0.4rem; font-size: 0.85em; color: #777;",
-                            ),
-                            A(
-                                Button(
-                                    "Check Chrome settings",
-                                    style="display: inline; font-size: 0.85em; padding: 0.4em 0.6em;",
-                                ),
-                                href="/?action=faq",
-                                style="text-decoration: none; display: inline-block;",
-                            ),
-                            style="flex: 1 1 auto; max-width: 300px;",
-                        ),
-                        style="display: flex; gap: 1.5rem; margin-top: 0.8rem;",
-                    )
-                )
-            else:
-                # If not showing settings, add status and button together
-                content.append(
-                    Div(
-                        P(status_text, style="margin: 0 0 0.5rem 0;"),
-                        A(
-                            Button(button_text, style="display: inline;"),
-                            href="/?action=connect",
-                            style="text-decoration: none; display: inline-block;",
-                        ),
-                        style="margin: 0.5rem 0;",
-                    )
-                )
-
-        # Build the page without title
-        return Titled("", *content)
+    @rt("/status")
+    def status():
+        """Endpoint for HTMX to poll for status updates"""
+        return get_status_content()
 
     # This ensures both GET with query params and POST form submissions work
     @rt("/", "POST")
@@ -165,8 +84,10 @@ def create_app():
             # Parse form data
             action = None
             # Very basic parsing - in a real app you'd use a proper form parser
-            if "connect" in body:
-                action = "connect"
+            if "launch" in body:
+                action = "launch"
+            elif "relaunch" in body:
+                action = "relaunch"
             elif "faq" in body:
                 action = "faq"
 
@@ -188,6 +109,126 @@ def create_app():
         }
 
     return app
+
+
+def get_status_content():
+    """Get the current Chrome status and generate content"""
+    # Get the current Chrome status
+    try:
+        response = requests.get(CHROME_STATUS_URL, timeout=2)
+        chrome_data = response.json() if response.status_code == 200 else None
+    except Exception as e:
+        logger.error(f"Error fetching Chrome status: {e}")
+        chrome_data = None
+
+    # Determine status message and button text
+    if chrome_data:
+        is_running = "not running" not in chrome_data.get("status", "")
+        requires_relaunch = chrome_data.get("requires_relaunch", False)
+        is_connected = chrome_data.get("is_connected", False)
+
+        if is_connected:
+            status_text = "Connected to Chrome"
+            button_text = None  # No button needed
+        elif not is_running:
+            status_text = "Not connected. Launch Chrome to connect:"
+            button_text = "Launch Chrome"
+        elif requires_relaunch:
+            status_text = "Not connected. Relaunch Chrome to connect:"
+            button_text = "Relaunch Chrome"
+        else:  # default?
+            status_text = "Connected to Chrome"
+            button_text = None  # No button needed
+    else:
+        status_text = "Error checking Chrome status"
+        button_text = "Retry"
+        is_running = False
+        requires_relaunch = False
+        is_connected = False
+
+    # Build minimal content
+    content = []
+
+    # Only show status text directly if we don't have a button
+    # (otherwise it will be shown in the flex layout with the button)
+    if not button_text:
+        content.append(P(status_text, style="margin: 0.5rem 0;"))
+
+    # Launch/Relaunch button only if needed - using query parameter instead of form submission
+    if button_text:
+        if is_running and requires_relaunch:
+            # Create both columns directly in the container
+            content.append(
+                Div(
+                    # Left column with status and relaunch button
+                    Div(
+                        # Add status text above the button
+                        P(status_text, style="margin: 0 0 0.5rem 0;"),
+                        A(
+                            Button(button_text, style="display: inline;"),
+                            href="/?action=relaunch",
+                            style="text-decoration: none; display: inline-block;",
+                        ),
+                        style="flex: 1 1 auto; max-width: 300px;",
+                    ),
+                    # Right column with settings info
+                    Div(
+                        P(
+                            "Note: To prevent losing your open tabs when Brocc relaunches Chrome, check your settings:",
+                            style="margin: 0 0 0.4rem; font-size: 0.85em; color: #777;",
+                        ),
+                        A(
+                            Button(
+                                "Check Chrome settings",
+                                style="display: inline; font-size: 0.85em; padding: 0.4em 0.6em;",
+                            ),
+                            href="/?action=faq",
+                            style="text-decoration: none; display: inline-block;",
+                        ),
+                        style="flex: 1 1 auto; max-width: 300px;",
+                    ),
+                    style="display: flex; gap: 1.5rem; margin-top: 0.8rem;",
+                )
+            )
+        else:
+            # If not showing settings, add status and button together
+            content.append(
+                Div(
+                    P(status_text, style="margin: 0 0 0.5rem 0;"),
+                    A(
+                        Button(button_text, style="display: inline;"),
+                        href="/?action=launch",
+                        style="text-decoration: none; display: inline-block;",
+                    ),
+                    style="margin: 0.5rem 0;",
+                )
+            )
+
+    return Div(*content, id="status-container")
+
+
+def build_page(is_launching=False):
+    """Build the complete page with HTMX polling if needed"""
+    content = []
+
+    # Create a container for the status that can be updated via HTMX
+    status_container = get_status_content()
+    content.append(status_container)
+
+    # Add auto-polling if we're launching Chrome
+    if is_launching:
+        # Add HTMX attributes to enable polling on the status container
+        status_container.attrs.update(
+            {
+                "hx-get": "/status",
+                "hx-trigger": "every 1s",
+                "hx-swap": "outerHTML",
+                # Stop polling after 7 seconds (enough time for Chrome to launch)
+                "hx-trigger-delay": "7s:stop",
+            }
+        )
+    # Build the page without title
+    return Titled("", *content)
 
 
 class NoSignalUvicornServer(uvicorn.Server):
