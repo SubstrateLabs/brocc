@@ -2,6 +2,7 @@
 - chrome manager fastapi
 - source / location: needs another layer 
   - chrome::<location name: twitter>::<location: url>
+- capture parent doc for threads, comments
 - scrape all tabs
 - rework scrape abstraction
 - research latest best pdf/paper metadata tool
