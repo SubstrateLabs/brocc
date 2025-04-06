@@ -1,7 +1,10 @@
 import { CodeBlock, InlineCode } from "@/components/mdx/CodeBlock";
+import Image from "next/image";
 
-To prevent losing your tabs when Brocc relaunches Chrome, check your startup settings:
+To prevent losing open tabs when Brocc relaunches Chrome, check your startup settings:
 
-1. Copy this URL and paste it into your Chrome address bar: <InlineCode code={`chrome://settings/?search=startup`} />
+1. Copy this URL into your Chrome address bar: <InlineCode code={`chrome://settings/?search=startup`} />
 
 2. Select **Continue where you left off**.
+
+<Image src="/chrome-startup.png" alt="Chrome startup settings" width={800} height={600} className="rounded-md" />

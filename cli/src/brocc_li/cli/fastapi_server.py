@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 import psutil
@@ -770,3 +771,16 @@ async def chrome_disconnect():
         raise HTTPException(
             status_code=500, detail=f"Error disconnecting from Chrome: {str(e)}"
         ) from e  # Fixed exception chaining
+
+
+@app.post("/chrome/startup-faq")
+async def chrome_startup_faq():
+    """Open the Chrome startup FAQ page in the default web browser"""
+    try:
+        webbrowser.open("https://brocc.li/faq#chrome-startup")
+        return {"status": "success", "message": "Opened Chrome startup FAQ in browser"}
+    except Exception as e:
+        logger.error(f"Error opening Chrome startup FAQ: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error opening Chrome startup FAQ: {str(e)}"
+        ) from e

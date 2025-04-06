@@ -1,13 +1,7 @@
-- ui for chrome://settings/?search=startup
-improve the ux for the fasthtml app:
-1. it says Chrome manager or something twice, i don't want any titles
-2. i don't want any disconnect button if we're connected, the user shouldn't be able to manually connect or disconnect
-3. if chrome is running wihout the debug port,
-
-- button to open
 - clean up fastapi server
   - review best practice for variables
   - review best practice for modularity
+- fasthtml tailwind
 - chrome tab tracking
 - think about process cleanup edge cases
 - lucide icons in fasthtml
@@ -23,6 +17,7 @@ improve the ux for the fasthtml app:
 
 ## backlog
 
+- faq item on chrome-only
 - faq page anchors + accordion (expand accordion based on anchor)
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
