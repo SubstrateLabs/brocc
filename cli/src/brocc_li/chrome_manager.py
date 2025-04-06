@@ -1,5 +1,6 @@
 import os
 import platform
+import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -76,24 +77,31 @@ class ChromeManager:
 
         return False
 
-    def _get_chrome_paths(self) -> list[str]:
-        """Get Chrome executable paths based on the current platform."""
+    def _find_chrome_path(self) -> Optional[str]:
+        """Find Chrome executable path based on the current platform."""
         system = platform.system().lower()
 
+        # First try using shutil.which to find Chrome in PATH
         if system == "darwin":  # macOS
-            return [
+            candidates = [
+                shutil.which("google-chrome"),
+                shutil.which("chromium"),
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 "/Applications/Chromium.app/Contents/MacOS/Chromium",
                 os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
                 os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
             ]
         elif system == "linux":
-            return [
+            candidates = [
+                shutil.which("google-chrome"),
+                shutil.which("google-chrome-stable"),
+                shutil.which("chromium"),
+                shutil.which("chromium-browser"),
                 "/usr/bin/google-chrome",
                 "/usr/bin/google-chrome-stable",
                 "/usr/bin/chromium",
                 "/usr/bin/chromium-browser",
-                "/usr/bin/chromium-browser-stable",
+                "/snap/bin/chromium",
                 os.path.expanduser("~/.local/bin/google-chrome"),
                 os.path.expanduser("~/.local/bin/chromium"),
             ]
@@ -102,14 +110,23 @@ class ChromeManager:
             program_files_x86 = os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")
             local_appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
 
-            return [
+            candidates = [
+                shutil.which("chrome"),
                 os.path.join(program_files, "Google\\Chrome\\Application\\chrome.exe"),
                 os.path.join(program_files_x86, "Google\\Chrome\\Application\\chrome.exe"),
                 os.path.join(local_appdata, "Google\\Chrome\\Application\\chrome.exe"),
                 os.path.join(program_files, "Chromium\\Application\\chrome.exe"),
                 os.path.join(program_files_x86, "Chromium\\Application\\chrome.exe"),
             ]
-        return []
+        else:
+            candidates = []
+
+        # Return the first path that exists
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+
+        return None
 
     def _is_chrome_process_running(self) -> bool:
         """Check if Chrome application is running using psutil."""
@@ -141,13 +158,7 @@ class ChromeManager:
 
     def _launch_chrome(self) -> bool:
         """Launch Chrome with debug port enabled."""
-        chrome_paths = self._get_chrome_paths()
-
-        chrome_path = None
-        for path in chrome_paths:
-            if os.path.exists(path):
-                chrome_path = path
-                break
+        chrome_path = self._find_chrome_path()
 
         if not chrome_path:
             logger.error("Could not find a valid Chrome/Chromium installation.")

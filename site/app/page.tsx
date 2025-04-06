@@ -1,4 +1,4 @@
-import Readme from "../markdown/readme.mdx";
+import Readme from "@/markdown/readme.mdx";
 
 export default async function Home() {
   return (

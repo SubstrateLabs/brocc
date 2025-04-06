@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 import uvicorn
-from fasthtml.common import H1, H2, A, Button, Form, Input, P, Span, Titled, fast_app
+from fasthtml.common import A, Button, P, Titled, fast_app
 
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
@@ -19,7 +19,6 @@ API_PORT = 8022  # FastAPI server port
 API_URL = f"http://{API_HOST}:{API_PORT}"
 CHROME_STATUS_URL = f"{API_URL}/chrome/status"
 CHROME_CONNECT_URL = f"{API_URL}/chrome/connect"
-CHROME_DISCONNECT_URL = f"{API_URL}/chrome/disconnect"
 
 
 def create_app():
@@ -28,137 +27,97 @@ def create_app():
     app, rt = fast_app(pico=True)
 
     @rt("/")
-    def get():
-        """Main page with Chrome Manager UI - no JavaScript"""
-        # Get the current Chrome status directly
+    def get(action: str = ""):
+        """Single page that handles all actions inline without navigation"""
+        # Process actions first, if any
+        message = None
+
+        if action == "connect":
+            # Connect to Chrome
+            try:
+                requests.post(
+                    CHROME_CONNECT_URL,
+                    params={"auto_confirm": "true"},
+                    timeout=10,
+                )
+                message = "Connecting to Chrome..."
+            except Exception as e:
+                logger.error(f"Error connecting to Chrome: {e}")
+                message = f"Error connecting to Chrome: {str(e)}"
+
+        # Get the current Chrome status
         try:
             response = requests.get(CHROME_STATUS_URL, timeout=2)
             chrome_data = response.json() if response.status_code == 200 else None
         except Exception as e:
             logger.error(f"Error fetching Chrome status: {e}")
             chrome_data = None
+            message = f"Error fetching Chrome status: {str(e)}"
 
-        # Determine status message and styling
+        # Determine status message and button text
         if chrome_data:
-            status_text = chrome_data.get("status", "Unknown")
-            is_connected = chrome_data.get("is_connected", False)
+            is_running = "not running" not in chrome_data.get("status", "")
             requires_relaunch = chrome_data.get("requires_relaunch", False)
-            connection_status = "Connected" if is_connected else "Not Connected"
+
+            if not is_running:
+                status_text = "Chrome is not running"
+                button_text = "Launch Chrome"
+            elif requires_relaunch:
+                status_text = "Chrome is running without debug port"
+                button_text = "Relaunch Chrome"
+            else:
+                status_text = "Chrome is running with debug port"
+                button_text = None  # No button needed
         else:
-            status_text = "Error fetching status"
-            is_connected = False
+            status_text = "Error fetching Chrome status"
+            button_text = "Retry"
+            is_running = False
             requires_relaunch = False
-            connection_status = "Unknown"
 
-        # Title and header
-        title = "Chrome Manager"
+        # Build minimal content
+        content = []
 
-        # Status section
-        status_content = [
-            H1(title),
-            H2("Chrome Status"),
-            P(f"Status: {status_text}"),
-            P(f"Connection: {connection_status}"),
-            P(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}"),
-        ]
+        # Message display if we have one
+        if message:
+            content.append(P(message, style="margin: 0.5rem 0; color: #666;"))
 
-        # Action buttons based on connection state
-        if is_connected:
-            # Already connected - show disconnect option
-            status_content.extend(
-                [
-                    Form(
-                        Button("Disconnect from Chrome", type="submit"),
-                        action="/disconnect",
-                        method="post",
-                    )
-                ]
-            )
-        else:
-            # Not connected - show connect form
-            connect_form = Form(
-                H2("Connect to Chrome"),
-                P("Connect to an existing Chrome instance with remote debugging enabled"),
-                Button("Connect to Chrome", type="submit"),
-                action="/connect",
-                method="post",
-            )
+        # Status in top left (with minimal styling)
+        content.append(P(f"Status: {status_text}", style="margin: 0.5rem 0;"))
 
-            # If relaunch required, show the auto-confirm option
-            if requires_relaunch:
-                connect_form = Form(
-                    H2("Connect to Chrome (Relaunch Required)"),
-                    P("Chrome needs to be relaunched with remote debugging enabled"),
-                    Input(type="checkbox", id="auto-confirm", name="auto_confirm", value="true"),
-                    Span("Auto-confirm when restarting Chrome"),
-                    Button("Connect to Chrome", type="submit"),
-                    action="/connect",
-                    method="post",
+        # Launch/Relaunch button only if needed - using query parameter instead of form submission
+        if button_text:
+            content.append(
+                A(
+                    Button(button_text, style="display: inline;"),
+                    href="/?action=connect",
+                    style="text-decoration: none; margin: 0.5rem 0; display: inline-block;",
                 )
-
-            status_content.append(connect_form)
-
-        # Refresh button
-        status_content.append(A("Refresh Status", href="/"))
-
-        # Build the page
-        return Titled(title, *status_content)
-
-    @rt("/connect", "POST")
-    def connect(auto_confirm: bool = False):
-        """Connect to Chrome with auto_confirm option"""
-        try:
-            logger.debug(f"Connecting to Chrome with auto_confirm={auto_confirm}")
-            response = requests.post(
-                CHROME_CONNECT_URL,
-                params={"auto_confirm": "true" if auto_confirm else "false"},
-                timeout=10,  # Longer timeout as connection can take time
             )
 
-            logger.debug(f"Chrome connect response: {response.status_code}")
-            message = "Connected to Chrome"
+        # Build the page without titles - no navigation, only query params
+        return Titled("Chrome Manager", *content)
 
-            content = [H1("Chrome Connection"), P(message), A("Return to Chrome Manager", href="/")]
+    # This ensures both GET with query params and POST form submissions work
+    @rt("/", "POST")
+    def post(request, query_params=None):
+        """Handle POST submissions and redirect to GET with query params"""
+        # Extract form data from the POST request
+        body = getattr(request, "body", b"").decode("utf-8", errors="replace")
 
-            # Return with meta refresh to redirect back home after 2 seconds
-            return Titled("Chrome Connection", *content, meta_refresh=2)
-        except Exception as e:
-            logger.error(f"Error connecting to Chrome: {e}")
-            return Titled(
-                "Connection Error",
-                H1("Connection Error"),
-                P(f"Error: {str(e)}"),
-                A("Try Again", href="/"),
-                meta_refresh=5,
-            )
+        # Simple form parsing to extract action
+        if body:
+            # Parse form data
+            action = None
+            # Very basic parsing - in a real app you'd use a proper form parser
+            if "connect" in body:
+                action = "connect"
 
-    @rt("/disconnect", "POST")
-    def disconnect():
-        """Disconnect from Chrome"""
-        try:
-            logger.debug("Disconnecting from Chrome")
-            response = requests.post(CHROME_DISCONNECT_URL, timeout=5)
+            # Redirect to the same page with query params
+            if action:
+                return Titled("", meta_refresh=0, url=f"/?action={action}")
 
-            logger.debug(f"Chrome disconnect response: {response.status_code}")
-            message = "Disconnected from Chrome"
-
-            content = [
-                H1("Chrome Disconnected"),
-                P(message),
-                A("Return to Chrome Manager", href="/"),
-            ]
-
-            # Return with meta refresh to redirect back home after 2 seconds
-            return Titled("Disconnected", *content, meta_refresh=2)
-        except Exception as e:
-            logger.error(f"Error disconnecting from Chrome: {e}")
-            return Titled(
-                "Disconnection Error",
-                H1("Disconnection Error"),
-                P(f"Error: {str(e)}"),
-                A("Try Again", href="/"),
-                meta_refresh=5,
-            )
+        # Default fallback
+        return Titled("", meta_refresh=0, url="/")
 
     @rt("/health")
     def health():
