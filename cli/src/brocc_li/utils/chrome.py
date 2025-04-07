@@ -108,6 +108,7 @@ def launch_chrome(debug_port: int = 9222, quiet: bool = False) -> bool:
     args = [
         chrome_path,
         f"--remote-debugging-port={debug_port}",
+        "--remote-allow-origins=*",  # Allow WebSocket connections from any origin
     ]
 
     try:
