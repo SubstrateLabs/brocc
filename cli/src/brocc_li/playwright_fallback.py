@@ -29,6 +29,9 @@ class PlaywrightFallback:
         self._browser = None
         self._debug_port = REMOTE_DEBUG_PORT
 
+        # Marker for tab title
+        self._tab_title_marker = "🥦 [Reading page] "
+
     def _ensure_browser(self):
         """Ensure we have a connection to the existing Chrome instance."""
         if self._browser is None:
@@ -90,6 +93,9 @@ class PlaywrightFallback:
                 page = context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
+            # Set a distinctive title before navigation
+            page.evaluate(f"document.title = '{self._tab_title_marker}Loading...'")
+
             # 'load' = wait for the load event to be fired (more reliable than networkidle)
             logger.debug(f"Playwright: Navigating to {url}")
             try:
@@ -104,6 +110,17 @@ class PlaywrightFallback:
                 except Exception as e:
                     logger.debug(f"Timeout wait interrupted: {e}")
                     pass
+
+            # Add the tab marker after navigation
+            try:
+                # Get the original title and add our marker
+                original_title = page.evaluate("document.title")
+                marked_title = f"{self._tab_title_marker}{original_title}"
+                page.evaluate(f"document.title = '{marked_title}'")
+
+                logger.debug("Added title marker to fallback tab")
+            except Exception as e:
+                logger.warning(f"Failed to add title marker to tab: {e}")
 
             # Try to get HTML content even if navigation had issues
             try:
