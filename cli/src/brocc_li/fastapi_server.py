@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from starlette.middleware.cors import CORSMiddleware
 
+from brocc_li.chrome_cdp import get_chrome_info
 from brocc_li.chrome_manager import ChromeManager
 from brocc_li.utils.chrome import launch_chrome, quit_chrome
 from brocc_li.utils.logger import logger
@@ -66,8 +67,8 @@ def _try_initial_connect(quiet=True):
     try:
         state = chrome_manager.refresh_state()
         if state.has_debug_port:
-            # Connect with auto-confirm and quiet parameter
-            is_connected = chrome_manager.connect(auto_confirm=True, quiet=quiet)
+            # Connect with quiet parameter
+            is_connected = chrome_manager.test_connection(quiet=quiet)
             if is_connected:
                 if not quiet:
                     logger.debug("Successfully auto-connected to Chrome on server start")
@@ -81,19 +82,6 @@ def _try_initial_connect(quiet=True):
 
 # Call auto-connect on module load with quiet=True to suppress logs during import
 _try_initial_connect(quiet=True)
-
-
-# Cleanup function for Chrome resources
-def _cleanup_chrome():
-    try:
-        logger.debug("Disconnecting from Chrome")
-        chrome_manager.disconnect()
-    except Exception as e:
-        logger.error(f"Error disconnecting from Chrome: {e}")
-
-
-# Register the chrome cleanup
-atexit.register(_cleanup_chrome)
 
 
 # Helper function to run sync code in a thread pool
@@ -438,21 +426,11 @@ async def chrome_status():
     except Exception as e:
         logger.error(f"Error refreshing Chrome state: {e}")
 
-    # Check browser connection in thread pool
-    chrome_connected = False
-    try:
-        chrome_connected = await run_in_executor(app.state.thread_pool, is_chrome_connected)
-    except Exception as e:
-        logger.debug(f"Error checking browser connection: {e}")
-
-    # Get status description
-    status = chrome_manager.status_description
-    requires_relaunch = "debug port is not active" in status or "not running" in status
+    # Get status code
+    status_code = chrome_manager.status_code
 
     return {
-        "status": status,
-        "is_connected": chrome_connected,
-        "requires_relaunch": requires_relaunch,
+        "status_code": status_code.value,  # Return the string value of the enum
         "timestamp": time.time(),
     }
 
@@ -517,15 +495,8 @@ def _launch_chrome_in_thread(force_relaunch: bool = False):
         # If we're forcing a relaunch or Chrome is running without debug port
         if force_relaunch or (state.is_running and not state.has_debug_port):
             logger.debug("Quitting existing Chrome instances")
-            # Disconnect any existing browser connections
-            if chrome_manager.connected:
-                logger.debug("Disconnecting existing browser connections first")
-                try:
-                    chrome_manager.disconnect()
-                except Exception as e:
-                    logger.debug(f"Error during disconnect: {e}")
 
-            # Quit all Chrome instances
+            # Quit all Chrome instances directly
             if not quit_chrome():
                 logger.error("Failed to quit existing Chrome instances")
                 return
@@ -556,10 +527,10 @@ def _launch_chrome_in_thread(force_relaunch: bool = False):
         # Now connect to Chrome
         logger.debug("Attempting to connect to Chrome")
         try:
-            connected = chrome_manager.connect(auto_confirm=True)
+            connected = chrome_manager.test_connection(quiet=True)
             if connected:
-                chrome_version = chrome_manager._get_chrome_version()
-                logger.debug(f"Successfully connected to Chrome {chrome_version}")
+                chrome_info = get_chrome_info()
+                logger.debug(f"Successfully connected to Chrome {chrome_info['version']}")
             else:
                 logger.error("Failed to connect to Chrome")
         except Exception as e:

@@ -1,14 +1,12 @@
 import time
-from collections.abc import Callable
+from enum import Enum
 from typing import List, NamedTuple, Set
 
-import requests
 from rich import box
 from rich.console import Console
-from rich.prompt import Confirm
 from rich.table import Table
 
-from brocc_li.chrome_cdp import get_tabs
+from brocc_li.chrome_cdp import get_chrome_info, get_tabs, open_new_tab
 from brocc_li.utils.chrome import (
     is_chrome_debug_port_active,
     is_chrome_process_running,
@@ -23,16 +21,19 @@ class ChromeState(NamedTuple):
     has_debug_port: bool
 
 
+class ChromeStatus(Enum):
+    """Machine-readable status codes for Chrome connection state."""
+
+    CONNECTED = "connected"
+    NOT_RUNNING = "not_running"
+    RUNNING_WITHOUT_DEBUG_PORT = "running_without_debug_port"
+    CONNECTING = "connecting"
+
+
 # Tab reference for tracking
 class TabReference(NamedTuple):
     id: str
     url: str
-
-
-# Default confirmation function that uses Rich
-def default_confirm(message: str, default: bool = True) -> bool:
-    """Default confirmation function using Rich."""
-    return Confirm.ask(message, default=default)
 
 
 class ChromeManager:
@@ -68,11 +69,11 @@ class ChromeManager:
         """
         try:
             # Try to connect
-            if self._check_chrome_connection():
+            chrome_info = get_chrome_info()
+            if chrome_info["connected"]:
                 self._connected = True
                 if not quiet:
-                    chrome_version = self._get_chrome_version()
-                    logger.debug(f"Auto-connected to Chrome {chrome_version}")
+                    logger.debug(f"Auto-connected to Chrome {chrome_info['version']}")
                 return True
             else:
                 if not quiet:
@@ -94,47 +95,31 @@ class ChromeManager:
 
     def _check_chrome_connection(self) -> bool:
         """Check if we can connect to Chrome via CDP."""
-        try:
-            response = requests.get("http://localhost:9222/json/version", timeout=2)
-            return response.status_code == 200
-        except Exception:
-            return False
+        chrome_info = get_chrome_info()
+        return chrome_info["connected"]
 
     def _get_chrome_version(self) -> str:
         """Get Chrome version from CDP."""
-        try:
-            response = requests.get("http://localhost:9222/json/version", timeout=2)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("Browser", "Unknown")
-            return "Unknown"
-        except Exception:
-            return "Unknown"
+        chrome_info = get_chrome_info()
+        return chrome_info["version"]
 
     @property
-    def status_description(self) -> str:
-        """Returns a human-readable description of the Chrome state."""
+    def status_code(self) -> ChromeStatus:
+        """Returns the machine-readable enum status of Chrome."""
         self._state = self._get_chrome_state()
-        if self._state.has_debug_port:
-            return "Chrome is running and connected via debug port."
-        elif self._state.is_running:
-            return "Chrome is running, but the debug port is not active. Relaunch required."
+        if self._connected and self._state.has_debug_port:
+            return ChromeStatus.CONNECTED
+        elif not self._state.is_running:
+            return ChromeStatus.NOT_RUNNING
+        elif self._state.is_running and not self._state.has_debug_port:
+            return ChromeStatus.RUNNING_WITHOUT_DEBUG_PORT
         else:
-            return "Chrome is not running. Launch required."
+            return ChromeStatus.CONNECTING
 
     @property
     def connected(self) -> bool:
         """Return whether we're connected to Chrome."""
         return self._connected and self._state.has_debug_port
-
-    @property
-    def connected_browser(self) -> bool:
-        """
-        Return whether we're connected to Chrome.
-
-        Note: This is kept for backward compatibility.
-        """
-        return self.connected
 
     def refresh_state(self) -> ChromeState:
         """Refresh and return the current Chrome state."""
@@ -144,40 +129,21 @@ class ChromeManager:
             self._try_auto_connect()
         return self._state
 
-    def connect(
+    def test_connection(
         self,
-        confirm_fn: Callable[[str, bool], bool] | None = None,
-        auto_confirm: bool = False,
         quiet: bool = False,
     ) -> bool:
         """
         Ensures Chrome is running with the debug port and connects to it.
 
-        Handles launching or relaunching Chrome as needed, using the provided
-        confirmation function or auto-confirming if specified.
+        Handles launching or relaunching Chrome as needed.
 
         Args:
-            confirm_fn: Custom confirmation function that takes a message and default value
-                       and returns a boolean. If None, uses the default Rich confirm.
-            auto_confirm: If True, bypass all confirmation prompts and proceed automatically.
             quiet: If True, suppress most logging output.
 
         Returns:
             A boolean indicating whether connection was successful.
         """
-
-        # Use the provided confirm function or the default
-        def make_confirm_function():
-            def confirm_wrapper(msg, default=True):
-                if auto_confirm:
-                    return True
-                else:
-                    return confirm_fn(msg, default) if confirm_fn else default_confirm(msg, default)
-
-            return confirm_wrapper
-
-        confirm = make_confirm_function()
-
         self._state = self._get_chrome_state()
 
         # Check if we already have a connected browser
@@ -189,12 +155,14 @@ class ChromeManager:
         if self._state.has_debug_port:
             if not quiet:
                 logger.debug("Chrome already running with debug port. Attempting to connect...")
-            if self._check_chrome_connection():
+
+            # Get connection status and version in one call
+            chrome_info = get_chrome_info()
+            if chrome_info["connected"]:
                 self._connected = True
-                chrome_version = self._get_chrome_version()
                 if not quiet:
                     logger.success(
-                        f"Successfully connected to Chrome {chrome_version} via debug port"
+                        f"Successfully connected to Chrome {chrome_info['version']} via debug port"
                     )
                 return True
             else:
@@ -202,10 +170,8 @@ class ChromeManager:
                     logger.warning(
                         "Connection failed despite active debug port. Attempting relaunch."
                     )
-                if not confirm("Connection failed. Quit existing Chrome and relaunch?", True):
-                    if not quiet:
-                        logger.error("Connection aborted by user.")
-                    return False
+
+                # Always proceed with quitting Chrome and relaunching
                 if not quit_chrome():
                     if not quiet:
                         logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
@@ -215,10 +181,8 @@ class ChromeManager:
         elif self._state.is_running:
             if not quiet:
                 logger.warning("Chrome is running without the debug port.")
-            if not confirm("Quit existing Chrome and relaunch with debug port?", True):
-                if not quiet:
-                    logger.error("Relaunch aborted by user.")
-                return False
+
+            # Always proceed with quitting Chrome and relaunching
             if not quit_chrome():
                 if not quiet:
                     logger.error("Failed to quit existing Chrome instance(s). Cannot proceed.")
@@ -228,10 +192,8 @@ class ChromeManager:
         else:
             if not quiet:
                 logger.debug("Chrome is not running.")
-            if not confirm("Launch Chrome with debug port?", True):
-                if not quiet:
-                    logger.error("Launch aborted by user.")
-                return False
+
+            # Always proceed with launching Chrome
             # Fall through to launch logic
 
         # Launch logic (reached if not running, or after quitting)
@@ -267,39 +229,10 @@ class ChromeManager:
             logger.error("Not connected to Chrome. Cannot open new tab.")
             return False
 
-        try:
-            # Use CDP HTTP API to create a new tab
-            response = requests.get(
-                "http://localhost:9222/json/new", params={"url": url}, timeout=5
-            )
-            if response.status_code == 200:
-                logger.success(f"Successfully opened new tab with URL: {url}")
-                return True
-            else:
-                logger.error(f"Failed to open URL {url}: HTTP {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to open URL {url}: {str(e)}")
-            return False
-
-    def disconnect(self) -> bool:
-        """
-        Disconnect from Chrome browser if connected.
-
-        Returns:
-            bool: True if disconnected or already not connected, False if error occurs.
-        """
-        if not self._connected:
-            logger.debug("No active browser connection to disconnect")
-            return True
-
-        try:
-            self._connected = False
-            logger.debug("Successfully disconnected from Chrome")
-            return True
-        except Exception as e:
-            logger.error(f"Error disconnecting from Chrome: {str(e)}")
-            return False
+        result = open_new_tab(url)
+        if result:
+            logger.success(f"Successfully opened new tab with URL: {url}")
+        return result
 
     def get_all_tabs(self) -> List[dict]:
         """
@@ -342,7 +275,8 @@ def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     manager = ChromeManager()
-    logger.debug(f"Initial status: {manager.status_description}")
+    status = manager.status_code
+    logger.debug(f"Initial status: {status.name}")
 
     last_tabs_check = 0
     tabs_check_interval = 2  # Check tabs every 2 seconds
@@ -483,11 +417,11 @@ def main() -> None:
 
     try:
         # Connect to Chrome
-        connected = manager.connect(auto_confirm=True)
+        connected = manager.test_connection()
 
         if connected:
-            chrome_version = manager._get_chrome_version()
-            logger.success(f"Successfully connected to Chrome {chrome_version}")
+            chrome_info = get_chrome_info()
+            logger.success(f"Successfully connected to Chrome {chrome_info['version']}")
 
             # Get initial tabs
             initial_tabs = manager.get_all_tabs()
@@ -525,7 +459,7 @@ def main() -> None:
             # Check connection status periodically
             if not manager.connected:
                 logger.warning("Chrome connection lost. Attempting to reconnect...")
-                connected = manager.connect(auto_confirm=True)
+                connected = manager.test_connection()
                 if connected:
                     logger.success("Reconnected to Chrome")
                     # Reset tab tracking after reconnect
@@ -551,17 +485,10 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
     finally:
-        # Clean up and log final status
-        if manager.connected:
-            try:
-                logger.debug("Disconnecting from Chrome...")
-                # Just disconnect from Chrome, don't quit the Chrome process
-                manager.disconnect()
-            except Exception as e:
-                logger.error(f"Error during disconnect: {e}")
-
+        # Log final status
         manager.refresh_state()
-        logger.debug(f"Final status: {manager.status_description}")
+        status_code = manager.status_code
+        logger.debug(f"Final status: {status_code.name}")
         logger.debug("Chrome Manager has exited.")
 
 

@@ -1,21 +1,14 @@
 import re
-import time
 from datetime import datetime, timedelta
 from typing import ClassVar
 
-from playwright.sync_api import sync_playwright
-
-from brocc_li.chrome_manager import ChromeManager
-from brocc_li.doc_db import DocDB
 from brocc_li.extract.extract_field import ExtractField
-from brocc_li.extract_feed import scroll_and_extract
-from brocc_li.types.doc import Doc, DocExtractor, Source, SourceType
+from brocc_li.types.doc import DocExtractor, Source
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
     NavigateOptions,
     ScrollConfig,
 )
-from brocc_li.utils.display_result import ProgressTracker, display_items
 from brocc_li.utils.logger import logger
 from brocc_li.utils.timestamp import parse_timestamp
 
@@ -243,121 +236,3 @@ def parse_date_string(date_str: str) -> datetime | None:
     except Exception as e:
         logger.error(f"Could not parse date {date_str}: {e}")
         return None
-
-
-def main() -> None:
-    with sync_playwright() as p:
-        # Use ChromeManager
-        chrome_manager = ChromeManager()
-        browser = chrome_manager.connect(p)  # Connect (will handle launch/relaunch/connect logic)
-
-        if not browser:
-            logger.error("Could not establish connection with Chrome.")
-            return
-
-        source_url = URL
-        # Use the manager's open_new_tab method
-        page = chrome_manager.open_new_tab(browser, source_url)
-        if not page:
-            # No need to close browser here
-            return
-
-        start_time = time.time()
-
-        # Initialize storage
-        storage = None
-        if USE_STORAGE:
-            storage = DocDB()
-            logger.debug(f"Using document storage at: {storage.db_path}")
-
-        if MAX_ITEMS:
-            logger.debug(f"Maximum items: {MAX_ITEMS}")
-
-        # Log date cutoff if active
-        if STOP_AFTER_DATE:
-            logger.success(
-                f"Will stop extraction after reaching items older than: {STOP_AFTER_DATE}"
-            )
-
-        # Initialize progress tracker
-        progress = ProgressTracker(label="posts", target=MAX_ITEMS)
-
-        # Process items as they're streamed back
-        docs = []
-        formatted_posts = []
-        extraction_generator = scroll_and_extract(page=page, config=SUBSTACK_CONFIG)
-
-        for item in extraction_generator:
-            # Convert to Document object
-            doc = Doc.from_extracted_data(
-                data=item,
-                source=Source.SUBSTACK,
-                source_type=SourceType.DOCUMENT,
-                source_location_identifier=source_url,
-                source_location_name=NAME,
-            )
-            docs.append(doc)
-
-            # Format for display as we get each post
-            # Truncate content for display
-            content = doc.text_content
-            if content and isinstance(content, str):
-                content_text = content.replace("\n", " ").strip()
-                content = (content_text[:100] + "...") if len(content_text) > 100 else content_text
-
-            formatted_posts.append(
-                {
-                    "Title": doc.title or "No title",
-                    "Description": doc.description or "",
-                    "Date": doc.created_at or "No date",
-                    "Contact": doc.contact_name or "Unknown",
-                    "URL": doc.url,
-                    "Content Preview": content or "No content",
-                    "Publication": doc.metadata.get("publication", "") if doc.metadata else "",
-                }
-            )
-
-            # Update progress tracker with current count
-            progress.update(
-                item_info=f"Post: {doc.title or 'Untitled'} by {doc.contact_name or 'Unknown'}"
-            )
-
-        # Final update to progress tracker with force display
-        if docs:
-            progress.update(force_display=True)
-
-            display_items(
-                items=formatted_posts,
-                title="Substack Posts",
-                columns=[
-                    "Title",
-                    "Description",
-                    "Date",
-                    "Author",
-                    "URL",
-                    "Content Preview",
-                    "Publication",
-                ],
-            )
-
-            elapsed_time = time.time() - start_time
-            posts_per_minute = (len(docs) / elapsed_time) * 60
-            logger.success(f"Successfully extracted {len(docs)} unique posts")
-            logger.debug(f"Collection rate: {posts_per_minute:.1f} posts/minute")
-            logger.debug(f"Time taken: {elapsed_time:.1f} seconds")
-            if storage:
-                logger.debug(f"Documents stored in database: {storage.db_path}")
-        else:
-            logger.warning("No posts found")
-
-        # No need to close browser here
-        # if browser and browser.is_connected():
-        #     browser.close() # Don't close the externally managed browser
-
-        # Close the specific page when done
-        if page and not page.is_closed():
-            page.close()
-
-
-if __name__ == "__main__":
-    main()

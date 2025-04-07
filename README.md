@@ -48,11 +48,9 @@ Our goal is to build lightweight, durable software with minimal system requireme
 - [Polars](https://docs.pola.rs): Efficient dataframe library
 - Embeddings (for ingestion + queries) use [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
 - [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing. LLM API requests are made locally from your computer, using the OpenRouter API key we provision for your account.
-- [Textual](https://www.textualize.io) TUI app that runs:
-  - [FastAPI](https://fastapi.tiangolo.com/) local app server
-  - Vite React frontend served with uvicorn and displayed in a [pywebview](https://pywebview.flowrl.com/guide) process
-  - [pystray](https://github.com/moses-palmer/pystray) system tray process
-  - [Playwright](https://playwright.dev/docs/intro)
+- Simplified development, packaging, and distribution using a [Textual](https://www.textualize.io) CLI, with:
+  - [FastAPI](https://fastapi.tiangolo.com/) local backend
+  - Vite React SPA local frontend, served with uvicorn and displayed in a [pywebview](https://pywebview.flowrl.com/guide) process, with a [pystray](https://github.com/moses-palmer/pystray) system tray process
 
 #### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
 

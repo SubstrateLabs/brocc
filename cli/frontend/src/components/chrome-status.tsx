@@ -9,10 +9,16 @@ const CHROME_STATUS_URL = `${API_URL}/chrome/status`;
 const CHROME_LAUNCH_URL = `${API_URL}/chrome/launch`;
 const CHROME_STARTUP_FAQ_URL = `${API_URL}/chrome/startup-faq`;
 
+// Chrome status codes - keep in sync with backend ChromeStatus enum
+const CHROME_STATUS = {
+  CONNECTED: "connected",
+  NOT_RUNNING: "not_running",
+  RUNNING_WITHOUT_DEBUG_PORT: "running_without_debug_port",
+  CONNECTING: "connecting",
+};
+
 interface ChromeStatus {
-  status: string;
-  is_connected: boolean;
-  requires_relaunch: boolean;
+  status_code: string;
   timestamp: number;
 }
 
@@ -73,7 +79,7 @@ export default function ChromeStatusComponent() {
       setStatus(data);
       
       // Clear launching state if connected
-      if (data.is_connected) {
+      if (data.status_code === CHROME_STATUS.CONNECTED) {
         setIsLaunching(false);
       }
     }
@@ -123,7 +129,7 @@ export default function ChromeStatusComponent() {
     }
 
     // Connected state
-    if (status.is_connected) {
+    if (status.status_code === CHROME_STATUS.CONNECTED) {
       return (
         <StatusContainer>
           <StatusMessage message="Connected to Chrome" />
@@ -131,11 +137,8 @@ export default function ChromeStatusComponent() {
       );
     }
 
-    // Need to launch Chrome
-    const isRunning = !status.status.includes('not running');
-    const needsRelaunch = status.requires_relaunch;
-
-    if (!isRunning) {
+    // Not running - need to launch Chrome
+    if (status.status_code === CHROME_STATUS.NOT_RUNNING) {
       return (
         <StatusContainer>
           <p className="mb-2">Not connected. Brocc needs to launch Chrome to sync your browsing activity.</p>
@@ -147,7 +150,8 @@ export default function ChromeStatusComponent() {
       );
     }
 
-    if (needsRelaunch) {
+    // Running without debug port - need to relaunch
+    if (status.status_code === CHROME_STATUS.RUNNING_WITHOUT_DEBUG_PORT) {
       return (
         <StatusContainer>
           <p className="mb-2">Not connected. Brocc needs to relaunch Chrome to sync your browsing activity.</p>

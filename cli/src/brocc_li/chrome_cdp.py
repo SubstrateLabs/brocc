@@ -83,3 +83,65 @@ def get_tabs(debug_port: int = 9222) -> List[ChromeTab]:
 
     # Return empty list if we couldn't get tabs
     return []
+
+
+def open_new_tab(url: str = "", debug_port: int = 9222) -> bool:
+    """
+    Open a new tab in Chrome via CDP HTTP API.
+
+    Args:
+        url: URL to open in the new tab (empty for blank tab)
+        debug_port: Chrome debug port number (default: 9222)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Use CDP HTTP API to create a new tab
+        response = requests.get(
+            f"http://localhost:{debug_port}/json/new", params={"url": url}, timeout=5
+        )
+        if response.status_code == 200:
+            logger.debug(f"Successfully opened new tab with URL: {url}")
+            return True
+        else:
+            logger.error(f"Failed to open URL {url}: HTTP {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to open URL {url}: {str(e)}")
+        return False
+
+
+def get_chrome_info(debug_port: int = 9222, timeout: int = 2):
+    """
+    Get Chrome version info and check connection via CDP HTTP API.
+
+    Makes a single request to get both connection status and Chrome version.
+
+    Args:
+        debug_port: Chrome debug port number (default: 9222)
+        timeout: Request timeout in seconds (default: 2)
+
+    Returns:
+        dict: {
+            "connected": bool indicating if connection succeeded,
+            "version": Chrome version string (or "Unknown" if not connected),
+            "data": Full response data if connected (or None if not connected)
+        }
+    """
+    result = {"connected": False, "version": "Unknown", "data": None}
+
+    try:
+        response = requests.get(f"http://localhost:{debug_port}/json/version", timeout=timeout)
+        result["connected"] = response.status_code == 200
+
+        if result["connected"]:
+            data = response.json()
+            result["data"] = data
+            result["version"] = data.get("Browser", "Unknown")
+
+    except Exception as e:
+        logger.debug(f"Error getting Chrome info: {e}")
+        # Keep defaults (not connected, Unknown version)
+
+    return result
