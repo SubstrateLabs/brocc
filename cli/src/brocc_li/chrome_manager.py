@@ -263,7 +263,7 @@ class ChromeManager:
 
         return tabs
 
-    def get_tab_html(self, tab_id: str, timeout: int = 1) -> str:
+    def get_tab_html(self, tab_id: str) -> str:
         """
         Get the HTML content from a specific tab using its ID.
 
@@ -302,7 +302,7 @@ class ChromeManager:
 
         # Strategy 1: Try CDP approach first (very quick check, no retries)
         logger.debug(f"Trying to get HTML from tab {tab_id} via CDP")
-        html = get_tab_html_content(tab.webSocketDebuggerUrl, timeout=timeout)
+        html = get_tab_html_content(tab.webSocketDebuggerUrl)
 
         # Strategy 2: If CDP failed, try Playwright fallback
         if not html:
@@ -417,8 +417,8 @@ def main() -> None:
                 f"[dim]Getting HTML for tab {i + 1}/{len(tabs_needing_html)}: {short_title}[/dim]"
             )
 
-            # Get HTML content via ChromeManager with short timeout for faster loading
-            html = chrome_manager.get_tab_html(tab_id, timeout=1)
+            # Get HTML content via ChromeManager with consistent timeout
+            html = chrome_manager.get_tab_html(tab_id)
             tabs_with_html.append((tab, html))
 
             # Show result
@@ -616,10 +616,8 @@ def main() -> None:
                         f"[dim]Getting HTML for tab {idx + 1}/{len(filtered_initial_tabs)}: {short_title}[/dim]"
                     )
 
-                    # Get HTML with short timeout for faster loading
-                    html = manager.get_tab_html(
-                        tab_id, timeout=1
-                    )  # Use shorter timeout to quickly fallback to Playwright
+                    # Get HTML with consistent timeout
+                    html = manager.get_tab_html(tab_id)
                     initial_tabs_with_html.append((tab, html))
 
                     # Show result (success/failure)

@@ -1,4 +1,5 @@
-- remove playwright dep (for now)
+- markdown extraction (unstructured)
+- pdf handling (docling)
 - clean up fastapi server
   - review best practices for variables + async stuff
 - chrome tab tracking

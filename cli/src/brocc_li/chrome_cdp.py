@@ -1,18 +1,22 @@
 import json
 import re
-import time
 from typing import List, Optional
 
 import requests
 import websocket
 from pydantic import BaseModel, Field
 
+from brocc_li.utils.chrome import REMOTE_DEBUG_PORT
 from brocc_li.utils.logger import logger
+
+# Default timeout for Chrome info retrieval via CDP (seconds)
+CHROME_INFO_TIMEOUT = 2
+
+# Default timeout for HTML content retrieval via CDP (seconds)
+GET_HTML_TIMEOUT = 2
 
 
 class ChromeTab(BaseModel):
-    """Representation of a Chrome browser tab from CDP."""
-
     id: str
     title: str = Field(default="Untitled")
     url: str = Field(default="about:blank")
@@ -21,7 +25,7 @@ class ChromeTab(BaseModel):
     devtoolsFrontendUrl: Optional[str] = None
 
 
-def get_tabs(debug_port: int = 9222) -> List[ChromeTab]:
+def get_tabs() -> List[ChromeTab]:
     """
     Get all Chrome browser tabs via CDP HTTP API.
 
@@ -29,7 +33,7 @@ def get_tabs(debug_port: int = 9222) -> List[ChromeTab]:
     Only returns actual page tabs (not DevTools, extensions, etc).
 
     Args:
-        debug_port: Chrome debug port number (default: 9222)
+        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
 
     Returns:
         List of ChromeTab objects representing open browser tabs
@@ -38,7 +42,7 @@ def get_tabs(debug_port: int = 9222) -> List[ChromeTab]:
 
     try:
         # Get list of tabs via Chrome DevTools HTTP API
-        response = requests.get(f"http://localhost:{debug_port}/json/list", timeout=2)
+        response = requests.get(f"http://localhost:{REMOTE_DEBUG_PORT}/json/list", timeout=2)
         if response.status_code != 200:
             logger.error(f"Failed to get tabs: HTTP {response.status_code}")
             return []
@@ -87,13 +91,13 @@ def get_tabs(debug_port: int = 9222) -> List[ChromeTab]:
     return []
 
 
-def open_new_tab(url: str = "", debug_port: int = 9222) -> bool:
+def open_new_tab(url: str = "") -> bool:
     """
     Open a new tab in Chrome via CDP HTTP API.
 
     Args:
         url: URL to open in the new tab (empty for blank tab)
-        debug_port: Chrome debug port number (default: 9222)
+        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
 
     Returns:
         bool: True if successful, False otherwise
@@ -101,7 +105,7 @@ def open_new_tab(url: str = "", debug_port: int = 9222) -> bool:
     try:
         # Use CDP HTTP API to create a new tab
         response = requests.get(
-            f"http://localhost:{debug_port}/json/new", params={"url": url}, timeout=5
+            f"http://localhost:{REMOTE_DEBUG_PORT}/json/new", params={"url": url}, timeout=5
         )
         if response.status_code == 200:
             logger.debug(f"Successfully opened new tab with URL: {url}")
@@ -114,14 +118,14 @@ def open_new_tab(url: str = "", debug_port: int = 9222) -> bool:
         return False
 
 
-def get_chrome_info(debug_port: int = 9222, timeout: int = 2):
+def get_chrome_info():
     """
     Get Chrome version info and check connection via CDP HTTP API.
 
     Makes a single request to get both connection status and Chrome version.
 
     Args:
-        debug_port: Chrome debug port number (default: 9222)
+        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
         timeout: Request timeout in seconds (default: 2)
 
     Returns:
@@ -134,7 +138,9 @@ def get_chrome_info(debug_port: int = 9222, timeout: int = 2):
     result = {"connected": False, "version": "Unknown", "data": None}
 
     try:
-        response = requests.get(f"http://localhost:{debug_port}/json/version", timeout=timeout)
+        response = requests.get(
+            f"http://localhost:{REMOTE_DEBUG_PORT}/json/version", timeout=CHROME_INFO_TIMEOUT
+        )
         result["connected"] = response.status_code == 200
 
         if result["connected"]:
@@ -149,7 +155,7 @@ def get_chrome_info(debug_port: int = 9222, timeout: int = 2):
     return result
 
 
-def get_tab_html_content(ws_url: str, timeout: int = 1, max_retries: int = 0) -> str:
+def get_tab_html_content(ws_url: str) -> str:
     """
     Connect to a Chrome tab via WebSocket debugger URL and get HTML content.
 
@@ -168,71 +174,22 @@ def get_tab_html_content(ws_url: str, timeout: int = 1, max_retries: int = 0) ->
         logger.error("Missing WebSocket URL for tab")
         return ""
 
-    # Do a quick check if the page is in a viable state for extraction
-    if not _is_page_viable(ws_url, timeout=0.5):
-        logger.warning("Tab is completely unresponsive, skipping HTML extraction")
-        return ""
-
-    # Try primary method without retries
-    html = _get_html_using_dom(ws_url, timeout, 0)  # Force max_retries=0
+    html = _get_html_using_dom(ws_url)
     if html:
         return html
 
-    logger.error("CDP HTML extraction failed, will try fallback")
+    logger.error("CDP HTML extraction failed")
     return ""
 
 
-def _is_page_viable(ws_url: str, timeout: float = 0.5) -> bool:
-    """
-    Quick check to determine if a page is in a viable state for HTML extraction.
-
-    This does minimal checks to avoid spending time on completely unresponsive tabs,
-    but should allow most normal tabs to pass even if they're still loading.
-
-    Args:
-        ws_url: WebSocket debugger URL for the tab
-        timeout: Short timeout for quick checks
-
-    Returns:
-        bool: True if page appears viable for extraction, False otherwise
-    """
-    try:
-        # Try to establish a websocket connection with very short timeout
-        ws = websocket.create_connection(ws_url, timeout=timeout)
-
-        try:
-            # Just do a basic ping test - if we can communicate at all, consider it viable
-            ping_msg = json.dumps({"id": 50, "method": "Browser.getVersion"})
-            ws.send(ping_msg)
-
-            # If we can send and receive anything, consider it viable
-            try:
-                ws.recv()  # Just try to receive anything
-                return True
-            except websocket.WebSocketTimeoutException:
-                # Even timeout on response is acceptable - the page may be busy but viable
-                return True
-
-        except Exception as e:
-            logger.debug(f"Error during basic viability check: {e}")
-            return False
-        finally:
-            ws.close()
-
-    except websocket.WebSocketTimeoutException:
-        logger.debug("Connection timed out during viability check")
-        return False
-    except Exception as e:
-        logger.debug(f"Failed to connect to tab for viability check: {e}")
-        return False
-
-
-def _get_html_using_dom(ws_url: str, timeout: int, max_retries: int) -> str:
+def _get_html_using_dom(
+    ws_url: str,
+) -> str:
     """Get HTML content using DOM.getOuterHTML CDP method"""
     # No retry loop - just try once
     try:
         logger.debug(f"Connecting to tab via WebSocket: {ws_url}")
-        ws = websocket.create_connection(ws_url, timeout=timeout)
+        ws = websocket.create_connection(ws_url, timeout=GET_HTML_TIMEOUT)
 
         try:
             # First check if page is ready using Page.getResourceTree
@@ -283,7 +240,7 @@ def _get_html_using_dom(ws_url: str, timeout: int, max_retries: int) -> str:
             html_content = result.get("result", {}).get("outerHTML", "")
 
             if html_content:
-                logger.debug("Successfully retrieved HTML content using DOM method")
+                logger.debug("Successfully retrieved HTML content")
                 return html_content
             else:
                 logger.warning("DOM method returned empty HTML")
@@ -312,144 +269,3 @@ def _get_html_using_dom(ws_url: str, timeout: int, max_retries: int) -> str:
     except Exception as e:
         logger.error(f"Failed to connect to tab via WebSocket: {e}")
         return ""
-
-
-def _get_html_using_snapshot(ws_url: str, timeout: int, max_retries: int) -> str:
-    """Get HTML content using Page.captureSnapshot CDP method"""
-    for attempt in range(max_retries + 1):
-        try:
-            # Add backoff between retries (use smaller backoff)
-            if attempt > 0:
-                backoff = 0.2  # Fixed small backoff
-                logger.debug(
-                    f"Retrying snapshot method (attempt {attempt}/{max_retries}), waiting {backoff}s"
-                )
-                time.sleep(backoff)
-
-            ws = websocket.create_connection(ws_url, timeout=timeout)
-
-            try:
-                # Check if page is really blank first
-                try:
-                    resource_msg = json.dumps({"id": 10, "method": "Page.getResourceTree"})
-                    ws.send(resource_msg)
-                    resource_result = json.loads(ws.recv())
-
-                    # Check if this is an about:blank or empty page
-                    frame = resource_result.get("result", {}).get("frameTree", {}).get("frame", {})
-                    url = frame.get("url", "")
-                    if url in ["about:blank", ""]:
-                        logger.debug("Detected blank/empty page - skipping snapshot method")
-                        return ""
-                except Exception:
-                    # If this fails, just continue with normal snapshot method
-                    pass
-
-                # Enable Page domain
-                enable_msg = json.dumps({"id": 11, "method": "Page.enable"})
-                ws.send(enable_msg)
-                result = json.loads(ws.recv())
-
-                # Capture snapshot
-                snapshot_msg = json.dumps(
-                    {"id": 12, "method": "Page.captureSnapshot", "params": {"format": "html"}}
-                )
-                ws.send(snapshot_msg)
-                result = json.loads(ws.recv())
-
-                # Extract HTML snapshot
-                html_content = result.get("result", {}).get("data", "")
-
-                if html_content:
-                    logger.debug("Successfully retrieved HTML content using snapshot method")
-                    return html_content
-                else:
-                    logger.warning("Snapshot method returned empty HTML")
-
-            except Exception as e:
-                logger.error(f"Error during snapshot commands: {e}")
-            finally:
-                ws.close()
-
-        except Exception as e:
-            logger.error(f"Failed in snapshot method: {e}")
-
-    return ""
-
-
-def _get_html_using_runtime(ws_url: str, timeout: int, max_retries: int) -> str:
-    """Get HTML content using Runtime.evaluate to execute JavaScript"""
-    for attempt in range(max_retries + 1):
-        try:
-            # Add backoff between retries (use smaller backoff)
-            if attempt > 0:
-                backoff = 0.2  # Fixed small backoff
-                logger.debug(
-                    f"Retrying runtime method (attempt {attempt}/{max_retries}), waiting {backoff}s"
-                )
-                time.sleep(backoff)
-
-            ws = websocket.create_connection(ws_url, timeout=timeout)
-
-            try:
-                # Check if page is blank first
-                try:
-                    navigate_msg = json.dumps({"id": 20, "method": "Page.getNavigationHistory"})
-                    ws.send(navigate_msg)
-                    nav_result = json.loads(ws.recv())
-
-                    entries = nav_result.get("result", {}).get("entries", [])
-                    current_entry = next(
-                        (
-                            e
-                            for e in entries
-                            if e.get("id") == nav_result.get("result", {}).get("currentIndex")
-                        ),
-                        {},
-                    )
-                    url = current_entry.get("url", "")
-
-                    if url in ["about:blank", ""]:
-                        logger.debug("Detected blank/empty page in runtime method - skipping")
-                        return ""
-                except Exception:
-                    # If this fails, just continue with normal runtime method
-                    pass
-
-                # Enable Runtime domain
-                enable_msg = json.dumps({"id": 21, "method": "Runtime.enable"})
-                ws.send(enable_msg)
-                result = json.loads(ws.recv())
-
-                # Execute JavaScript to get HTML
-                js_msg = json.dumps(
-                    {
-                        "id": 22,
-                        "method": "Runtime.evaluate",
-                        "params": {
-                            "expression": "document.documentElement.outerHTML",
-                            "returnByValue": True,
-                        },
-                    }
-                )
-                ws.send(js_msg)
-                result = json.loads(ws.recv())
-
-                # Extract HTML from JavaScript result
-                html_content = result.get("result", {}).get("result", {}).get("value", "")
-
-                if html_content:
-                    logger.debug("Successfully retrieved HTML content using runtime method")
-                    return html_content
-                else:
-                    logger.warning("Runtime method returned empty HTML")
-
-            except Exception as e:
-                logger.error(f"Error during runtime commands: {e}")
-            finally:
-                ws.close()
-
-        except Exception as e:
-            logger.error(f"Failed in runtime method: {e}")
-
-    return ""

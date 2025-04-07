@@ -1,8 +1,6 @@
 """
-Playwright fallback module for getting HTML from pages when CDP fails.
-
-This module provides a fallback method to get HTML content from a URL when
-Chrome DevTools Protocol methods fail, especially for sites with anti-automation measures.
+Playwright fallback module for getting HTML from pages when faster CDP method fails.
+Opens a new tab using Playwright, navigates to the URL, and gets the HTML content.
 """
 
 from functools import lru_cache
@@ -11,6 +9,7 @@ import requests
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
+from brocc_li.utils.chrome import REMOTE_DEBUG_PORT, is_chrome_debug_port_active
 from brocc_li.utils.logger import logger
 
 
@@ -28,36 +27,36 @@ class PlaywrightFallback:
         """Initialize the Playwright fallback helper."""
         self._playwright = None
         self._browser = None
-        self._default_context = None
-        self._context_count = 0
-        self._max_contexts = 5  # Maximum number of contexts before we recycle
+        self._debug_port = REMOTE_DEBUG_PORT
 
     def _ensure_browser(self):
-        """Ensure we have a browser instance initialized."""
+        """Ensure we have a connection to the existing Chrome instance."""
         if self._browser is None:
             try:
+                # Check if Chrome is running with debug port
+                if not is_chrome_debug_port_active(self._debug_port):
+                    logger.error(
+                        f"Chrome debug port {self._debug_port} not active. Please start Chrome with --remote-debugging-port={self._debug_port}"
+                    )
+                    return
+
+                # Connect to the running Chrome instance
                 self._playwright = get_playwright()
-                # Use a persistent context with stealth mode to avoid detection
-                self._browser = self._playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-features=IsolateOrigins,site-per-process",
-                    ],
+                self._browser = self._playwright.chromium.connect_over_cdp(
+                    f"http://localhost:{self._debug_port}"
                 )
-                logger.debug("Successfully initialized Playwright browser for fallback")
-                # Reset the context counter
-                self._context_count = 0
+
+                logger.debug("Successfully connected to local Chrome instance for fallback")
             except Exception as e:
-                logger.error(f"Failed to initialize Playwright browser: {e}")
+                logger.error(f"Failed to connect to Chrome browser: {e}")
                 self._browser = None
 
     def get_html_from_url(self, url: str) -> str:
         """
         Get HTML content from a URL using Playwright.
 
-        This method uses Playwright's anti-detection capabilities to load a page
-        even when CDP methods fail, especially for sites with anti-automation measures.
+        Creates a temporary tab in an existing Chrome window,
+        gets the content, and immediately closes the tab.
 
         Args:
             url: The URL to get HTML from
@@ -73,109 +72,73 @@ class PlaywrightFallback:
         if not self._browser:
             return ""
 
-        # Check if we need to recycle contexts to prevent memory leaks
-        self._context_count += 1
-        if self._context_count > self._max_contexts:
-            logger.debug(f"Recycling Playwright contexts after {self._context_count} uses")
-            self.cleanup_contexts()
-            self._context_count = 1
-
         page = None
-        context = None
         try:
-            # Create context with anti-detection settings
-            context = self._browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                bypass_csp=True,
-            )
-
-            # Add stealth mode scripts
-            context.add_init_script("""
-                // Override automation properties
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                
-                // Hide automation-related properties
-                if (window.chrome) {
-                    // Make navigator.chrome.runtime undefined
-                    Object.defineProperty(window, 'chrome', {
-                        get: () => {
-                            return {
-                                runtime: undefined
-                            };
-                        }
-                    });
-                }
-            """)
-
-            # Create a new page
-            page = context.new_page()
-
-            # Navigate to the URL
-            logger.debug(f"Playwright: Navigating to {url}")
-            page.goto(url, wait_until="networkidle", timeout=10000)
-
-            # Get the HTML content
-            html = page.content()
-
-            if html:
-                logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
-                return html
+            # First check if there are any existing browser contexts (windows)
+            contexts = self._browser.contexts
+            if not contexts:
+                logger.warning(
+                    "No existing browser windows found. Fallback may create a new window."
+                )
+                # Create a context since none exists
+                context = self._browser.new_context()
+                page = context.new_page()
             else:
-                logger.warning("Playwright returned empty HTML content")
-                return ""
+                # Use the first existing context/window
+                context = contexts[0]
+                # Create a new tab in the existing window
+                page = context.new_page()
+                logger.debug("Created new tab in existing Chrome window")
+
+            # 'load' = wait for the load event to be fired (more reliable than networkidle)
+            logger.debug(f"Playwright: Navigating to {url}")
+            try:
+                page.goto(url, wait_until="load", timeout=1000)
+            except PlaywrightError as e:
+                # Even if navigation "fails", we might still have loaded content
+                logger.warning(f"Navigation had issues: {e}")
+
+                # Give the page a moment to settle
+                try:
+                    page.wait_for_timeout(1000)
+                except Exception as e:
+                    logger.debug(f"Timeout wait interrupted: {e}")
+                    pass
+
+            # Try to get HTML content even if navigation had issues
+            try:
+                html = page.content()
+                if html and len(html) > 500:  # Ensure we have meaningful content
+                    logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
+                    return html
+                else:
+                    logger.warning("Playwright returned insufficient HTML content")
+            except Exception as e:
+                logger.warning(f"Error getting page content: {e}")
+
+            return ""
 
         except PlaywrightError as e:
-            logger.error(f"Playwright error navigating to {url}: {e}")
+            logger.error(f"Playwright error with {url}: {e}")
             return ""
         except Exception as e:
             logger.error(f"Unexpected error with Playwright: {e}")
             return ""
         finally:
-            # Clean up resources
+            # Make sure to clean up the temporary tab/page
             if page:
                 try:
                     page.close()
+                    logger.debug("Closed temporary tab")
                 except Exception as e:
                     logger.debug(f"Error closing page: {e}")
-            if context:
-                try:
-                    context.close()
-                except Exception as e:
-                    logger.debug(f"Error closing context: {e}")
 
-    def cleanup_contexts(self):
-        """Clean up browser contexts to prevent memory leaks."""
-        if self._browser:
-            try:
-                # Close all browser contexts except the default one
-                for context in self._browser.contexts:
-                    try:
-                        context.close()
-                    except Exception as e:
-                        logger.debug(f"Error closing context: {e}")
-            except Exception as e:
-                logger.error(f"Error cleaning up browser contexts: {e}")
-
-    def cleanup(self):
-        """Clean up all resources including the browser."""
-        self.cleanup_contexts()
-        try:
-            if self._browser:
-                self._browser.close()
-                self._browser = None
-        except Exception as e:
-            logger.error(f"Error cleaning up Playwright resources: {e}")
-
-    def __del__(self):
-        """Ensure resources are cleaned up when object is garbage collected."""
-        self.cleanup()
-
-    def get_html_from_tab(self, tab_id: str, debug_port: int = 9222) -> str:
+    def get_html_from_tab(self, tab_id: str, debug_port: int = REMOTE_DEBUG_PORT) -> str:
         """
-        Get HTML content by creating a new tab with the same URL as the original tab.
+        Get HTML content from an existing Chrome tab using Playwright.
 
         This is a fallback method for when CDP methods fail.
+        It creates a temporary tab, gets the content, and immediately closes it.
 
         Args:
             tab_id: The Chrome tab ID
@@ -209,12 +172,25 @@ class PlaywrightFallback:
 
             logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {url}")
 
-            # Use the URL to create a new tab and get content
+            # Get HTML using a temporary tab in the main window
             return self.get_html_from_url(url)
 
         except Exception as e:
             logger.error(f"Error getting tab info for Playwright fallback: {e}")
             return ""
+
+    def cleanup(self):
+        """Clean up browser connection."""
+        try:
+            if self._browser:
+                self._browser.close()
+                self._browser = None
+        except Exception as e:
+            logger.error(f"Error cleaning up Playwright resources: {e}")
+
+    def __del__(self):
+        """Ensure resources are cleaned up when object is garbage collected."""
+        self.cleanup()
 
 
 # Singleton instance

@@ -10,6 +10,8 @@ import requests
 
 from brocc_li.utils.logger import logger
 
+REMOTE_DEBUG_PORT = 9222
+
 
 def find_chrome_path() -> Optional[str]:
     """Find Chrome executable path based on the current platform."""
@@ -63,7 +65,7 @@ def find_chrome_path() -> Optional[str]:
     return None
 
 
-def is_chrome_debug_port_active(port: int = 9222) -> bool:
+def is_chrome_debug_port_active(port: int = REMOTE_DEBUG_PORT) -> bool:
     """Check if Chrome is running with debug port active by attempting to connect to it."""
     try:
         response = requests.get(f"http://localhost:{port}/json/version", timeout=1)
@@ -84,7 +86,7 @@ def is_chrome_process_running() -> bool:
     return False
 
 
-def launch_chrome(debug_port: int = 9222, quiet: bool = False) -> bool:
+def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> bool:
     """
     Launch Chrome with debug port enabled.
 
@@ -206,7 +208,9 @@ def quit_chrome() -> bool:
         return False
 
 
-def restart_chrome_with_debug_port(debug_port: int = 9222, quiet: bool = False) -> bool:
+def restart_chrome_with_debug_port(
+    debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False
+) -> bool:
     """
     Quit any running Chrome instances and launch a new one with debug port.
 
