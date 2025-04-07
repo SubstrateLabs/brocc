@@ -12,9 +12,6 @@ from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, LoadingIndicator, Static, TabbedContent
 
 from brocc_li.cli import auth
-from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
-from brocc_li.cli.fasthtml_server import WEBAPP_HOST, WEBAPP_PORT
-from brocc_li.cli.fasthtml_server import run_server_in_thread as run_webapp_in_thread
 from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
 from brocc_li.cli.systray_launcher import launch_systray, terminate_systray
 from brocc_li.cli.textual_ui.info_panel import InfoPanel
@@ -23,11 +20,13 @@ from brocc_li.cli.webview_launcher import (
     get_service_url,
     handle_webview_after_logout,
     maybe_launch_webview_if_logged_in,
-    notify_webview_shutdown,
     open_or_focus_webview,
 )
 from brocc_li.cli.webview_manager import is_webview_open, open_webview
 from brocc_li.doc_db import DocDB
+from brocc_li.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
+from brocc_li.frontend_server import WEBAPP_HOST, WEBAPP_PORT
+from brocc_li.frontend_server import run_server_in_thread as run_webapp_in_thread
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
@@ -136,15 +135,15 @@ class BroccApp(App):
         except Exception as e:
             logger.error(f"Failed to start FastAPI server: {e}")
 
-        # Start the FastHTML App server in a separate thread
+        # Start the Frontend server in a separate thread
         try:
-            logger.debug("Starting FastHTML App server...")
+            logger.debug("Starting Frontend server...")
             self.webapp_thread = run_webapp_in_thread()
 
             # Wait a moment to give the server time to start
             time.sleep(0.5)
         except Exception as e:
-            logger.error(f"Failed to start FastHTML App server: {e}")
+            logger.error(f"Failed to start Frontend server: {e}")
 
         # Initialize DocDB in a background thread
         self.doc_db_thread = threading.Thread(target=self._initialize_doc_db, daemon=True)
@@ -169,26 +168,34 @@ class BroccApp(App):
 
     def _setup_systray(self):
         """Start the system tray icon in a separate process"""
-        success, exit_file = launch_systray(
+        success = launch_systray(
             webapp_host=WEBAPP_HOST,
             webapp_port=WEBAPP_PORT,
-            api_host=FASTAPI_HOST,
+            api_host=str(FASTAPI_HOST),
             api_port=FASTAPI_PORT,
             version=get_version(),
         )
 
-        if success:
-            self.exit_file = exit_file
-            return True
-        return False
+        return success
 
     def _close_systray(self):
         """Close the systray process if it's running"""
         return terminate_systray()
 
     def _notify_webview_shutdown(self):
-        """Send shutdown message to webview via API"""
-        notify_webview_shutdown()
+        """Directly terminate the webview process"""
+        try:
+            # Get reference to webview process from FastAPI server
+            from brocc_li.fastapi_server import _WEBVIEW_PROCESS
+
+            if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
+                logger.debug("Terminating webview process directly")
+                _WEBVIEW_PROCESS.terminate()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error terminating webview process: {e}")
+            return False
 
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
@@ -210,7 +217,7 @@ class BroccApp(App):
         # First try to quickly terminate any active processes
         try:
             # Try direct termination of the webview process
-            from brocc_li.cli.fastapi_server import _WEBVIEW_PROCESS
+            from brocc_li.fastapi_server import _WEBVIEW_PROCESS
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                 try:
@@ -283,17 +290,17 @@ class BroccApp(App):
             return False
 
     def _restart_webapp_server(self) -> bool:
-        """Restart the App server if it died"""
+        """Restart the Frontend server if it died"""
         try:
             if self.webapp_thread is not None and not self.webapp_thread.is_alive():
-                logger.debug("Previous App thread died, starting a new one")
+                logger.debug("Previous Frontend thread died, starting a new one")
                 self.webapp_thread = run_webapp_in_thread()
                 # Give it a moment to start
                 time.sleep(1)
                 return True
             return False
         except Exception as restart_err:
-            logger.error(f"Failed to restart App server: {restart_err}")
+            logger.error(f"Failed to restart Frontend server: {restart_err}")
             return False
 
     def _check_health_worker(self):
@@ -321,7 +328,7 @@ class BroccApp(App):
 
             # Check App health status
             webapp_healthy = check_and_update_api_status(
-                api_name="App",
+                api_name="Frontend",
                 api_url=webapp_url,
                 is_local=True,
                 update_ui_fn=lambda msg: self._safe_update_ui_status(msg, "webapp-health"),

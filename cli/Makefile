@@ -1,4 +1,4 @@
-.PHONY: format lint type-check test install clean
+.PHONY: format lint type-check test install clean build dev
 
 # Format code with ruff
 format:
@@ -16,6 +16,11 @@ type-check:
 test:
 	pytest --log-cli-level=DEBUG
 
+# Build frontend assets and copy to static directory
+build:
+	cd frontend && bun run build && cd ..
+	cp -r frontend/dist/* src/brocc_li/static/
+
 # Install the package in development mode
 install:
 	uv pip install -e ".[dev]"
@@ -30,10 +35,16 @@ clean:
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
+# build and run 
+dev: build
+	uv run brocc
+
 help:
 	@echo "make format      - Format code with ruff"
 	@echo "make lint        - Check code with ruff without fixing"
 	@echo "make type-check  - Run pyright type checking"
 	@echo "make test        - Run tests"
+	@echo "make build       - Build frontend assets"
+	@echo "make dev         - Build and run the app"
 	@echo "make install     - Install package in development mode"
 	@echo "make clean       - Clean up cache and build artifacts"

@@ -2,8 +2,8 @@ import atexit
 
 import requests
 
-from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT
-from brocc_li.cli.fasthtml_server import WEBAPP_HOST, WEBAPP_PORT
+from brocc_li.fastapi_server import FASTAPI_HOST, FASTAPI_PORT
+from brocc_li.frontend_server import WEBAPP_HOST, WEBAPP_PORT
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 

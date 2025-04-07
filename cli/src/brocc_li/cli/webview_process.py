@@ -1,25 +1,20 @@
 #!/usr/bin/env python
 import atexit
-import json
-import os  # Re-add this important import
+import os
 import platform
 import signal
 import sys
 import threading
 import time
 
-import websocket  # pip install websocket-client
+import psutil  # Make sure this is in requirements
 
 # Global window reference
 window = None
-# WebSocket connection
-ws_client = None
 # Flag to track if we're shutting down
 shutting_down = False
-# Counter for connection attempts
-reconnect_count = 0
-# Max number of reconnection attempts
-MAX_RECONNECT_ATTEMPTS = 3
+# Parent process ID to monitor
+parent_pid = None
 
 # Try to import webview - the import name for pywebview is simply 'webview'
 try:
@@ -34,188 +29,13 @@ except ImportError as e:
 # Get URL and title from command line args
 url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8023"
 title = sys.argv[2] if len(sys.argv) > 2 else "Brocc App"
-# Default API details
-api_host = "127.0.0.1"
-api_port = "8022"
-
-# Parse optional API arguments
+# Get parent PID from command line args (optional)
 if len(sys.argv) > 3:
-    api_host = sys.argv[3]
-if len(sys.argv) > 4:
-    api_port = sys.argv[4]
-
-ws_url = f"ws://{api_host}:{api_port}/ws/webview"
-
-
-# Handle WebSocket messages
-def on_ws_message(ws, message):
-    global shutting_down
     try:
-        data = json.loads(message)
-        print(f"WebSocket message: {data}")
-
-        # Handle shutdown command
-        if data.get("action") == "shutdown":
-            print("Received shutdown command via WebSocket")
-            shutting_down = True
-            cleanup()
-            sys.exit(0)
-
-        # Handle heartbeat response
-        if data.get("action") == "heartbeat" and data.get("status") == "ok":
-            print("Heartbeat acknowledged by server")
-    except Exception as e:
-        print(f"Error processing WebSocket message: {e}")
-
-
-def on_ws_error(ws, error):
-    global shutting_down, reconnect_count
-    print(f"WebSocket error: {error}")
-
-    # If the main app is shutting down or has stopped, we should close too
-    if not shutting_down:
-        # Check if we've hit the max reconnection attempts
-        if reconnect_count >= MAX_RECONNECT_ATTEMPTS:
-            print(
-                f"Failed to maintain connection after {MAX_RECONNECT_ATTEMPTS} attempts. Exiting."
-            )
-            shutting_down = True
-            cleanup()
-            sys.exit(1)
-        else:
-            print(
-                f"WebSocket error - attempting to reconnect (attempt {reconnect_count + 1}/{MAX_RECONNECT_ATTEMPTS})..."
-            )
-            threading.Thread(
-                target=reconnect_websocket_after_delay, args=(reconnect_count + 1,), daemon=True
-            ).start()
-
-
-def on_ws_close(ws, close_status_code, close_msg):
-    global shutting_down, reconnect_count
-    print(f"WebSocket connection closed: {close_status_code} - {close_msg}")
-
-    # If connection was closed and we're not already shutting down,
-    # it likely means the main app has exited. We should exit too.
-    if not shutting_down:
-        # Check if we've hit the max reconnection attempts
-        if reconnect_count >= MAX_RECONNECT_ATTEMPTS:
-            print(
-                f"WebSocket connection lost - main app may have exited. Shutting down after {MAX_RECONNECT_ATTEMPTS} reconnection attempts."
-            )
-            shutting_down = True
-            cleanup()
-            sys.exit(0)
-        else:
-            print(
-                f"WebSocket disconnected - attempting to reconnect (attempt {reconnect_count + 1}/{MAX_RECONNECT_ATTEMPTS})..."
-            )
-            threading.Thread(
-                target=reconnect_websocket_after_delay, args=(reconnect_count + 1,), daemon=True
-            ).start()
-
-
-def on_ws_open(ws):
-    global reconnect_count
-    print(f"WebSocket connection established to {ws_url}")
-    # Reset reconnection counter on successful connection
-    reconnect_count = 0
-    # Start heartbeat thread
-    threading.Thread(target=heartbeat_thread, daemon=True).start()
-
-
-def heartbeat_thread():
-    """Send periodic heartbeats to keep the connection alive"""
-    global ws_client, shutting_down
-
-    # Counter for consecutive failed heartbeats
-    failed_heartbeats = 0
-
-    while ws_client and not shutting_down:
-        try:
-            if ws_client.sock and ws_client.sock.connected:
-                print("Sending heartbeat to server...")
-                ws_client.send(json.dumps({"action": "heartbeat"}))
-                failed_heartbeats = 0  # Reset on successful send
-            else:
-                failed_heartbeats += 1
-                print(f"WebSocket not connected for heartbeat ({failed_heartbeats})")
-
-                # If multiple heartbeats fail, the server is likely gone
-                if failed_heartbeats >= 3:
-                    print("Multiple heartbeats failed. Server may be gone, shutting down.")
-                    shutting_down = True
-                    cleanup()
-                    # Exit using timer to avoid blocking in heartbeat thread
-                    threading.Timer(0.5, lambda: sys.exit(0)).start()
-                    return
-        except Exception as e:
-            print(f"Error sending heartbeat: {e}")
-            failed_heartbeats += 1
-
-            # If multiple heartbeats fail, the server is likely gone
-            if failed_heartbeats >= 3:
-                print("Multiple heartbeats failed with error. Server may be gone, shutting down.")
-                shutting_down = True
-                cleanup()
-                # Exit using timer to avoid blocking in heartbeat thread
-                threading.Timer(0.5, lambda: sys.exit(0)).start()
-                return
-
-        time.sleep(5)  # Send heartbeat every 5 seconds instead of 15 for faster detection
-
-
-def reconnect_websocket_after_delay(attempt=1):
-    """Wait a bit and then try to reconnect the WebSocket"""
-    global shutting_down, reconnect_count
-
-    # Update the global counter
-    reconnect_count = attempt
-
-    time.sleep(5)  # Wait 5 seconds before attempting reconnection
-
-    if shutting_down:
-        return
-
-    try:
-        # After multiple failed attempts, we should exit to prevent zombie processes
-        if attempt > MAX_RECONNECT_ATTEMPTS:
-            print(
-                f"Failed to reconnect after {MAX_RECONNECT_ATTEMPTS} attempts. Exiting gracefully."
-            )
-            shutting_down = True
-            cleanup()
-            # Give a moment for cleanup to complete before exit
-            time.sleep(1)
-            sys.exit(1)
-
-        setup_websocket()
-    except Exception as e:
-        print(f"Failed to reconnect WebSocket: {e}")
-        # Try again with increased attempt counter
-        threading.Thread(
-            target=lambda: reconnect_websocket_after_delay(attempt + 1), daemon=True
-        ).start()
-
-
-# Setup WebSocket connection
-def setup_websocket():
-    global ws_client
-    try:
-        # Create WebSocket client
-        ws_client = websocket.WebSocketApp(
-            ws_url,
-            on_message=on_ws_message,
-            on_error=on_ws_error,
-            on_close=on_ws_close,
-            on_open=on_ws_open,
-        )
-
-        # Start WebSocket in a background thread
-        threading.Thread(target=ws_client.run_forever, daemon=True).start()
-        print(f"Started WebSocket client connecting to {ws_url}")
-    except Exception as e:
-        print(f"Failed to start WebSocket client: {e}")
+        parent_pid = int(sys.argv[3])
+        print(f"Monitoring parent process with PID: {parent_pid}")
+    except ValueError:
+        print(f"Warning: Invalid parent PID provided: {sys.argv[3]}")
 
 
 # Handle signals properly
@@ -245,7 +65,7 @@ if platform.system() == "Windows":
 
 # Cleanup function to ensure window is destroyed
 def cleanup():
-    global window, ws_client, shutting_down
+    global window, shutting_down
     shutting_down = True
 
     # First destroy the window to release all UI resources
@@ -255,28 +75,6 @@ def cleanup():
             window.destroy()
         except Exception as e:
             print(f"Error destroying window: {e}")
-
-    # Then close WebSocket
-    if ws_client:
-        try:
-            # Let the server know we're shutting down
-            try:
-                if ws_client.sock and ws_client.sock.connected:
-                    ws_client.send(json.dumps({"action": "closing"}))
-            except Exception:
-                # Ignore errors during shutdown
-                pass
-
-            # Close the connection
-            try:
-                ws_client.close()
-            except Exception:
-                # Ignore errors during shutdown
-                pass
-
-            print("WebSocket connection closed")
-        except Exception as e:
-            print(f"Error closing WebSocket: {e}")
 
     # Force exit the process after cleanup to ensure nothing keeps it alive
     print("Cleanup complete - exiting process")
@@ -298,6 +96,49 @@ def on_window_close():
     sys.exit(0)
 
 
+# Function to monitor parent process
+def monitor_parent_process():
+    """Monitor the parent process and exit if it terminates"""
+    global shutting_down, parent_pid
+
+    if parent_pid is None:
+        # If no parent PID specified, get the parent of this process
+        parent_pid = os.getppid()
+        print(f"Using current parent process PID: {parent_pid}")
+
+    print(f"Starting parent process monitor for PID: {parent_pid}")
+
+    while not shutting_down:
+        try:
+            # Check if parent process exists
+            if not psutil.pid_exists(parent_pid):
+                print(f"Parent process (PID: {parent_pid}) no longer exists, shutting down")
+                shutting_down = True
+                cleanup()
+                os._exit(0)  # Force exit
+
+            # Check if parent is zombie/dead but still in process table
+            try:
+                parent = psutil.Process(parent_pid)
+                if parent.status() == psutil.STATUS_ZOMBIE:
+                    print("Parent process is zombie, shutting down")
+                    shutting_down = True
+                    cleanup()
+                    os._exit(0)  # Force exit
+            except psutil.NoSuchProcess:
+                print("Parent process no longer exists (race condition), shutting down")
+                shutting_down = True
+                cleanup()
+                os._exit(0)  # Force exit
+
+        except Exception as e:
+            print(f"Error monitoring parent process: {e}")
+            # Don't exit on monitoring errors
+
+        # Check every second
+        time.sleep(1)
+
+
 # Main execution
 if __name__ == "__main__":
     # Set up a more reasonable shutdown timer - gives time to start up
@@ -314,8 +155,8 @@ if __name__ == "__main__":
     # Start watchdog timer
     threading.Thread(target=delayed_watchdog, daemon=True).start()
 
-    # Set up WebSocket connection
-    setup_websocket()
+    # Start parent process monitor
+    threading.Thread(target=monitor_parent_process, daemon=True).start()
 
     # Create and start the window
     print(f"Creating webview for: {url}")

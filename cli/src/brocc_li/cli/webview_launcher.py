@@ -1,6 +1,4 @@
-import threading
 
-from brocc_li.cli.fastapi_server import FASTAPI_HOST, FASTAPI_PORT
 from brocc_li.cli.webview_manager import close_webview, is_webview_open, open_webview
 from brocc_li.utils.logger import logger
 
@@ -11,48 +9,22 @@ def get_service_url(host, port):
 
 
 def notify_webview_shutdown():
-    """Send shutdown message to webview via API"""
+    """
+    Directly terminate the webview process
+    """
     try:
-        logger.debug("Sending shutdown signal to webview")
-        # Use a completely non-blocking approach with no wait
-        import requests
+        # Get access to the FastAPI server's webview process
+        from brocc_li.fastapi_server import _WEBVIEW_PROCESS
 
-        def make_request():
-            try:
-                # Call the synchronous endpoint
-                response = requests.post(
-                    f"{get_service_url(FASTAPI_HOST, FASTAPI_PORT)}/webview/shutdown",
-                    timeout=2.0,  # Give it a reasonable timeout
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    logger.debug(f"Webview shutdown response: {result}")
-                    return True
-                else:
-                    logger.warning(f"Failed to send shutdown signal: {response.status_code}")
-                    return False
-            except Exception as e:
-                logger.error(f"Error sending shutdown signal: {e}")
-                return False
-
-        # Start the thread but don't wait for it
-        thread = threading.Thread(target=make_request, daemon=True)
-        thread.start()
-        # Give a short time for the request to complete
-        thread.join(timeout=0.5)
-
+        # If process exists and is running, terminate it
+        if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
+            logger.debug("Terminating webview process directly")
+            _WEBVIEW_PROCESS.terminate()
+            return True
+        return False
     except Exception as e:
-        logger.error(f"Error initiating webview shutdown: {e}")
-        # Fall back to direct termination in case API call fails
-        try:
-            from brocc_li.cli.fastapi_server import _WEBVIEW_PROCESS
-
-            if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
-                logger.debug("Fallback: Directly terminating webview process")
-                _WEBVIEW_PROCESS.terminate()
-        except Exception as term_err:
-            logger.error(f"Error in fallback termination: {term_err}")
+        logger.error(f"Error terminating webview process: {e}")
+        return False
 
 
 def launch_webview():

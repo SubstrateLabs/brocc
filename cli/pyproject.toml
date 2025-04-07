@@ -37,7 +37,6 @@ dependencies = [
     "pystray>=0.19.5",
     "pytest>=8.3.5",
     "python-dateutil>=2.9.0.post0",
-    "python-fasthtml>=0.12.9",
     "pywebview>=5.4",
     "requests>=2.32.3",
     "rich>=13.9.4",
@@ -68,6 +67,18 @@ Source = "https://github.com/SubstrateLabs/brocc"
 
 [tool.hatch.version]
 path = "src/brocc_li/__about__.py"
+
+[tool.hatch.build]
+include = [
+  "src/**/*.py",
+  "src/brocc_li/static/**/*"
+]
+exclude = [
+  "tests/**"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/brocc_li"]
 
 [tool.hatch.envs.types]
 extra-dependencies = ["mypy>=1.0.0"]

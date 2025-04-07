@@ -43,16 +43,16 @@ Our goal is to build lightweight, durable software with minimal system requireme
 
 #### Local app ([/cli](https://github.com/SubstrateLabs/brocc/tree/main/cli))
 
-- [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
-- [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database using [Lance](https://github.com/lancedb/lance) storage format.
-- [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
+- [DuckDB](https://duckdb.org): Embedded columnar database
+- [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database
+- [Polars](https://docs.pola.rs): Efficient dataframe library
 - Embeddings (for ingestion + queries) use [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
-- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing. LLM API requests are made locally from your computer, using the OpenRouter API key we [provision](https://github.com/SubstrateLabs/brocc/blob/main/site/lib/user-lifecycle.ts) for your account.
-- [Textual](https://www.textualize.io) TUI app manages:
+- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing. LLM API requests are made locally from your computer, using the OpenRouter API key we provision for your account.
+- [Textual](https://www.textualize.io) TUI app that runs:
   - [FastAPI](https://fastapi.tiangolo.com/) local app server
-  - [FastHTML](https://fastht.ml/docs) local frontend
-  - [pywebview](https://pywebview.flowrl.com/guide) and [pystray](https://github.com/moses-palmer/pystray)
-  - [Playwright](https://playwright.dev/docs/intro) to read content from your browser
+  - Vite React frontend served with uvicorn and displayed in a [pywebview](https://pywebview.flowrl.com/guide) process
+  - [pystray](https://github.com/moses-palmer/pystray) system tray process
+  - [Playwright](https://playwright.dev/docs/intro)
 
 #### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
 

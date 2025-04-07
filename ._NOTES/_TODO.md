@@ -1,7 +1,6 @@
 - clean up fastapi server
-  - review best practice for variables
+  - review best practices for variables + async stuff
 - chrome tab tracking
-- think about process cleanup robustness
 - schema design:
   - source / location: needs another layer 
     - chrome::<location name: twitter>::<location: url>
@@ -10,10 +9,10 @@
 - rework prototype extract code
 - research latest best pdf/paper metadata tool
 - pydanticai + openrouter setup
-- cli oauth flow
 
 ## backlog
 
+- cli oauth flow
 - lucide icons in fasthtml
 - faq item: must use chrome
   - faq page anchors + accordion (expand accordion based on anchor)
