@@ -1,4 +1,4 @@
-.PHONY: format lint type-check test install clean build dev
+.PHONY: format lint type-check test install clean build dev chrome
 
 # Format code with ruff
 format:
@@ -39,6 +39,10 @@ clean:
 dev: build
 	uv run brocc
 
+# Run chrome_manager.py main
+chrome:
+	uv run python -m brocc_li.chrome_manager
+
 help:
 	@echo "make format      - Format code with ruff"
 	@echo "make lint        - Check code with ruff without fixing"
@@ -48,3 +52,4 @@ help:
 	@echo "make dev         - Build and run the app"
 	@echo "make install     - Install package in development mode"
 	@echo "make clean       - Clean up cache and build artifacts"
+	@echo "make chrome      - Launch Chrome with debug port enabled"

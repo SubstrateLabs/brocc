@@ -1,3 +1,4 @@
+- remove playwright dep (for now)
 - clean up fastapi server
   - review best practices for variables + async stuff
 - chrome tab tracking

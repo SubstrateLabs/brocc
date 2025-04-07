@@ -1,4 +1,3 @@
-
 from brocc_li.cli.webview_manager import close_webview, is_webview_open, open_webview
 from brocc_li.utils.logger import logger
 
