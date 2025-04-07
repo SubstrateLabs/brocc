@@ -1,19 +1,22 @@
 - markdown extraction (unstructured)
 - pdf handling (docling)
-- clean up fastapi server
-  - review best practices for variables + async stuff
-- chrome tab tracking
+- deepresearch: latest best pdf/paper metadata tool
 - schema design:
   - source / location: needs another layer 
     - chrome::<location name: twitter>::<location: url>
   - field for parent doc id
     - capture parent doc for threads, comments
+    - is this the same as "parent url" for browser nav?
 - rework prototype extract code
-- research latest best pdf/paper metadata tool
-- pydanticai + openrouter setup
+
+## cleanup
+- copy readme to cli/readme.md
+- clean up fastapi server
+  - review best practices for variables + async stuff
 
 ## backlog
 
+- AI: pydanticai + openrouter
 - cli oauth flow
 - lucide icons in fasthtml
 - faq item: must use chrome

@@ -3,75 +3,46 @@ import { CodeBlock, InlineCode } from "@/components/mdx/CodeBlock";
 
 # 🥦 Brocc
 
-Brocc is a new way to index and explore your digital life.
+[![PyPI - Version](https://img.shields.io/pypi/v/brocc-li.svg)](https://pypi.org/project/brocc-li)
 
-Try the beta CLI:
+
+Brocc lets you **search everything you see in your browser**. 
+
+Try the beta application:
 
 1. Install: <InlineCode code={`pipx install brocc-li`} />
 2. Run: <InlineCode code={`brocc`} />
 
-<MdxAccordionGroup defaultValue="principles">
-<MdxAccordionItem title="Principles" value="principles">
+<MdxAccordionGroup defaultValue="how-it-works">
+<MdxAccordionItem title="How it works" value="how-it-works">
+
+</MdxAccordionItem>
+
+<MdxAccordionItem title="System design" value="system-design">
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
-1. **Local-first**: AI features may use cloud services, but Brocc never logs or stores your data remotely. Your data is always stored on your machine.
-2. **Source-visible**: You can review our architecture, and [verify](https://github.com/SubstrateLabs/brocc) our promise to never store your data.
-3. **Open-contribution**: We aspire to build a rich open-contribution community (and will explore ways to compensate top contributors).
-4. **Programmable**: Our vision is to provide an interactive computational environment, with extensible foundations, malleable user interfaces, and well-designed APIs.
-</MdxAccordionItem>
+1. **Local**: Your data belongs on your computer. Brocc never logs or stores your data in the cloud (however, AI features use cloud AI models).
+2. **Open**: Our system design and source code are available for inspection. We welcome open-source contributions.
 
-<MdxAccordionItem title="Architecture" value="architecture">
-### Local app
+Our goal is to build lightweight, durable software with minimal system requirements. We carefully choose dependencies that have this quality themselves, making pragmatic exceptions.
 
-We always prefer embedded tech to hosted services. For now, all AI models run via cloud services. A long-term goal is to offer an option for local inference, enabling fully on-device operation (and offline mode).
+#### Overview
 
-Dependencies:
+1. Brocc locally ingests documents from (1) your browser, (2) OAuth-authenticated APIs, and (3) your local filesystem.
+2. Documents are converted to Markdown, chunked, and stored locally in DuckDB.
+3. Document chunks are embedded (remotely) and stored locally in LanceDB.
 
-- [DuckDB](https://duckdb.org): Embedded columnar database that stores document data. Because access patterns are more analytical than transactional, DuckDB's columnar storage is a good fit.
-- [Polars](https://docs.pola.rs): DataFrame library, leverages Apache Arrow to avoid loading entire datasets into memory.
-- [LanceDB](https://github.com/lancedb/lancedb): Embedded vector database, enables semantic search.
-- [Textual](https://www.textualize.io): Terminal UI framework.
-- [PydanticAI](https://ai.pydantic.dev): Agent framework.
-- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing service, allows user-scoped API keys to access cloud AI models.
+#### Local app ([/cli](https://github.com/SubstrateLabs/brocc/tree/main/cli))
 
-AI models:
+- [DuckDB](https://duckdb.org): Local columnar database
+- [LanceDB](https://github.com/lancedb/lancedb): Local vector database. Embeddings (for ingestion + queries) use [Voyage AI](https://www.voyageai.com/) via our [API proxy](https://github.com/SubstrateLabs/brocc/blob/main/site/app/api/embed/route.ts).
+- [OpenRouter](https://openrouter.ai/docs/quickstart): AI routing. LLM API requests are always made locally from your computer, using the OpenRouter API key we provision for your account.
 
-- [voyage-multimodal-3](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3): Embeds text and images in the same latent space, enabling multimodal search. This model must be run in the cloud until open-source alternatives improve in quality.
+#### Website ([/site](https://github.com/SubstrateLabs/brocc/tree/main/site))
 
-### Website
-
-The web component of Brocc is intentionally minimal (following our Local-first [principle](<(/?tab=readme-ov-file#principles)>). We only redirect to the web app for authentication and collaboration features. AI model requests never pass through the web app.
-
-- [Neon Postgres](https://neon.tech/docs/introduction): We store as little as possible in Postgres. What we do store: users, API keys, and collaboration settings.
-- Cloudflare [R2](https://developers.cloudflare.com/r2): Free egress, cheaper than alternatives. We use it to store published data.
-- [WorkOS](https://workos.com): Easier maintenance than DIY, cheaper than alternatives.
-- Upstash [Redis](https://upstash.com/docs/redis/overall/getstarted): We use Redis to cache session information (with short TTL).
-</MdxAccordionItem>
-
-<MdxAccordionItem title="Roadmap" value="roadmap">
-- **0.0.1**: Browser sense: connects to your browser history.
-  - [ ] Read browser history up to a selected timeframe
-  - [ ] Index common feeds:
-    - [x] Twitter
-    - [x] Substack
-    - [ ] Gmail
-  - [ ] Parse PDFs, including metadata for research articles
-  - [ ] Chunk long articles and PDFs semantically
-  - [ ] Search for "AI-related content", and get back feed items from multiple sources with an AI summary.
-- **0.0.2**: API sense: connects to web services via OAuth.
-  - [ ] OAuth connection to:
-    - [ ] Notion
-    - [ ] Slack
-    - [ ] Discord
-    - [ ] WhatsApp
-    - [ ] Telegram
-- **0.0.3**: File sense: connects to your filesystem.
-  - [ ] Index local Mac applications:
-    - [ ] iMessage
-    - [ ] Photos
-    - [ ] Notes
-  - [ ] Index local files:
-    - [ ] PDFs
-    - [ ] Markdown files
+- [Neon Postgres](https://neon.tech/docs/introduction): Used to store users, API keys, and collaboration settings.
+- [WorkOS](https://workos.com): Used for auth.
+- [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
 </MdxAccordionItem>
 </MdxAccordionGroup>
+
