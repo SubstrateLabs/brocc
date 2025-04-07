@@ -1,7 +1,7 @@
 import json
 import time
 from collections.abc import Callable
-from typing import List, NamedTuple
+from typing import Dict, List, NamedTuple, Set, Tuple
 
 import requests
 from rich import box
@@ -21,6 +21,12 @@ from brocc_li.utils.logger import logger
 class ChromeState(NamedTuple):
     is_running: bool
     has_debug_port: bool
+
+
+# Tab reference for tracking
+class TabReference(NamedTuple):
+    id: str
+    url: str
 
 
 # Default confirmation function that uses Rich
@@ -374,73 +380,140 @@ def main() -> None:
 
     last_tabs_check = 0
     tabs_check_interval = 2  # Check tabs every 2 seconds
-    previous_tab_ids = set()  # Store IDs of previously seen tabs
 
-    # Define the display_tabs function inline for debugging
-    def display_tab_changes(current_tabs, prev_tab_ids):
-        """Display only the changes in tabs since last check."""
+    # Track tabs by ID+URL instead of just ID
+    previous_tab_refs: Set[TabReference] = set()  # Store references of previously seen tabs
+
+    # Define the display_tab_changes function inline for debugging
+    def display_tab_changes(current_tabs, prev_tab_refs):
+        """Display changes in tabs, including URL changes within existing tabs."""
         # Filter for only HTTP/HTTPS URLs
         filtered_tabs = [
             tab for tab in current_tabs if tab.get("url", "").startswith(("http://", "https://"))
         ]
 
-        # Get current tab IDs
-        current_tab_ids = {tab["id"] for tab in filtered_tabs if "id" in tab}
+        # Create references (id+url) for current tabs
+        current_tab_refs = {
+            TabReference(tab["id"], tab["url"])
+            for tab in filtered_tabs
+            if "id" in tab and "url" in tab
+        }
 
-        # Calculate added and removed tabs
-        added_tab_ids = current_tab_ids - prev_tab_ids
-        removed_tab_ids = prev_tab_ids - current_tab_ids
+        # For displaying changes, we need to analyze:
+        # 1. New tabs (new ids)
+        # 2. URL changes in existing tabs
+        # 3. Removed tabs
+
+        # Get current tab IDs to identify completely new or removed tabs
+        current_tab_ids = {ref.id for ref in current_tab_refs}
+        previous_tab_ids = {ref.id for ref in prev_tab_refs}
+
+        # Completely new tabs (new browser tabs)
+        added_tab_ids = current_tab_ids - previous_tab_ids
+        # Tabs that were closed
+        removed_tab_ids = previous_tab_ids - current_tab_ids
+
+        # Find tabs with changed URLs but same ID
+        url_changes = []
+        for tab in filtered_tabs:
+            tab_id = tab.get("id")
+            if tab_id and tab_id not in added_tab_ids:  # Not a brand new tab
+                current_url = tab.get("url", "")
+                # Check if this tab had a different URL before
+                old_urls = [ref.url for ref in prev_tab_refs if ref.id == tab_id]
+                if old_urls and old_urls[0] != current_url:
+                    # This tab has navigated to a new URL
+                    url_changes.append(
+                        {
+                            "id": tab_id,
+                            "title": tab.get("title", "Untitled"),
+                            "url": current_url,
+                            "old_url": old_urls[0],
+                            **tab,
+                        }
+                    )
 
         # If nothing changed, don't display anything
-        if not added_tab_ids and not removed_tab_ids:
-            return current_tab_ids
+        if not added_tab_ids and not removed_tab_ids and not url_changes:
+            return current_tab_refs
 
         console = Console()
 
-        # Display added tabs if any
+        # Display completely new tabs if any
         if added_tab_ids:
             added_tabs = [tab for tab in filtered_tabs if tab.get("id") in added_tab_ids]
+            display_tab_list(console, added_tabs, "\n[bold green]+++ New Tabs:[/bold green]")
+            console.print(f"[dim]Added {len(added_tabs)} new tab(s)[/dim]")
 
-            table = Table(show_header=True, header_style="bold green", box=box.ROUNDED)
-
-            # Add columns
-            table.add_column("#", style="dim", width=4)
-            table.add_column("Title", style="green")
-            table.add_column("URL", style="blue")
-            table.add_column("Tab ID", style="dim", width=10)
-
-            # Display each added tab
-            for i, tab in enumerate(added_tabs):
-                # Format title and URL with truncation
-                title = tab.get("title", "Untitled")
-                title_display = (title[:60] + "...") if len(title) > 60 else title
-
-                url = tab.get("url", "")
-                url_display = (url[:60] + "...") if len(url) > 60 else url
-
-                # Show a shortened tab ID
-                tab_id = tab.get("id", "")
-                if tab_id:
-                    short_id = tab_id[:8] + "..." if len(tab_id) > 8 else tab_id
-                else:
-                    short_id = "-"
-
-                # Add the row
-                table.add_row(f"{i + 1}", title_display, url_display, short_id)
-
-            console.print("\n[bold green]+++ New Tabs:[/bold green]")
-            console.print(table)
-            console.print(f"[dim]Added {len(added_tabs)} tab(s)[/dim]")
+        # Display URL changes in existing tabs
+        if url_changes:
+            display_tab_list(
+                console,
+                url_changes,
+                "\n[bold blue]+++ Navigation in Existing Tabs:[/bold blue]",
+                show_old_url=True,
+            )
+            console.print(
+                f"[dim]Detected {len(url_changes)} navigation(s) in existing tab(s)[/dim]"
+            )
 
         # Display removed tabs if any
         if removed_tab_ids:
             console.print(f"\n[bold red]--- Removed {len(removed_tab_ids)} tab(s)[/bold red]")
 
         # Print summary
-        console.print(f"[dim]Current HTTP/HTTPS tabs: {len(current_tab_ids)}[/dim]\n")
+        total_http_tabs = len({ref.id for ref in current_tab_refs})
+        console.print(f"[dim]Current HTTP/HTTPS tabs: {total_http_tabs}[/dim]\n")
 
-        # Return the current set of tab IDs for the next comparison
-        return current_tab_ids
+        # Return the current set of tab references for the next comparison
+        return current_tab_refs
+
+    # Helper function to display a list of tabs in a table
+    def display_tab_list(console, tabs, header, show_old_url=False):
+        """Display a list of tabs in a table."""
+        if not tabs:
+            return
+
+        table = Table(show_header=True, header_style="bold green", box=box.ROUNDED)
+
+        # Add columns
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Title", style="green")
+        table.add_column("URL", style="blue")
+        if show_old_url:
+            table.add_column("Previous URL", style="dim")
+        table.add_column("Tab ID", style="dim", width=10)
+
+        # Display each tab
+        for i, tab in enumerate(tabs):
+            # Format title and URL with truncation
+            title = tab.get("title", "Untitled")
+            title_display = (title[:60] + "...") if len(title) > 60 else title
+
+            url = tab.get("url", "")
+            url_display = (url[:60] + "...") if len(url) > 60 else url
+
+            # Show the old URL if requested and available
+            old_url_display = ""
+            if show_old_url:
+                old_url = tab.get("old_url", "")
+                old_url_display = (old_url[:60] + "...") if len(old_url) > 60 else old_url
+
+            # Show a shortened tab ID
+            tab_id = tab.get("id", "")
+            if tab_id:
+                short_id = tab_id[:8] + "..." if len(tab_id) > 8 else tab_id
+            else:
+                short_id = "-"
+
+            # Add the row
+            if show_old_url:
+                table.add_row(f"{i + 1}", title_display, url_display, old_url_display, short_id)
+            else:
+                table.add_row(f"{i + 1}", title_display, url_display, short_id)
+
+        console.print(header)
+        console.print(table)
 
     try:
         # Connect to Chrome
@@ -457,10 +530,23 @@ def main() -> None:
                 for tab in initial_tabs
                 if tab.get("url", "").startswith(("http://", "https://"))
             ]
-            previous_tab_ids = {tab["id"] for tab in filtered_initial_tabs if "id" in tab}
+
+            # Create initial tab references
+            previous_tab_refs = {
+                TabReference(tab["id"], tab["url"])
+                for tab in filtered_initial_tabs
+                if "id" in tab and "url" in tab
+            }
+
+            # Display initial tabs in a table
+            console = Console()
+            display_tab_list(
+                console, filtered_initial_tabs, "\n[bold cyan]=== Current Open Tabs:[/bold cyan]"
+            )
+            console.print(f"[dim]Found {len(previous_tab_refs)} HTTP/HTTPS tabs[/dim]\n")
 
             logger.info(
-                f"Monitoring {len(previous_tab_ids)} HTTP/HTTPS tabs. Press Ctrl+C to exit..."
+                f"Monitoring {len(previous_tab_refs)} HTTP/HTTPS tabs. Press Ctrl+C to exit..."
             )
         else:
             logger.error("Failed to connect to Chrome.")
@@ -477,7 +563,7 @@ def main() -> None:
                 if connected:
                     logger.success("Reconnected to Chrome")
                     # Reset tab tracking after reconnect
-                    previous_tab_ids = set()
+                    previous_tab_refs = set()
                 else:
                     logger.error("Failed to reconnect to Chrome")
                     break
@@ -486,7 +572,7 @@ def main() -> None:
             if current_time - last_tabs_check >= tabs_check_interval:
                 try:
                     tabs = manager.get_all_tabs()
-                    previous_tab_ids = display_tab_changes(tabs, previous_tab_ids)
+                    previous_tab_refs = display_tab_changes(tabs, previous_tab_refs)
                     last_tabs_check = current_time
                 except Exception as e:
                     logger.error(f"Error getting or displaying tabs: {e}")
