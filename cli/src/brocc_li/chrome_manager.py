@@ -1,4 +1,6 @@
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from typing import List, NamedTuple, Set
 
@@ -14,6 +16,12 @@ from brocc_li.utils.chrome import (
     quit_chrome,
 )
 from brocc_li.utils.logger import logger
+
+# Calculate optimal number of workers for thread pool
+# Use min(32, os.cpu_count() + 4) which is Python's default formula
+# but cap at 10 to avoid too many simultaneous Chrome connections
+CPU_COUNT = os.cpu_count() or 1  # Default to 1 if cpu_count returns None
+MAX_WORKERS = min(10, CPU_COUNT + 4)
 
 
 class ChromeState(NamedTuple):
@@ -263,17 +271,17 @@ class ChromeManager:
 
         return tabs
 
-    def get_tab_html(self, tab_id: str) -> str:
+    def get_tab_html(self, tab_id: str, cdp_only: bool = False) -> str:
         """
         Get the HTML content from a specific tab using its ID.
 
         Uses a multi-strategy approach:
         1. Quick check with Chrome DevTools Protocol (fast but fails on anti-bot sites)
-        2. If CDP fails, fall back to Playwright (better for anti-bot sites)
+        2. If CDP fails and cdp_only is False, fall back to Playwright (better for anti-bot sites)
 
         Args:
             tab_id: The ID of the tab to get HTML from
-            timeout: Connection and command timeout in seconds
+            cdp_only: If True, only try CDP method without Playwright fallback
 
         Returns:
             HTML content as string, empty string if tab not found or connection fails
@@ -304,8 +312,8 @@ class ChromeManager:
         logger.debug(f"Trying to get HTML from tab {tab_id} via CDP")
         html = get_tab_html_content(tab.webSocketDebuggerUrl)
 
-        # Strategy 2: If CDP failed, try Playwright fallback
-        if not html:
+        # Strategy 2: If CDP failed and we're not in CDP-only mode, try Playwright fallback
+        if not html and not cdp_only:
             logger.debug(f"CDP failed, trying Playwright fallback for tab {tab_id}")
             try:
                 # Import here to avoid circular imports
@@ -324,6 +332,127 @@ class ChromeManager:
                 logger.error(f"Playwright fallback error: {e}")
 
         return html
+
+    def get_parallel_tab_html(self, tabs):
+        """
+        Efficiently get HTML content from multiple tabs.
+
+        First tries CDP in parallel for all tabs, then handles Playwright fallbacks sequentially.
+
+        Args:
+            tabs: List of tab dictionaries containing id and other info
+
+        Returns:
+            List of (tab, html) tuples with HTML content
+        """
+        result_tabs_with_html = []
+        tabs_needing_fallback = []
+        console = Console()
+
+        if not tabs:
+            return []
+
+        # Step 0: Log the start of the process
+        console.print(f"[cyan]Starting HTML extraction for {len(tabs)} tabs...[/cyan]")
+
+        # Function for ThreadPoolExecutor to process a single tab with CDP only
+        def process_tab_with_cdp(tab):
+            tab_id = tab.get("id")
+            if not tab_id:
+                return tab, "", False
+
+            title = tab.get("title", "Untitled")
+            short_title = (title[:30] + "...") if len(title) > 30 else title
+
+            # Try CDP first (will skip Playwright fallback)
+            console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
+            html = self.get_tab_html(tab_id, cdp_only=True)
+
+            # If CDP failed, mark for fallback
+            needs_fallback = not bool(html)
+            if needs_fallback:
+                console.print(
+                    f"[yellow]CDP failed for {short_title} - queuing for Playwright fallback[/yellow]"
+                )
+            else:
+                char_count = len(html)
+                line_count = html.count("\n") + 1
+                console.print(
+                    f"[green]✓[/green] CDP success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
+                )
+
+            return tab, html, needs_fallback
+
+        # Step 1: Try all tabs with CDP in parallel
+        console.print(
+            f"[bold cyan]Phase 1: Parallel CDP extraction for {len(tabs)} tabs...[/bold cyan]"
+        )
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_tab = {executor.submit(process_tab_with_cdp, tab): tab for tab in tabs}
+
+            for future in as_completed(future_to_tab):
+                tab, html, needs_fallback = future.result()
+
+                if needs_fallback:
+                    # Queue for fallback if CDP failed
+                    tabs_needing_fallback.append(tab)
+                else:
+                    # Add successful CDP result
+                    result_tabs_with_html.append((tab, html))
+
+        # Step 2: Process fallbacks sequentially
+        if tabs_needing_fallback:
+            console.print(
+                f"\n[bold cyan]Phase 2: Sequential Playwright fallbacks for {len(tabs_needing_fallback)} tabs...[/bold cyan]"
+            )
+
+            try:
+                # Import here to avoid circular imports
+                from brocc_li.playwright_fallback import playwright_fallback
+            except ImportError as e:
+                logger.error(f"Failed to import Playwright fallback: {e}")
+                # Return what we have so far
+                return result_tabs_with_html
+
+            for i, tab in enumerate(tabs_needing_fallback):
+                tab_id = tab.get("id")
+                if tab_id:
+                    title = tab.get("title", "Untitled")
+                    short_title = (title[:30] + "...") if len(title) > 30 else title
+
+                    console.print(
+                        f"[dim]Playwright ({i + 1}/{len(tabs_needing_fallback)}): {short_title}...[/dim]"
+                    )
+
+                    # Run fallback with full Playwright pipeline
+                    html = playwright_fallback.get_html_from_tab(tab_id)
+
+                    if html:
+                        char_count = len(html)
+                        line_count = html.count("\n") + 1
+                        console.print(
+                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
+                        )
+                    else:
+                        console.print(f"[red]✗[/red] Playwright also failed for {short_title}")
+
+                    result_tabs_with_html.append((tab, html))
+
+        # Step 3: Report final stats
+        success_count = sum(1 for _, html in result_tabs_with_html if html)
+        failure_count = len(tabs) - success_count
+
+        if success_count == len(tabs):
+            console.print(
+                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs![/bold green]"
+            )
+        else:
+            console.print(
+                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs ({failure_count} failed)[/bold yellow]"
+            )
+
+        return result_tabs_with_html
 
 
 def main() -> None:
@@ -407,29 +536,13 @@ def main() -> None:
         if tabs_needing_html:
             console.print("\n[bold cyan]Fetching HTML for new/changed tabs...[/bold cyan]")
 
-        for i, tab in enumerate(tabs_needing_html):
-            tab_id = tab.get("id")
-            tab_title = tab.get("title", "Untitled")
-            short_title = (tab_title[:30] + "...") if len(tab_title) > 30 else tab_title
+            # Use our parallel method to get HTML for all tabs needing it
+            new_tabs_with_html = chrome_manager.get_parallel_tab_html(tabs_needing_html)
 
-            # Show progress
-            console.print(
-                f"[dim]Getting HTML for tab {i + 1}/{len(tabs_needing_html)}: {short_title}[/dim]"
-            )
+            # No need to report on results - get_parallel_tab_html already does that
 
-            # Get HTML content via ChromeManager with consistent timeout
-            html = chrome_manager.get_tab_html(tab_id)
-            tabs_with_html.append((tab, html))
-
-            # Show result
-            if html:
-                char_count = len(html)
-                line_count = html.count("\n") + 1
-                console.print(
-                    f"[green]✓[/green] Got HTML ({char_count:,} chars, {line_count:,} lines)"
-                )
-            else:
-                console.print("[red]✗[/red] Failed to get HTML")
+            # Add the new results to our full list
+            tabs_with_html.extend(new_tabs_with_html)
 
         # Create references with HTML for current tabs
         current_tab_refs = set()
@@ -597,38 +710,15 @@ def main() -> None:
                 if tab.get("url", "").startswith(("http://", "https://"))
             ]
 
-            # Create initial tab references with HTML content
-            initial_tabs_with_html = []
-
-            # Add progress reporting
+            # Process initial tabs to get HTML content
             console = Console()
             if filtered_initial_tabs:
                 console.print("\n[bold cyan]Fetching HTML content from tabs...[/bold cyan]")
 
-            for idx, tab in enumerate(filtered_initial_tabs):
-                tab_id = tab.get("id")
-                if tab_id:
-                    title = tab.get("title", "Untitled")
-                    short_title = (title[:30] + "...") if len(title) > 30 else title
+                # Use our new parallel processing method
+                initial_tabs_with_html = manager.get_parallel_tab_html(filtered_initial_tabs)
 
-                    # Show progress
-                    console.print(
-                        f"[dim]Getting HTML for tab {idx + 1}/{len(filtered_initial_tabs)}: {short_title}[/dim]"
-                    )
-
-                    # Get HTML with consistent timeout
-                    html = manager.get_tab_html(tab_id)
-                    initial_tabs_with_html.append((tab, html))
-
-                    # Show result (success/failure)
-                    if html:
-                        char_count = len(html)
-                        line_count = html.count("\n") + 1
-                        console.print(
-                            f"[green]✓[/green] Got HTML ({char_count:,} chars, {line_count:,} lines)"
-                        )
-                    else:
-                        console.print("[red]✗[/red] Failed to get HTML")
+                # No need to report results again - get_parallel_tab_html already does that
 
             # Create references from the collected data
             previous_tab_refs = {

@@ -29,9 +29,6 @@ class PlaywrightFallback:
         self._browser = None
         self._debug_port = REMOTE_DEBUG_PORT
 
-        # Marker for tab title
-        self._tab_title_marker = "🥦 [Reading page] "
-
     def _ensure_browser(self):
         """Ensure we have a connection to the existing Chrome instance."""
         if self._browser is None:
@@ -93,13 +90,89 @@ class PlaywrightFallback:
                 page = context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
-            # Set a distinctive title before navigation
-            page.evaluate(f"document.title = '{self._tab_title_marker}Loading...'")
+            broccoli_marker_script = """
+            (function() {
+                function createBroccoliMarker() {
+                    // Remove any existing markers first
+                    const existingMarkers = document.querySelectorAll('.brocc-li-marker');
+                    existingMarkers.forEach(marker => marker.remove());
+                    
+                    // Create top banner
+                    const banner = document.createElement('div');
+                    banner.className = 'brocc-li-marker';
+                    banner.textContent = '🥦 READING... (Page will close automatically in a moment)';
+                    banner.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        background-color: rgba(30, 150, 0, 0.95);
+                        color: white;
+                        text-align: center;
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 10px;
+                        line-height: 24px;
+                        z-index: 2147483647;
+                        font-family: system-ui, sans-serif;
+                        border-bottom: 2px solid #036303;
+                        box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+                    `;
+                    
+                    // Add banner to page
+                    document.body.appendChild(banner);
+                }
+                
+                // Create/restore marker when needed
+                function ensureMarkerExists() {
+                    // Check if our marker exists and is visible
+                    const markers = document.querySelectorAll('.brocc-li-marker');
+                    if (markers.length < 1) {
+                        createBroccoliMarker();
+                    }
+                }
+                
+                // Apply immediately if document is ready
+                if (document.body) {
+                    createBroccoliMarker();
+                } else {
+                    // Wait for DOM to be ready
+                    document.addEventListener('DOMContentLoaded', createBroccoliMarker);
+                }
+                
+                // Set up continuous monitoring to ensure our marker stays visible
+                const observer = new MutationObserver(function() {
+                    ensureMarkerExists();
+                });
+                
+                // Start observing once body exists
+                if (document.body) {
+                    observer.observe(document.body, { 
+                        childList: true, 
+                        subtree: true 
+                    });
+                } else {
+                    // Set up observer once body is available
+                    document.addEventListener('DOMContentLoaded', function() {
+                        observer.observe(document.body, { 
+                            childList: true, 
+                            subtree: true 
+                        });
+                    });
+                }
+                
+                // Check periodically to ensure our marker stays visible
+                setInterval(ensureMarkerExists, 500);
+            })();
+            """
+
+            # Add this script to run on every navigation and in every frame
+            page.add_init_script(broccoli_marker_script)
 
             # 'load' = wait for the load event to be fired (more reliable than networkidle)
             logger.debug(f"Playwright: Navigating to {url}")
             try:
-                page.goto(url, wait_until="load", timeout=1000)
+                page.goto(url, wait_until="load", timeout=10000)
             except PlaywrightError as e:
                 # Even if navigation "fails", we might still have loaded content
                 logger.warning(f"Navigation had issues: {e}")
@@ -111,19 +184,12 @@ class PlaywrightFallback:
                     logger.debug(f"Timeout wait interrupted: {e}")
                     pass
 
-            # Add the tab marker after navigation
-            try:
-                # Get the original title and add our marker
-                original_title = page.evaluate("document.title")
-                marked_title = f"{self._tab_title_marker}{original_title}"
-                page.evaluate(f"document.title = '{marked_title}'")
-
-                logger.debug("Added title marker to fallback tab")
-            except Exception as e:
-                logger.warning(f"Failed to add title marker to tab: {e}")
-
             # Try to get HTML content even if navigation had issues
             try:
+                # Wait a bit longer to ensure our marker script has run
+                page.wait_for_timeout(500)
+
+                # Get the page content
                 html = page.content()
                 if html and len(html) > 500:  # Ensure we have meaningful content
                     logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
