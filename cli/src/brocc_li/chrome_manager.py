@@ -1,7 +1,6 @@
-import json
 import time
 from collections.abc import Callable
-from typing import Dict, List, NamedTuple, Set, Tuple
+from typing import List, NamedTuple, Set
 
 import requests
 from rich import box
@@ -9,6 +8,7 @@ from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
 
+from brocc_li.chrome_cdp import get_tabs
 from brocc_li.utils.chrome import (
     is_chrome_debug_port_active,
     is_chrome_process_running,
@@ -313,55 +313,21 @@ class ChromeManager:
         Returns:
             List of dictionaries with detailed tab information
         """
-        # Use direct HTTP request to Chrome DevTools API
-        try:
-            # Get list of tabs via Chrome DevTools HTTP API
-            response = requests.get("http://localhost:9222/json/list", timeout=2)
-            if response.status_code != 200:
-                logger.error(f"Failed to get tabs: HTTP {response.status_code}")
-                return []
+        # Use the new get_tabs function from chrome_cdp
+        tabs_data = get_tabs()
 
-            cdp_tabs_json = response.json()
+        # Convert the Pydantic models to dictionaries for backward compatibility
+        tabs = []
+        for tab in tabs_data:
+            tab_dict = tab.model_dump()
 
-            # Process each tab
-            tabs = []
-            for tab_info in cdp_tabs_json:
-                # Only include actual tabs (type: page), not devtools, etc.
-                if tab_info.get("type") == "page":
-                    tab = {
-                        "id": tab_info.get("id"),
-                        "title": tab_info.get("title", "Untitled"),
-                        "url": tab_info.get("url", "about:blank"),
-                        "webSocketDebuggerUrl": tab_info.get("webSocketDebuggerUrl"),
-                        "devtoolsFrontendUrl": tab_info.get("devtoolsFrontendUrl"),
-                    }
+            # If window_id exists but not part of the dict, add it
+            if tab.window_id and "window_id" not in tab_dict:
+                tab_dict["window_id"] = tab.window_id
 
-                    # Get window ID from debug URL if available
-                    devtools_url = tab_info.get("devtoolsFrontendUrl", "")
-                    if "windowId" in devtools_url:
-                        try:
-                            import re
+            tabs.append(tab_dict)
 
-                            window_id_match = re.search(r"windowId=(\d+)", devtools_url)
-                            if window_id_match:
-                                tab["window_id"] = int(window_id_match.group(1))
-                        except Exception as e:
-                            logger.debug(f"Could not extract window ID: {e}")
-
-                    tabs.append(tab)
-
-            # Return tabs in the order we received them
-            return tabs
-
-        except requests.RequestException as e:
-            logger.error(f"Failed to connect to Chrome DevTools API: {e}")
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Chrome DevTools API response: {e}")
-        except Exception as e:
-            logger.error(f"Error getting tabs via Chrome DevTools API: {e}")
-
-        # Return empty list if we couldn't get tabs
-        return []
+        return tabs
 
 
 def main() -> None:
