@@ -1,4 +1,6 @@
 import atexit
+import concurrent.futures
+import functools
 import json
 import platform
 import subprocess
@@ -10,7 +12,7 @@ from pathlib import Path
 
 import psutil
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from playwright.sync_api import sync_playwright
 from starlette.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
@@ -49,6 +51,9 @@ app.add_middleware(
 chrome_manager = ChromeManager(auto_connect=True)  # Re-enable auto_connect
 _PLAYWRIGHT_INSTANCE = None
 _CHROME_BROWSER = None
+
+# Thread pool for running sync code
+_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 
 # Helper function to check if a browser is connected
@@ -128,6 +133,23 @@ def _cleanup_chrome():
 
 # Register the chrome cleanup
 atexit.register(_cleanup_chrome)
+
+
+# Helper function to run sync code in a thread pool
+def run_sync(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return _thread_pool.submit(func, *args, **kwargs).result()
+
+    return wrapper
+
+
+# Async-safe version of _launch_chrome_in_thread
+async def _launch_chrome_async(force_relaunch: bool = False):
+    """Launch Chrome in a thread pool to avoid sync/async issues"""
+    # Run the sync code in a thread pool
+    await app.state.thread_pool.submit(_launch_chrome_in_thread, force_relaunch)
+
 
 # --- Webview Management ---
 _WEBVIEW_ACTIVE = False
@@ -665,21 +687,33 @@ def run_server_in_thread(host=FASTAPI_HOST, port=FASTAPI_PORT):
 @app.get("/chrome/status")
 async def chrome_status():
     """Get the current status of Chrome connection"""
+    global _CHROME_BROWSER
+
     # Refresh the state which might auto-connect if configured
-    chrome_manager.refresh_state()
+    # Run the refresh in a thread pool to avoid sync/async issues
+    try:
+        await app.state.thread_pool.submit(chrome_manager.refresh_state)
+    except Exception as e:
+        logger.error(f"Error refreshing Chrome state: {e}")
 
     # Check if we got auto-connected since last check
-    global _CHROME_BROWSER
     if chrome_manager.connected_browser and not _CHROME_BROWSER:
         _CHROME_BROWSER = chrome_manager.connected_browser
-        logger.debug("Updated _CHROME_BROWSER with auto-connected browser")
 
-    # First check if we have a connected browser
-    is_connected = (
-        _CHROME_BROWSER is not None and _CHROME_BROWSER.is_connected()
-        if _CHROME_BROWSER
-        else chrome_manager.connected_browser is not None
-    )
+    # Check browser connection in thread pool
+    browser_connected = False
+    if _CHROME_BROWSER:
+        try:
+            # Lambda with explicit check to avoid None attribute access
+            browser_connected = await app.state.thread_pool.submit(
+                lambda browser=_CHROME_BROWSER: browser is not None and browser.is_connected()
+            )
+        except Exception as e:
+            logger.debug(f"Error checking browser connection: {e}")
+
+    # Check manager connection
+    manager_connected = chrome_manager.connected_browser is not None
+    is_connected = browser_connected or manager_connected
 
     # Get status description
     status = chrome_manager.status_description
@@ -694,7 +728,9 @@ async def chrome_status():
 
 
 @app.post("/chrome/launch")
-async def launch_chrome(background_tasks: BackgroundTasks, force_relaunch: bool = False):
+async def launch_chrome(
+    request: Request, background_tasks: BackgroundTasks, force_relaunch: bool = False
+):
     """
     Launch Chrome with a debug port or connect to an existing instance.
 
@@ -703,22 +739,53 @@ async def launch_chrome(background_tasks: BackgroundTasks, force_relaunch: bool 
     """
     global _CHROME_BROWSER
 
-    # Check if already connected
-    if _CHROME_BROWSER and _CHROME_BROWSER.is_connected():
-        return {"status": "already_connected", "message": "Already connected to Chrome"}
+    # Try to extract force_relaunch from JSON body if it wasn't in query params
+    if not force_relaunch:
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and "force_relaunch" in body:
+                force_relaunch = bool(body["force_relaunch"])
+        except Exception:
+            # No valid JSON body or other error, stick with default
+            pass
 
-    # Or if Chrome manager has a connected browser
-    if chrome_manager.connected_browser:
-        _CHROME_BROWSER = chrome_manager.connected_browser
-        return {
-            "status": "already_connected",
-            "message": "Using existing auto-connected Chrome instance",
-        }
+    # For regular (non-forced) launch, check if already connected
+    if not force_relaunch:
+        # Check if already connected - run this in thread pool to avoid async issues
+        browser_connected = False
+        if _CHROME_BROWSER:
+            try:
+                browser_connected = await app.state.thread_pool.submit(
+                    lambda browser=_CHROME_BROWSER: browser is not None and browser.is_connected()
+                )
+            except Exception as e:
+                logger.debug(f"Error checking browser connection: {e}")
 
-    # Run the launch/connect operation in the background
-    background_tasks.add_task(_launch_chrome_in_thread, force_relaunch)
+        if browser_connected:
+            return {"status": "already_connected", "message": "Already connected to Chrome"}
 
-    return {"status": "launching", "message": "Launching Chrome in background"}
+        # Or if Chrome manager has a connected browser
+        if chrome_manager.connected_browser:
+            _CHROME_BROWSER = chrome_manager.connected_browser
+            return {
+                "status": "already_connected",
+                "message": "Using existing auto-connected Chrome instance",
+            }
+
+    # Use a helper function to run the sync operation safely from an async context
+    async def run_in_thread():
+        try:
+            await app.state.thread_pool.submit(_launch_chrome_in_thread, force_relaunch)
+        except Exception as e:
+            logger.error(f"Error running Chrome launch in thread: {e}")
+
+    # Run the launch operation in the background
+    background_tasks.add_task(run_in_thread)
+
+    return {
+        "status": "launching",
+        "message": f"{'Relaunching' if force_relaunch else 'Launching'} Chrome in background",
+    }
 
 
 def _launch_chrome_in_thread(force_relaunch: bool = False):
@@ -726,15 +793,24 @@ def _launch_chrome_in_thread(force_relaunch: bool = False):
     global _CHROME_BROWSER
 
     try:
+        logger.debug(f"Starting Chrome {'relaunch' if force_relaunch else 'launch'} process")
+
         # Get the current state
         state = chrome_manager.refresh_state()
+        logger.debug(
+            f"Chrome state: running={state.is_running}, has_debug_port={state.has_debug_port}"
+        )
 
         # If we're forcing a relaunch or Chrome is running without debug port
         if force_relaunch or (state.is_running and not state.has_debug_port):
             logger.debug("Quitting existing Chrome instances")
             # Disconnect any existing browser connections
             if _CHROME_BROWSER or chrome_manager.connected_browser:
-                chrome_manager.disconnect()
+                logger.debug("Disconnecting existing browser connections first")
+                try:
+                    chrome_manager.disconnect()
+                except Exception as e:
+                    logger.debug(f"Error during disconnect: {e}")
                 _CHROME_BROWSER = None
 
             # Quit all Chrome instances
@@ -742,11 +818,14 @@ def _launch_chrome_in_thread(force_relaunch: bool = False):
                 logger.error("Failed to quit existing Chrome instances")
                 return
 
+            logger.debug("Successfully quit existing Chrome instances")
+
             # Chrome needs to be launched with debug port
             needs_launch = True
         else:
             # If Chrome is not running, we need to launch it
             needs_launch = not state.is_running
+            logger.debug(f"Chrome needs launch: {needs_launch}")
 
         # Launch Chrome if needed
         if needs_launch:
@@ -755,20 +834,33 @@ def _launch_chrome_in_thread(force_relaunch: bool = False):
                 logger.error("Failed to launch Chrome")
                 return
 
-            # Give Chrome a moment to initialize
-            time.sleep(2)
+            # Give Chrome a moment to initialize - longer time for relaunch
+            wait_time = 3 if force_relaunch else 2
+            logger.debug(f"Waiting {wait_time}s for Chrome to initialize")
+            time.sleep(wait_time)
+        else:
+            logger.debug("Chrome already running with debug port, skipping launch")
 
         # Now connect to Chrome
-        playwright = get_playwright()
-        browser = chrome_manager._connect_to_chrome(playwright)
+        logger.debug("Attempting to connect to Chrome")
+        try:
+            # Get a new playwright instance to avoid thread issues
+            playwright = get_playwright()
+            browser = chrome_manager._connect_to_chrome(playwright)
 
-        if browser:
-            _CHROME_BROWSER = browser
-            logger.debug(f"Successfully connected to Chrome {browser.version}")
-        else:
-            logger.error("Failed to connect to Chrome")
+            if browser:
+                _CHROME_BROWSER = browser
+                logger.debug(f"Successfully connected to Chrome {browser.version}")
+            else:
+                logger.error("Failed to connect to Chrome")
+        except Exception as e:
+            logger.error(f"Error connecting to Chrome: {e}")
     except Exception as e:
         logger.error(f"Error in Chrome launch thread: {e}")
+        # Add stack trace for better debugging
+        import traceback
+
+        logger.error(f"Stack trace: {traceback.format_exc()}")
 
 
 @app.post("/chrome/startup-faq")
@@ -782,3 +874,20 @@ async def chrome_startup_faq():
         raise HTTPException(
             status_code=500, detail=f"Error opening Chrome startup FAQ: {str(e)}"
         ) from e
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on startup"""
+    # Create a thread pool for running sync code in async context
+    app.state.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    logger.debug("Thread pool initialized for sync operations")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    # Shutdown the thread pool
+    if hasattr(app.state, "thread_pool"):
+        app.state.thread_pool.shutdown(wait=False)
+        logger.debug("Thread pool shutdown")

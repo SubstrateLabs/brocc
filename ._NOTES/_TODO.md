@@ -1,14 +1,13 @@
 - clean up fastapi server
   - review best practice for variables
-  - review best practice for modularity
 - chrome tab tracking
-- think about process cleanup edge cases
-- source / location: needs another layer 
-  - chrome::<location name: twitter>::<location: url>
-- field for parent doc id
-- capture parent doc for threads, comments
-- scrape all tabs
-- rework scrape abstraction
+- think about process cleanup robustness
+- schema design:
+  - source / location: needs another layer 
+    - chrome::<location name: twitter>::<location: url>
+  - field for parent doc id
+    - capture parent doc for threads, comments
+- rework prototype extract code
 - research latest best pdf/paper metadata tool
 - pydanticai + openrouter setup
 - cli oauth flow

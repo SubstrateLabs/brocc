@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 import uvicorn
-from fasthtml.common import A, Button, Div, P, Titled, fast_app
+from fasthtml.common import A, Button, Div, P, Script, Titled, fast_app
 
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
@@ -21,6 +21,11 @@ CHROME_STATUS_URL = f"{API_URL}/chrome/status"
 CHROME_LAUNCH_URL = f"{API_URL}/chrome/launch"
 CHROME_STARTUP_FAQ_URL = f"{API_URL}/chrome/startup-faq"
 
+# --- Style Constants ---
+CONTAINER_STYLE = "max-width: 300px;"
+SMALL_TEXT_STYLE = "font-size: 0.85em;"
+PADDING_BOTTOM = "padding-bottom: 0.5rem;"
+
 
 def create_app():
     """Create a FastHTML app for the App"""
@@ -33,13 +38,15 @@ def create_app():
 
         # Track if we're currently launching Chrome
         is_launching = False
+        is_relaunching = False
 
         if action == "launch":
             # Launch Chrome
             try:
+                logger.debug("User clicked Launch Chrome")
                 requests.post(
                     CHROME_LAUNCH_URL,
-                    params={"force_relaunch": "false"},
+                    json={"force_relaunch": False},
                     timeout=10,
                 )
                 is_launching = True
@@ -48,24 +55,28 @@ def create_app():
         elif action == "relaunch":
             # Relaunch Chrome
             try:
+                logger.debug("User clicked Relaunch Chrome")
                 requests.post(
                     CHROME_LAUNCH_URL,
-                    params={"force_relaunch": "true"},
+                    json={"force_relaunch": True},
                     timeout=10,
                 )
                 is_launching = True
+                is_relaunching = True
             except Exception as e:
                 logger.error(f"Error relaunching Chrome: {e}")
         elif action == "faq":
             # Open the Chrome startup FAQ
             try:
                 requests.post(CHROME_STARTUP_FAQ_URL, timeout=5)
-                # No message for opening the FAQ
             except Exception as e:
                 logger.error(f"Error opening Chrome startup FAQ: {e}")
+        elif action == "refresh":
+            # Just a manual refresh to pick up latest state
+            logger.debug("Manual refresh requested")
 
         # Build the main page
-        return build_page(is_launching)
+        return build_page(is_launching, is_relaunching)
 
     @rt("/status")
     def status():
@@ -117,6 +128,7 @@ def get_status_content():
     try:
         response = requests.get(CHROME_STATUS_URL, timeout=2)
         chrome_data = response.json() if response.status_code == 200 else None
+        logger.debug(f"Chrome status response: {chrome_data}")
     except Exception as e:
         logger.error(f"Error fetching Chrome status: {e}")
         chrome_data = None
@@ -126,6 +138,10 @@ def get_status_content():
         is_running = "not running" not in chrome_data.get("status", "")
         requires_relaunch = chrome_data.get("requires_relaunch", False)
         is_connected = chrome_data.get("is_connected", False)
+
+        logger.debug(
+            f"Status parsed: is_running={is_running}, requires_relaunch={requires_relaunch}, is_connected={is_connected}"
+        )
 
         if is_connected:
             status_text = "Connected to Chrome"
@@ -156,7 +172,11 @@ def get_status_content():
     # Only show status text directly if we don't have a button
     # (otherwise it will be shown in the flex layout with the button)
     if not button_text:
-        content.append(P(status_text, style="margin: 0.5rem 0;"))
+        status_div = Div(
+            P(status_text),
+            style=CONTAINER_STYLE,
+        )
+        content.append(status_div)
 
     # Launch/Relaunch button only if needed - using query parameter instead of form submission
     if button_text:
@@ -169,22 +189,22 @@ def get_status_content():
                             Button(button_text),
                             href="/?action=relaunch",
                         ),
-                        style="padding-bottom: 0.5rem;",
+                        style=PADDING_BOTTOM,
                     ),
                     Div(
                         P(
                             "Note: you may lose your open tabs when Brocc relaunches Chrome. To prevent this, check your startup settings:",
-                            style="font-size: 0.85em;",
+                            style=SMALL_TEXT_STYLE,
                         ),
                         A(
                             Button(
                                 "FAQ: Chrome startup",
-                                style="font-size: 0.85em;",
+                                style=SMALL_TEXT_STYLE,
                             ),
                             href="/?action=faq",
                         ),
                     ),
-                    style="max-width: 300px;",
+                    style=CONTAINER_STYLE,
                 )
             )
         else:
@@ -196,13 +216,14 @@ def get_status_content():
                         Button(button_text),
                         href="/?action=launch",
                     ),
+                    style=CONTAINER_STYLE,
                 )
             )
 
     return Div(*content, id="status-container")
 
 
-def build_page(is_launching=False):
+def build_page(is_launching=False, is_relaunching=False):
     """Build the complete page with HTMX polling if needed"""
     content = []
 
@@ -210,18 +231,43 @@ def build_page(is_launching=False):
     status_container = get_status_content()
     content.append(status_container)
 
-    # Add auto-polling if we're launching Chrome
-    if is_launching:
-        # Add HTMX attributes to enable polling on the status container
-        status_container.attrs.update(
-            {
-                "hx-get": "/status",
-                "hx-trigger": "every 1s",
-                "hx-swap": "outerHTML",
-                # Stop polling after 7 seconds (enough time for Chrome to launch)
-                "hx-trigger-delay": "7s:stop",
-            }
-        )
+    # Add JavaScript polling for launch/relaunch only if needed
+    if is_launching or is_relaunching:
+        # Create proper JavaScript using the Script component
+        timeout = 5000 if is_relaunching else 4000  # 5s for relaunch, 4s for launch
+        js_code = f"""
+            // Function to check status and reload if connected
+            function checkStatusAndReload() {{
+                fetch('{CHROME_STATUS_URL}')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.is_connected) {{
+                            console.log('Chrome connected! Redirecting to clean URL');
+                            // Redirect to base URL instead of reloading
+                            // This prevents the action=relaunch param from persisting
+                            window.location.href = "/";
+                            return;
+                        }}
+                    }})
+                    .catch(err => console.error('Error checking status:', err));
+            }}
+
+            // Check immediately and then every 500ms
+            checkStatusAndReload();
+            const intervalId = setInterval(checkStatusAndReload, 500);
+            
+            // Stop checking after timeout
+            setTimeout(() => {{
+                clearInterval(intervalId);
+                console.log('Status polling stopped after timeout');
+                // Redirect to base URL to refresh state
+                window.location.href = "/";
+            }}, {timeout});
+        """
+
+        # Add the script to the page using FastHTML's Script component
+        content.append(Script(js_code))
+
     # Build the page without title
     return Titled("", *content)
 
