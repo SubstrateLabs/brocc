@@ -1,75 +1,36 @@
 import re
-import unicodedata
 
 
-def slugify(text: str | None, max_length: int = 255) -> str:
-    """Convert text to a URL and filename safe slug that is reversible.
-
-    Uses rare character sequences to maintain reversibility:
-    - '~s~' represents spaces
-    - '~{hex}~' represents special characters
+def slugify(text: str | None, max_length: int = 150) -> str:
+    """Convert text to a URL and filename safe slug.
 
     Args:
         text: The text to slugify
         max_length: The maximum length of the slug
 
     Returns:
-        A URL-safe version of the text that can be unslugified
+        A URL-safe version of the text
     """
     if not text:
         return "unknown"
 
-    # Convert to lowercase for consistency
-    text = text.lower()
+    # Basic encoding
+    encoded = (
+        text.lower()
+        .replace(" ", "-")
+        .replace("_", "-")
+        .replace("/", "-")
+        .replace("?", "-")
+        .replace("=", "-")
+        .replace("&", "-")
+        .replace(".", "-")
+    )
 
-    # First, encode any non-alphanumeric chars except hyphens and Unicode letters
-    result = ""
-    for char in text:
-        category = unicodedata.category(char)
+    # Remove all non-alphanum except dashes
+    encoded = re.sub(r"[^a-z0-9-]", "", encoded)
 
-        # Keep alphanumerics, hyphens, and Unicode letters
-        if char.isalnum() or char == "-" or category.startswith("L"):
-            # Safe characters pass through unchanged
-            result += char
-        elif char == " ":
-            # Spaces get a special marker
-            result += "~s~"
-        else:
-            # All other chars get hex encoded
-            hex_char = format(ord(char), "x")
-            result += f"~{hex_char}~"
+    # Collapse multiple dashes into single dash
+    encoded = re.sub(r"-+", "-", encoded)
 
-    # Generate full encoded string first
-    encoded = result
-
-    # Simple truncate to max_length
-    return (encoded[:max_length] if len(encoded) > max_length else encoded) or "unknown"
-
-
-def unslugify(slug: str) -> str:
-    """Convert a slug back to a human-readable string.
-
-    Args:
-        slug: The slug to convert back
-
-    Returns:
-        The original string before slugification
-    """
-    if not slug or slug == "unknown":
-        return ""
-
-    # Replace our space marker with actual spaces
-    text = slug.replace("~s~", " ")
-
-    # Replace encoded special characters
-    def decode_special(match):
-        hex_str = match.group(1)
-        try:
-            return chr(int(hex_str, 16))
-        except ValueError:
-            return ""
-
-    # Replace all encoded chars with their original forms
-    text = re.sub(r"~([0-9a-f]+)~", decode_special, text)
-
-    return text
+    # Truncate
+    return encoded[:max_length] or "unknown"
