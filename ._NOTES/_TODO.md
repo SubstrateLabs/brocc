@@ -1,4 +1,5 @@
 - fix tests
+- factor out md extract
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool
