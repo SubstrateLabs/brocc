@@ -162,7 +162,7 @@ def docdb(temp_db_path, temp_lance_path, monkeypatch):
         return results[:limit]
 
     # Apply the mocks
-    monkeypatch.setattr(DocDB, "_initialize_lance", mock_initialize_lance)
+    monkeypatch.setattr(DocDB, "_initialize_lancedb", mock_initialize_lance)
     monkeypatch.setattr(DocDB, "_store_lance_chunks", mock_store_in_lance)
     monkeypatch.setattr(DocDB, "_delete_chunks", mock_delete_chunks)
     monkeypatch.setattr(DocDB, "vector_search", mock_vector_search)
