@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
+    "aiohttp>=3.11.16",
     "dotenv>=0.9.9",
     "duckdb>=1.2.1",
     "fastapi>=0.115.12",
@@ -44,6 +45,7 @@ dependencies = [
     "unstructured[md]>=0.17.2",
     "uvicorn>=0.34.0",
     "websocket-client>=1.8.0",
+    "websockets>=15.0.1",
 ]
 
 [project.optional-dependencies]

@@ -34,9 +34,6 @@ from brocc_li.utils.version import get_version
 
 load_dotenv()
 
-# Global vars for systray
-_SYSTRAY_PROCESS = None
-
 
 class MainContent(Static):
     def __init__(self, app_instance, *args, **kwargs):
@@ -186,7 +183,7 @@ class BroccApp(App):
         """Directly terminate the webview process"""
         try:
             # Get reference to webview process from FastAPI server
-            from brocc_li.fastapi_server import _WEBVIEW_PROCESS
+            from brocc_li.fastapi_webview import _WEBVIEW_PROCESS
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                 logger.debug("Terminating webview process directly")
@@ -217,7 +214,7 @@ class BroccApp(App):
         # First try to quickly terminate any active processes
         try:
             # Try direct termination of the webview process
-            from brocc_li.fastapi_server import _WEBVIEW_PROCESS
+            from brocc_li.fastapi_webview import _WEBVIEW_PROCESS
 
             if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
                 try:

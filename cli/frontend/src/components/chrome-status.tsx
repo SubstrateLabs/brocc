@@ -1,6 +1,5 @@
 import { useState, useEffect, ReactNode } from 'react';
 import { Button } from "@/components/ui/button"
-import { SiGooglechrome } from '@icons-pack/react-simple-icons';
 import { SquareArrowOutUpRight, Info } from 'lucide-react';
 
 // API endpoints
@@ -30,10 +29,7 @@ type StatusContainerProps = {
 const StatusContainer = ({ children }: StatusContainerProps) => {
   return (
     <div className="max-w-md mx-auto p-1 border border-dotted border-muted-foreground rounded relative">
-      <div className="absolute -bottom-3 -right-3 p-1">
-        <SiGooglechrome className="h-5 w-5" />
-      </div>
-      {children}
+       {children}
     </div>
   );
 };
@@ -44,7 +40,7 @@ const StatusMessage = ({ message, showSpinner = false }: { message: string, show
     {showSpinner && (
       <div className="mr-2 h-4 w-4 rounded-full border-2 border-t-transparent border-current animate-spin" />
     )}
-    <p>{message}</p>
+    <p className="text-sm">{message}</p>
   </div>
 );
 

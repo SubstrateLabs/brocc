@@ -1,9 +1,10 @@
+import asyncio
 import json
 import re
 from typing import List, Optional
 
-import requests
-import websocket
+import aiohttp
+import websockets
 from pydantic import BaseModel, Field
 
 from brocc_li.utils.chrome import REMOTE_DEBUG_PORT
@@ -25,15 +26,12 @@ class ChromeTab(BaseModel):
     devtoolsFrontendUrl: Optional[str] = None
 
 
-def get_tabs() -> List[ChromeTab]:
+async def get_tabs() -> List[ChromeTab]:
     """
     Get all Chrome browser tabs via CDP HTTP API.
 
     Connects to Chrome DevTools Protocol to retrieve tab information.
     Only returns actual page tabs (not DevTools, extensions, etc).
-
-    Args:
-        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
 
     Returns:
         List of ChromeTab objects representing open browser tabs
@@ -42,12 +40,16 @@ def get_tabs() -> List[ChromeTab]:
 
     try:
         # Get list of tabs via Chrome DevTools HTTP API
-        response = requests.get(f"http://localhost:{REMOTE_DEBUG_PORT}/json/list", timeout=2)
-        if response.status_code != 200:
-            logger.error(f"Failed to get tabs: HTTP {response.status_code}")
-            return []
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://localhost:{REMOTE_DEBUG_PORT}/json/list",
+                timeout=aiohttp.ClientTimeout(total=2),
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"Failed to get tabs: HTTP {response.status}")
+                    return []
 
-        cdp_tabs_json = response.json()
+                cdp_tabs_json = await response.json()
 
         # Process each tab
         for tab_info in cdp_tabs_json:
@@ -80,7 +82,7 @@ def get_tabs() -> List[ChromeTab]:
 
         return tabs
 
-    except requests.RequestException as e:
+    except aiohttp.ClientError as e:
         logger.error(f"Failed to connect to Chrome DevTools API: {e}")
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse Chrome DevTools API response: {e}")
@@ -91,42 +93,40 @@ def get_tabs() -> List[ChromeTab]:
     return []
 
 
-def open_new_tab(url: str = "") -> bool:
+async def open_new_tab(url: str = "") -> bool:
     """
     Open a new tab in Chrome via CDP HTTP API.
 
     Args:
         url: URL to open in the new tab (empty for blank tab)
-        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
 
     Returns:
         bool: True if successful, False otherwise
     """
     try:
         # Use CDP HTTP API to create a new tab
-        response = requests.get(
-            f"http://localhost:{REMOTE_DEBUG_PORT}/json/new", params={"url": url}, timeout=5
-        )
-        if response.status_code == 200:
-            logger.debug(f"Successfully opened new tab with URL: {url}")
-            return True
-        else:
-            logger.error(f"Failed to open URL {url}: HTTP {response.status_code}")
-            return False
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://localhost:{REMOTE_DEBUG_PORT}/json/new",
+                params={"url": url},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                if response.status == 200:
+                    logger.debug(f"Successfully opened new tab with URL: {url}")
+                    return True
+                else:
+                    logger.error(f"Failed to open URL {url}: HTTP {response.status}")
+                    return False
     except Exception as e:
         logger.error(f"Failed to open URL {url}: {str(e)}")
         return False
 
 
-def get_chrome_info():
+async def get_chrome_info():
     """
     Get Chrome version info and check connection via CDP HTTP API.
 
     Makes a single request to get both connection status and Chrome version.
-
-    Args:
-        debug_port: Chrome debug port number (default: DEFAULT_DEBUG_PORT)
-        timeout: Request timeout in seconds (default: 2)
 
     Returns:
         dict: {
@@ -138,15 +138,17 @@ def get_chrome_info():
     result = {"connected": False, "version": "Unknown", "data": None}
 
     try:
-        response = requests.get(
-            f"http://localhost:{REMOTE_DEBUG_PORT}/json/version", timeout=CHROME_INFO_TIMEOUT
-        )
-        result["connected"] = response.status_code == 200
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://localhost:{REMOTE_DEBUG_PORT}/json/version",
+                timeout=aiohttp.ClientTimeout(total=CHROME_INFO_TIMEOUT),
+            ) as response:
+                result["connected"] = response.status == 200
 
-        if result["connected"]:
-            data = response.json()
-            result["data"] = data
-            result["version"] = data.get("Browser", "Unknown")
+                if result["connected"]:
+                    data = await response.json()
+                    result["data"] = data
+                    result["version"] = data.get("Browser", "Unknown")
 
     except Exception as e:
         logger.debug(f"Error getting Chrome info: {e}")
@@ -155,7 +157,7 @@ def get_chrome_info():
     return result
 
 
-def get_tab_html_content(ws_url: str) -> str:
+async def get_tab_html_content(ws_url: str) -> str:
     """
     Connect to a Chrome tab via WebSocket debugger URL and get HTML content.
 
@@ -164,8 +166,6 @@ def get_tab_html_content(ws_url: str) -> str:
 
     Args:
         ws_url: WebSocket debugger URL for the tab
-        timeout: Connection and command timeout in seconds
-        max_retries: Maximum number of retry attempts (default 0 = no retries)
 
     Returns:
         HTML content as string, empty string if fails
@@ -174,7 +174,7 @@ def get_tab_html_content(ws_url: str) -> str:
         logger.error("Missing WebSocket URL for tab")
         return ""
 
-    html = _get_html_using_dom(ws_url)
+    html = await _get_html_using_dom(ws_url)
     if html:
         return html
 
@@ -182,26 +182,27 @@ def get_tab_html_content(ws_url: str) -> str:
     return ""
 
 
-def _get_html_using_dom(
-    ws_url: str,
-) -> str:
+async def _get_html_using_dom(ws_url: str) -> str:
     """Get HTML content using DOM.getOuterHTML CDP method"""
     # No retry loop - just try once
     try:
         logger.debug(f"Connecting to tab via WebSocket: {ws_url}")
-        ws = websocket.create_connection(ws_url, timeout=GET_HTML_TIMEOUT)
-
-        try:
+        async with websockets.connect(
+            ws_url,
+            open_timeout=GET_HTML_TIMEOUT,
+            close_timeout=GET_HTML_TIMEOUT,
+            max_size=20 * 1024 * 1024,  # default is 1mb, we use 20mb
+        ) as ws:
             # First check if page is ready using Page.getResourceTree
             # This will tell us quickly if it's a blank/loading page
             try:
                 page_enable_msg = json.dumps({"id": 1, "method": "Page.enable"})
-                ws.send(page_enable_msg)
-                ws.recv()  # Get response
+                await ws.send(page_enable_msg)
+                await ws.recv()  # Get response
 
                 resource_msg = json.dumps({"id": 2, "method": "Page.getResourceTree"})
-                ws.send(resource_msg)
-                resource_result = json.loads(ws.recv())
+                await ws.send(resource_msg)
+                resource_result = json.loads(await ws.recv())
 
                 # Check if this is an about:blank or empty page
                 frame = resource_result.get("result", {}).get("frameTree", {}).get("frame", {})
@@ -215,13 +216,13 @@ def _get_html_using_dom(
 
             # Enable DOM domain
             enable_msg = json.dumps({"id": 3, "method": "DOM.enable"})
-            ws.send(enable_msg)
-            result = json.loads(ws.recv())
+            await ws.send(enable_msg)
+            result = json.loads(await ws.recv())
 
             # Get document root node
             get_doc_msg = json.dumps({"id": 4, "method": "DOM.getDocument"})
-            ws.send(get_doc_msg)
-            result = json.loads(ws.recv())
+            await ws.send(get_doc_msg)
+            result = json.loads(await ws.recv())
 
             # Extract root node ID from response
             root_node_id = result.get("result", {}).get("root", {}).get("nodeId")
@@ -233,8 +234,8 @@ def _get_html_using_dom(
             get_html_msg = json.dumps(
                 {"id": 5, "method": "DOM.getOuterHTML", "params": {"nodeId": root_node_id}}
             )
-            ws.send(get_html_msg)
-            result = json.loads(ws.recv())
+            await ws.send(get_html_msg)
+            result = json.loads(await ws.recv())
 
             # Extract HTML content
             html_content = result.get("result", {}).get("outerHTML", "")
@@ -246,17 +247,11 @@ def _get_html_using_dom(
                 logger.warning("DOM method returned empty HTML")
                 return ""
 
-        except Exception as e:
-            logger.error(f"Error during DOM commands: {e}")
-            return ""
-        finally:
-            # Always close the websocket connection
-            ws.close()
-
-    except websocket.WebSocketTimeoutException:
+    except asyncio.TimeoutError:
+        # websockets uses asyncio.TimeoutError for connection timeouts?
         logger.warning("WebSocket connection timed out")
         return ""
-    except websocket.WebSocketBadStatusException as e:
+    except websockets.ConnectionClosedError as e:
         if "403 Forbidden" in str(e):
             logger.error(
                 "Chrome rejected WebSocket connection. "

@@ -1,12 +1,12 @@
+import asyncio
 import os
 import platform
 import shutil
 import subprocess
-import time
 from typing import Optional
 
+import aiohttp
 import psutil
-import requests
 
 from brocc_li.utils.logger import logger
 
@@ -65,12 +65,14 @@ def find_chrome_path() -> Optional[str]:
     return None
 
 
-def is_chrome_debug_port_active(port: int = REMOTE_DEBUG_PORT) -> bool:
+async def is_chrome_debug_port_active(port: int = REMOTE_DEBUG_PORT) -> bool:
     """Check if Chrome is running with debug port active by attempting to connect to it."""
     try:
-        response = requests.get(f"http://localhost:{port}/json/version", timeout=1)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
+        timeout = aiohttp.ClientTimeout(total=1.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"http://localhost:{port}/json/version") as response:
+                return response.status == 200
+    except Exception:
         return False
 
 
@@ -86,7 +88,13 @@ def is_chrome_process_running() -> bool:
     return False
 
 
-def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> bool:
+async def is_chrome_process_running_async() -> bool:
+    """Async version of is_chrome_process_running."""
+    # Since psutil is synchronous, we need to run this in another thread
+    return await asyncio.to_thread(is_chrome_process_running)
+
+
+async def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> bool:
     """
     Launch Chrome with debug port enabled.
 
@@ -125,11 +133,11 @@ def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> b
 
         max_wait = 15
         for i in range(max_wait):
-            if is_chrome_debug_port_active(debug_port):
+            if await is_chrome_debug_port_active(debug_port):
                 if not quiet:
                     logger.success("Chrome launched successfully with debug port.")
                 return True
-            time.sleep(1)
+            await asyncio.sleep(1)
             if not quiet:
                 logger.debug(f"Waiting for Chrome debug port... ({i + 1}/{max_wait})")
 
@@ -144,7 +152,7 @@ def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> b
         return False
 
 
-def quit_chrome() -> bool:
+async def quit_chrome() -> bool:
     """
     Quit all running Chrome/Chromium processes.
 
@@ -183,7 +191,9 @@ def quit_chrome() -> bool:
         logger.warning("No Chrome/Chromium processes found to quit.")
         return True
 
-    time.sleep(2)
+    # Use asyncio.sleep instead of time.sleep
+    await asyncio.sleep(2)
+
     still_running = []
     for pid in killed_pids:
         if psutil.pid_exists(pid):
@@ -208,7 +218,7 @@ def quit_chrome() -> bool:
         return False
 
 
-def restart_chrome_with_debug_port(
+async def restart_chrome_with_debug_port(
     debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False
 ) -> bool:
     """
@@ -221,12 +231,12 @@ def restart_chrome_with_debug_port(
     Returns:
         bool: True if Chrome was successfully restarted with debug port, False otherwise
     """
-    if not quit_chrome():
+    if not await quit_chrome():
         if not quiet:
             logger.error("Failed to quit existing Chrome instances.")
         return False
 
     # Allow a moment for processes to fully terminate
-    time.sleep(1)
+    await asyncio.sleep(1)
 
-    return launch_chrome(debug_port, quiet)
+    return await launch_chrome(debug_port, quiet)

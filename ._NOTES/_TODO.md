@@ -1,4 +1,3 @@
-- chrome manager main refactor
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool
@@ -10,8 +9,6 @@
     - is this the same as "parent url" for browser nav?
 - rework prototype extract code
 
-## cleanup
-- fastapi server: review, research best practices
 
 ## backlog
 

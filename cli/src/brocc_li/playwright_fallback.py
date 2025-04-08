@@ -1,23 +1,29 @@
 """
 Playwright fallback module for getting HTML from pages when faster CDP method fails.
 Opens a new tab using Playwright, navigates to the URL, and gets the HTML content.
+This module uses async Playwright API for better thread safety.
 """
 
-from functools import lru_cache
+import asyncio
 
-import requests
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import sync_playwright
+import aiohttp
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import async_playwright
 
 from brocc_li.utils.chrome import REMOTE_DEBUG_PORT, is_chrome_debug_port_active
 from brocc_li.utils.logger import logger
 
+# Cache the playwright instance
+_playwright_instance = None
 
-@lru_cache(maxsize=1)
-def get_playwright():
+
+async def get_playwright():
     """Get or create a Playwright instance (cached)."""
-    logger.debug("Starting Playwright instance")
-    return sync_playwright().start()
+    global _playwright_instance
+    if _playwright_instance is None:
+        logger.debug("Starting async Playwright instance")
+        _playwright_instance = await async_playwright().start()
+    return _playwright_instance
 
 
 class PlaywrightFallback:
@@ -25,33 +31,34 @@ class PlaywrightFallback:
 
     def __init__(self):
         """Initialize the Playwright fallback helper."""
-        self._playwright = None
         self._browser = None
         self._debug_port = REMOTE_DEBUG_PORT
+        self._lock = asyncio.Lock()  # Add a lock to prevent concurrent browser connections
 
-    def _ensure_browser(self):
+    async def _ensure_browser(self):
         """Ensure we have a connection to the existing Chrome instance."""
-        if self._browser is None:
-            try:
-                # Check if Chrome is running with debug port
-                if not is_chrome_debug_port_active(self._debug_port):
-                    logger.error(
-                        f"Chrome debug port {self._debug_port} not active. Please start Chrome with --remote-debugging-port={self._debug_port}"
+        async with self._lock:  # Use a lock to prevent multiple concurrent connections
+            if self._browser is None:
+                try:
+                    # Check if Chrome is running with debug port - now directly use the async function
+                    if not await is_chrome_debug_port_active(self._debug_port):
+                        logger.error(
+                            f"Chrome debug port {self._debug_port} not active. Please start Chrome with --remote-debugging-port={self._debug_port}"
+                        )
+                        return
+
+                    # Connect to the running Chrome instance
+                    playwright = await get_playwright()
+                    self._browser = await playwright.chromium.connect_over_cdp(
+                        f"http://localhost:{self._debug_port}"
                     )
-                    return
 
-                # Connect to the running Chrome instance
-                self._playwright = get_playwright()
-                self._browser = self._playwright.chromium.connect_over_cdp(
-                    f"http://localhost:{self._debug_port}"
-                )
+                    logger.debug("Successfully connected to local Chrome instance for fallback")
+                except Exception as e:
+                    logger.error(f"Failed to connect to Chrome browser: {e}")
+                    self._browser = None
 
-                logger.debug("Successfully connected to local Chrome instance for fallback")
-            except Exception as e:
-                logger.error(f"Failed to connect to Chrome browser: {e}")
-                self._browser = None
-
-    def get_html_from_url(self, url: str) -> str:
+    async def get_html_from_url(self, url: str) -> str:
         """
         Get HTML content from a URL using Playwright.
 
@@ -68,7 +75,7 @@ class PlaywrightFallback:
             logger.error(f"Invalid URL for Playwright fallback: {url}")
             return ""
 
-        self._ensure_browser()
+        await self._ensure_browser()
         if not self._browser:
             return ""
 
@@ -81,13 +88,13 @@ class PlaywrightFallback:
                     "No existing browser windows found. Fallback may create a new window."
                 )
                 # Create a context since none exists
-                context = self._browser.new_context()
-                page = context.new_page()
+                context = await self._browser.new_context()
+                page = await context.new_page()
             else:
                 # Use the first existing context/window
                 context = contexts[0]
                 # Create a new tab in the existing window
-                page = context.new_page()
+                page = await context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
             broccoli_marker_script = """
@@ -167,19 +174,19 @@ class PlaywrightFallback:
             """
 
             # Add this script to run on every navigation and in every frame
-            page.add_init_script(broccoli_marker_script)
+            await page.add_init_script(broccoli_marker_script)
 
             # 'load' = wait for the load event to be fired (more reliable than networkidle)
             logger.debug(f"Playwright: Navigating to {url}")
             try:
-                page.goto(url, wait_until="load", timeout=10000)
+                await page.goto(url, wait_until="load", timeout=10000)
             except PlaywrightError as e:
                 # Even if navigation "fails", we might still have loaded content
                 logger.warning(f"Navigation had issues: {e}")
 
                 # Give the page a moment to settle
                 try:
-                    page.wait_for_timeout(1000)
+                    await page.wait_for_timeout(1000)
                 except Exception as e:
                     logger.debug(f"Timeout wait interrupted: {e}")
                     pass
@@ -187,10 +194,10 @@ class PlaywrightFallback:
             # Try to get HTML content even if navigation had issues
             try:
                 # Wait a bit longer to ensure our marker script has run
-                page.wait_for_timeout(500)
+                await page.wait_for_timeout(500)
 
                 # Get the page content
-                html = page.content()
+                html = await page.content()
                 if html and len(html) > 500:  # Ensure we have meaningful content
                     logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
                     return html
@@ -211,12 +218,12 @@ class PlaywrightFallback:
             # Make sure to clean up the temporary tab/page
             if page:
                 try:
-                    page.close()
+                    await page.close()
                     logger.debug("Closed temporary tab")
                 except Exception as e:
                     logger.debug(f"Error closing page: {e}")
 
-    def get_html_from_tab(self, tab_id: str, debug_port: int = REMOTE_DEBUG_PORT) -> str:
+    async def get_html_from_tab(self, tab_id: str, debug_port: int = REMOTE_DEBUG_PORT) -> str:
         """
         Get HTML content from an existing Chrome tab using Playwright.
 
@@ -231,14 +238,18 @@ class PlaywrightFallback:
             HTML content as string, empty string if failed
         """
         try:
-            # Get the tab details to find its URL
-            response = requests.get(f"http://localhost:{debug_port}/json/list", timeout=1)
-            if response.status_code != 200:
-                logger.error(f"Failed to get tab list: HTTP {response.status_code}")
-                return ""
+            # Get the tab details to find its URL using aiohttp
+            timeout = aiohttp.ClientTimeout(total=1.0)  # 1 second timeout
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"http://localhost:{debug_port}/json/list") as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to get tab list: HTTP {response.status}")
+                        return ""
+
+                    # Parse the JSON response
+                    tabs = await response.json()
 
             # Find the tab with matching ID
-            tabs = response.json()
             tab = next((t for t in tabs if t.get("id") == tab_id), None)
 
             if not tab:
@@ -256,24 +267,37 @@ class PlaywrightFallback:
             logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {url}")
 
             # Get HTML using a temporary tab in the main window
-            return self.get_html_from_url(url)
+            return await self.get_html_from_url(url)
 
         except Exception as e:
             logger.error(f"Error getting tab info for Playwright fallback: {e}")
             return ""
 
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up browser connection."""
         try:
             if self._browser:
-                self._browser.close()
+                await self._browser.close()
                 self._browser = None
         except Exception as e:
             logger.error(f"Error cleaning up Playwright resources: {e}")
 
     def __del__(self):
         """Ensure resources are cleaned up when object is garbage collected."""
-        self.cleanup()
+        # We can't await in __del__, so we create a task if there's a running event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.cleanup())
+            else:
+                # If no loop is running, we can't do async cleanup here
+                # This should be rare, but just in case
+                logger.warning(
+                    "No event loop running, can't clean up Playwright resources properly"
+                )
+        except RuntimeError:
+            # No event loop in this thread
+            pass
 
 
 # Singleton instance

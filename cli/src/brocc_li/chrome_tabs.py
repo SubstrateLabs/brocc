@@ -1,7 +1,7 @@
+import asyncio
 import signal
-import threading
 import time
-from typing import Callable, List, NamedTuple, Optional, Set
+from typing import Awaitable, Callable, List, NamedTuple, Optional, Set, Union
 
 from brocc_li.chrome_cdp import get_chrome_info
 from brocc_li.chrome_manager import ChromeManager, TabReference
@@ -15,6 +15,13 @@ class TabChangeEvent(NamedTuple):
     closed_tabs: List[dict]
     navigated_tabs: List[dict]
     current_tabs: List[dict]
+
+
+# Define a type alias for callbacks that can be either sync or async
+TabChangeCallback = Union[
+    Callable[[TabChangeEvent], None],  # Sync callback
+    Callable[[TabChangeEvent], Awaitable[None]],  # Async callback
+]
 
 
 class ChromeTabs:
@@ -33,18 +40,18 @@ class ChromeTabs:
         self.previous_tab_refs: Set[TabReference] = set()
         self.last_tabs_check = 0
         self._monitoring = False
-        self._monitor_thread = None
         self._on_change_callback = None
+        self._monitor_task = None
 
-    def start_monitoring(
-        self, on_change_callback: Optional[Callable[[TabChangeEvent], None]] = None
+    async def start_monitoring(
+        self, on_change_callback: Optional[TabChangeCallback] = None
     ) -> bool:
         """
-        Start monitoring tabs for changes.
+        Start monitoring tabs for changes asynchronously.
 
         Args:
             on_change_callback: Optional callback function that receives TabChangeEvent objects
-                                when tabs change
+                                when tabs change. Can be either sync or async.
 
         Returns:
             bool: True if monitoring started successfully
@@ -59,21 +66,21 @@ class ChromeTabs:
         # Connect to Chrome if not already connected
         if not self.chrome_manager.connected:
             logger.info("Connecting to Chrome...")
-            connected = self.chrome_manager.test_connection()
+            connected = await self.chrome_manager.test_connection()
             if not connected:
                 logger.error("Failed to connect to Chrome. Cannot monitor tabs.")
                 return False
 
         # Get initial tabs
         logger.debug("Getting initial tabs...")
-        initial_tabs = self.chrome_manager.get_all_tabs()
+        initial_tabs = await self.chrome_manager.get_all_tabs()
         filtered_initial_tabs = [
             tab for tab in initial_tabs if tab.get("url", "").startswith(("http://", "https://"))
         ]
 
         # Process initial tabs to get HTML content
         if filtered_initial_tabs:
-            initial_tabs_with_html = self.chrome_manager.get_parallel_tab_html(
+            initial_tabs_with_html = await self.chrome_manager.get_parallel_tab_html(
                 filtered_initial_tabs
             )
 
@@ -84,31 +91,41 @@ class ChromeTabs:
                 if "id" in tab and "url" in tab
             }
 
-        # Start monitoring thread
+        # Start monitoring task
         self._monitoring = True
-        self._monitor_thread = threading.Thread(
-            target=self._monitor_loop, name="chrome-tabs-monitor", daemon=True
-        )
-        self._monitor_thread.start()
-        logger.info(f"Started monitoring {len(self.previous_tab_refs)} HTTP/HTTPS tabs.")
+        self._monitor_task = asyncio.create_task(self._monitor_loop())
+        logger.info(f"Started async monitoring {len(self.previous_tab_refs)} HTTP/HTTPS tabs.")
         return True
 
-    def stop_monitoring(self) -> None:
-        """Stop monitoring tabs for changes."""
+    async def stop_monitoring(self) -> None:
+        """Stop monitoring tabs for changes (async version)."""
         self._monitoring = False
-        if self._monitor_thread and self._monitor_thread.is_alive():
-            self._monitor_thread.join(timeout=1.0)
-        logger.debug("Tab monitoring stopped.")
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
+            try:
+                # Wait for the task to be cancelled with a timeout
+                await asyncio.wait_for(self._monitor_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tab monitoring task did not stop within timeout, forcing termination"
+                )
+            except asyncio.CancelledError:
+                # This is expected when cancelling the task
+                pass
+            except Exception as e:
+                logger.error(f"Error while stopping monitoring task: {e}")
 
-    def _monitor_loop(self) -> None:
-        """Main monitoring loop that runs in a separate thread."""
+        logger.debug("Async tab monitoring stopped.")
+
+    async def _monitor_loop(self) -> None:
+        """Async version of the monitoring loop."""
         while self._monitoring:
             current_time = time.time()
 
             # Check connection status periodically
             if not self.chrome_manager.connected:
                 logger.warning("Chrome connection lost. Attempting to reconnect...")
-                connected = self.chrome_manager.test_connection()
+                connected = await self.chrome_manager.test_connection()
                 if connected:
                     logger.success("Reconnected to Chrome")
                     # Reset tab tracking after reconnect
@@ -121,23 +138,26 @@ class ChromeTabs:
             # Periodically check for tab changes
             if current_time - self.last_tabs_check >= self.check_interval:
                 try:
-                    tabs = self.chrome_manager.get_all_tabs()
-                    changed_tabs = self.process_tab_changes(tabs)
+                    tabs = await self.chrome_manager.get_all_tabs()
+                    changed_tabs = await self.process_tab_changes(tabs)
 
                     # Call the callback if registered
                     if self._on_change_callback and changed_tabs:
-                        self._on_change_callback(changed_tabs)
+                        if asyncio.iscoroutinefunction(self._on_change_callback):
+                            await self._on_change_callback(changed_tabs)
+                        else:
+                            self._on_change_callback(changed_tabs)
 
                     self.last_tabs_check = current_time
                 except Exception as e:
                     logger.error(f"Error monitoring tabs: {e}")
 
-            # Sleep to prevent high CPU usage
-            time.sleep(0.5)
+            # Use asyncio.sleep instead of time.sleep
+            await asyncio.sleep(0.5)
 
-    def process_tab_changes(self, current_tabs) -> Optional[TabChangeEvent]:
+    async def process_tab_changes(self, current_tabs) -> Optional[TabChangeEvent]:
         """
-        Process changes in tabs, including URL changes within existing tabs.
+        Process changes in tabs asynchronously, including URL changes within existing tabs.
 
         Args:
             current_tabs: The list of current tabs from chrome_manager.get_all_tabs()
@@ -206,7 +226,7 @@ class ChromeTabs:
         # Get HTML content for new tabs or navigations
         if tabs_needing_html:
             # Use our parallel method to get HTML for all tabs needing it
-            new_tabs_with_html = self.chrome_manager.get_parallel_tab_html(tabs_needing_html)
+            new_tabs_with_html = await self.chrome_manager.get_parallel_tab_html(tabs_needing_html)
             # Add the new results to our full list
             tabs_with_html.extend(new_tabs_with_html)
 
@@ -237,19 +257,19 @@ class ChromeTabs:
             current_tabs=filtered_tabs,
         )
 
-    def get_all_tabs_with_html(self) -> List[dict]:
+    async def get_all_tabs_with_html(self) -> List[dict]:
         """
-        Get all current tabs with their HTML content.
+        Get all current tabs with their HTML content asynchronously.
 
         Returns:
             List of tab dictionaries with HTML content added
         """
-        tabs = self.chrome_manager.get_all_tabs()
+        tabs = await self.chrome_manager.get_all_tabs()
         filtered_tabs = [
             tab for tab in tabs if tab.get("url", "").startswith(("http://", "https://"))
         ]
 
-        tabs_with_html = self.chrome_manager.get_parallel_tab_html(filtered_tabs)
+        tabs_with_html = await self.chrome_manager.get_parallel_tab_html(filtered_tabs)
 
         # Convert to a list of dicts with HTML included
         result = []
@@ -261,7 +281,7 @@ class ChromeTabs:
         return result
 
 
-def main() -> None:
+async def main() -> None:
     """Run the Chrome tab monitor as a standalone program."""
     from rich import box
     from rich.console import Console
@@ -352,7 +372,7 @@ def main() -> None:
         console.print(table)
 
     # On tab change callback
-    def on_tab_change(event):
+    async def on_tab_change(event):
         # Display completely new tabs if any
         if event.new_tabs:
             new_tabs_with_html = []
@@ -396,19 +416,22 @@ def main() -> None:
 
     try:
         # Connect to Chrome and start monitoring
-        if tabs_monitor.start_monitoring(on_tab_change):
-            chrome_info = get_chrome_info()
-            logger.success(f"Successfully connected to Chrome {chrome_info['version']}")
+        # Use async native get_chrome_info
+        chrome_info = await get_chrome_info()
+        version = chrome_info["version"]
+
+        if await tabs_monitor.start_monitoring(on_tab_change):
+            logger.success(f"Successfully connected to Chrome {version}")
 
             # Get initial tabs to display
-            tabs = manager.get_all_tabs()
+            tabs = await manager.get_all_tabs()
             filtered_tabs = [
                 tab for tab in tabs if tab.get("url", "").startswith(("http://", "https://"))
             ]
 
             # Process initial tabs to get HTML content
             if filtered_tabs:
-                initial_tabs_with_html = manager.get_parallel_tab_html(filtered_tabs)
+                initial_tabs_with_html = await manager.get_parallel_tab_html(filtered_tabs)
 
                 # Display initial tabs in a table
                 display_tab_list(
@@ -423,7 +446,7 @@ def main() -> None:
             # Keep the main thread alive until Ctrl+C
             try:
                 while True:
-                    time.sleep(0.5)
+                    await asyncio.sleep(0.5)
             except KeyboardInterrupt:
                 logger.info("Tab monitor stopped by user.")
         else:
@@ -435,14 +458,14 @@ def main() -> None:
         logger.error(f"Unexpected error: {e}")
     finally:
         # Stop monitoring and clean up resources
-        tabs_monitor.stop_monitoring()
+        await tabs_monitor.stop_monitoring()
 
         # Clean up Playwright resources if we used them
         try:
             # Import here to avoid circular imports
             from brocc_li.playwright_fallback import playwright_fallback
 
-            playwright_fallback.cleanup()
+            await playwright_fallback.cleanup()
         except Exception as e:
             logger.debug(f"Error cleaning up Playwright resources: {e}")
 
@@ -450,4 +473,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Run the async main function with asyncio
+    asyncio.run(main())

@@ -6,6 +6,7 @@ alwaysApply: false
 DO NOT add docstrings for all methods classes and functions – only document things that are not self-documenting. When you do add docstrings, ONLY document parameters and behavior that is non-obvious based on the signature and implementation.
 Always assume that we've installed all dependencies already, do not use messy dynamic imports.
 We use Pydantic v2, DO NOT worry about backwards compatibility for Pydantic v1.
+Always prefer async-native Python code rather than synchronous Python with legacy multithreading.
 If you get a linter error about a missing dependency, ask me to install it.
 Always follow the Ruff and Pyright rule settings in [pyproject.toml](mdc:cli/pyproject.toml). Remember:
 - Do not use bare except
