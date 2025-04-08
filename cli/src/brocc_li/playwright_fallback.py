@@ -19,6 +19,10 @@ from brocc_li.utils.logger import logger
 # Banner text shown in the browser when using Playwright fallback
 BANNER_TEXT = "🥦 READING... (Page will close automatically in a moment)"
 
+# Size for the persistent fallback window
+FALLBACK_WINDOW_WIDTH = 400
+FALLBACK_WINDOW_HEIGHT = 400
+
 # Estimated time per tab in seconds (average) - initial default value
 ESTIMATED_SECONDS_PER_TAB = 8  # Playwright navigation takes ~8 seconds per tab on average
 
@@ -75,12 +79,14 @@ class PlaywrightFallback:
     def __init__(self):
         """Initialize the Playwright fallback helper."""
         self._browser = None
+        self._fallback_context = None  # Store the reusable context
         self._debug_port = REMOTE_DEBUG_PORT
-        self._lock = asyncio.Lock()  # Add a lock to prevent concurrent browser connections
+        self._browser_lock = asyncio.Lock()  # Renamed lock for clarity
+        self._context_lock = asyncio.Lock()  # New lock for context management
 
     async def _ensure_browser(self):
         """Ensure we have a connection to the existing Chrome instance."""
-        async with self._lock:  # Use a lock to prevent multiple concurrent connections
+        async with self._browser_lock:  # Use browser lock for browser connection
             if self._browser is None:
                 try:
                     # Check if Chrome is running with debug port - now directly use the async function
@@ -103,9 +109,9 @@ class PlaywrightFallback:
 
     async def get_html_from_url(self, url: str) -> str:
         """
-        Get HTML content from a URL using Playwright.
+        Get HTML content from a URL using Playwright in a dedicated fallback context.
 
-        Creates a temporary tab in an existing Chrome window,
+        Opens a temporary *tab* in a shared fallback window (context),
         gets the content, and immediately closes the tab.
 
         Args:
@@ -127,21 +133,24 @@ class PlaywrightFallback:
         start_time = time.time()  # Start timing
 
         try:
-            # First check if there are any existing browser contexts (windows)
-            contexts = self._browser.contexts
-            if not contexts:
-                logger.warning(
-                    "No existing browser windows found. Fallback may create a new window."
-                )
-                # Create a context since none exists
-                context = await self._browser.new_context()
-                page = await context.new_page()
-            else:
-                # Use the first existing context/window
-                context = contexts[0]
-                # Create a new tab in the existing window
-                page = await context.new_page()
-                logger.debug("Created new tab in existing Chrome window")
+            # Ensure the fallback context exists, creating it if necessary
+            async with self._context_lock:
+                if self._fallback_context is None:
+                    logger.debug(
+                        f"Creating new persistent browser context for Playwright fallback ({FALLBACK_WINDOW_WIDTH}x{FALLBACK_WINDOW_HEIGHT})"
+                    )
+                    self._fallback_context = await self._browser.new_context(
+                        viewport={
+                            "width": FALLBACK_WINDOW_WIDTH,
+                            "height": FALLBACK_WINDOW_HEIGHT,
+                        }
+                    )
+                    # Handle potential context closure events if needed in the future
+                    # self._fallback_context.on("close", lambda: setattr(self, "_fallback_context", None))
+
+            # Create a new page (tab) within the persistent context
+            page = await self._fallback_context.new_page()
+            logger.debug("Created new tab in persistent fallback context")
 
             # Use static BANNER_TEXT
             banner_text = BANNER_TEXT
@@ -270,13 +279,15 @@ class PlaywrightFallback:
                 add_tab_processing_time(duration)
                 logger.debug(f"Tab processing took {duration:.2f}s")
 
-            # Make sure to clean up the temporary tab/page
+            # Make sure to clean up ONLY the temporary tab/page
+            # The context is persistent and cleaned up in self.cleanup()
             if page:
                 try:
                     await page.close()
                     logger.debug("Closed temporary tab")
                 except Exception as e:
                     logger.debug(f"Error closing page: {e}")
+            # DO NOT close context here anymore
 
     async def get_html_from_tab(
         self,
@@ -333,13 +344,26 @@ class PlaywrightFallback:
             return ""
 
     async def cleanup(self):
-        """Clean up browser connection."""
-        try:
+        """Clean up browser context and connection."""
+        # Close the fallback context first, if it exists
+        async with self._context_lock:
+            if self._fallback_context:
+                try:
+                    logger.debug("Closing persistent Playwright fallback context")
+                    await self._fallback_context.close()
+                    self._fallback_context = None
+                except Exception as e:
+                    logger.error(f"Error closing Playwright context: {e}")
+
+        # Then close the browser connection
+        async with self._browser_lock:
             if self._browser:
-                await self._browser.close()
-                self._browser = None
-        except Exception as e:
-            logger.error(f"Error cleaning up Playwright resources: {e}")
+                try:
+                    logger.debug("Closing Playwright browser connection")
+                    await self._browser.close()
+                    self._browser = None
+                except Exception as e:
+                    logger.error(f"Error cleaning up Playwright browser connection: {e}")
 
     def __del__(self):
         """Ensure resources are cleaned up when object is garbage collected."""
