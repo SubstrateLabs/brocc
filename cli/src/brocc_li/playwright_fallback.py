@@ -101,7 +101,7 @@ class PlaywrightFallback:
                     logger.error(f"Failed to connect to Chrome browser: {e}")
                     self._browser = None
 
-    async def get_html_from_url(self, url: str, current_tab: int = 0, total_tabs: int = 0) -> str:
+    async def get_html_from_url(self, url: str) -> str:
         """
         Get HTML content from a URL using Playwright.
 
@@ -110,8 +110,6 @@ class PlaywrightFallback:
 
         Args:
             url: The URL to get HTML from
-            current_tab: Current tab number being processed (1-indexed)
-            total_tabs: Total number of tabs to process
 
         Returns:
             HTML content as string, empty string if failed
@@ -145,25 +143,8 @@ class PlaywrightFallback:
                 page = await context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
-            # Get current time estimate based on the running average
-            current_estimate = get_current_time_estimate()
-
-            # Calculate banner text with progress if available
+            # Use static BANNER_TEXT
             banner_text = BANNER_TEXT
-            if current_tab > 0 and total_tabs > 0:
-                # Calculate remaining tabs and time estimate
-                remaining_tabs = total_tabs - current_tab + 1  # Include current tab
-                time_estimate = remaining_tabs * current_estimate
-
-                # Check if we're at or above the cap
-                if time_estimate >= 60:
-                    # Use "Wait a minute..." instead of the time
-                    time_display = "About a minute remaining"
-                else:
-                    # For shorter times, display seconds
-                    time_display = f"{int(time_estimate)}s remaining"
-
-                banner_text = f"🥦 Reading {current_tab}/{total_tabs} pages... {time_display}"
 
             broccoli_marker_script = f"""
             (function() {{
@@ -300,8 +281,6 @@ class PlaywrightFallback:
     async def get_html_from_tab(
         self,
         tab_id: str,
-        current_tab: int = 0,
-        total_tabs: int = 0,
         debug_port: int = REMOTE_DEBUG_PORT,
     ) -> str:
         """
@@ -312,8 +291,6 @@ class PlaywrightFallback:
 
         Args:
             tab_id: The Chrome tab ID
-            current_tab: Current tab number being processed (1-indexed)
-            total_tabs: Total number of tabs to process
             debug_port: Chrome debug port
 
         Returns:
@@ -348,8 +325,8 @@ class PlaywrightFallback:
 
             logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {url}")
 
-            # Get HTML using a temporary tab in the main window, passing progress info
-            return await self.get_html_from_url(url, current_tab, total_tabs)
+            # Call get_html_from_url without progress info
+            return await self.get_html_from_url(url)
 
         except Exception as e:
             logger.error(f"Error getting tab info for Playwright fallback: {e}")

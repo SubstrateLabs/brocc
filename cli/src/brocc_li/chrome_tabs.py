@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable, List, NamedTuple, Optional, Set, Union
 
+from rich.markup import escape
+
 from brocc_li.chrome_cdp import get_chrome_info
 from brocc_li.chrome_manager import ChromeManager, TabReference
 from brocc_li.html_to_md import convert_html_to_markdown
@@ -515,7 +517,9 @@ async def main() -> None:
     except KeyboardInterrupt:
         logger.info("Tab monitor stopped by user.")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        # Escape the exception message to prevent Rich markup errors
+        escaped_error = escape(str(e))
+        logger.error(f"Unexpected error: {escaped_error}")
     finally:
         # Stop monitoring and clean up resources
         await tabs_monitor.stop_monitoring()

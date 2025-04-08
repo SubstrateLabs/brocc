@@ -1,6 +1,5 @@
 import asyncio
 import os
-import time
 from enum import Enum
 from typing import List, NamedTuple
 
@@ -357,10 +356,8 @@ class ChromeManager:
                 from brocc_li.playwright_fallback import playwright_fallback
 
                 # Use our fallback method which opens a new tab with anti-detection features
-                # Pass progress information for the banner display
-                html = await playwright_fallback.get_html_from_tab(
-                    tab_id, current_tab=current_tab, total_tabs=total_tabs
-                )
+                # Removed current_tab and total_tabs args as they are no longer needed
+                html = await playwright_fallback.get_html_from_tab(tab_id)
 
                 if html:
                     logger.debug(
@@ -377,7 +374,7 @@ class ChromeManager:
         """
         Efficiently get HTML content from multiple tabs asynchronously.
 
-        First tries CDP in parallel for all tabs, then handles Playwright fallbacks sequentially.
+        First tries CDP in parallel for all tabs, then handles Playwright fallbacks concurrently.
 
         Args:
             tabs: List of tab dictionaries containing id and other info
@@ -396,36 +393,44 @@ class ChromeManager:
         # Log the start of the process
         console.print(f"[cyan]Starting HTML extraction for {len(tabs)} tabs...[/cyan]")
 
-        # First phase: Process tabs with CDP in parallel using asyncio.gather
+        # First phase: Process tabs with CDP in parallel using asyncio.gather, limited by semaphore
         console.print(
-            f"[bold cyan]Phase 1: Parallel CDP extraction for {len(tabs)} tabs...[/bold cyan]"
+            f"[bold cyan]Phase 1: Parallel CDP extraction for {len(tabs)} tabs (max 5 concurrent)...[/bold cyan]"
         )
 
+        semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent CDP tasks
+
         async def process_tab_with_cdp_async(tab):
-            tab_id = tab.get("id")
-            title = tab.get("title", "Untitled")
-            short_title = (title[:30] + "...") if len(title) > 30 else title
+            async with semaphore:  # Acquire semaphore before running
+                tab_id = tab.get("id")
+                title = tab.get("title", "Untitled")
+                short_title = (title[:30] + "...") if len(title) > 30 else title
 
-            console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
-            try:
-                # Explicitly set cdp_only=True to skip fallback during initial phase
-                html = await self.get_tab_html(tab_id, cdp_only=True)
-            except asyncio.TimeoutError:
-                console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
-                return tab, "", True  # Force fallback
+                console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
+                try:
+                    # Explicitly set cdp_only=True to skip fallback during initial phase
+                    html = await self.get_tab_html(tab_id, cdp_only=True)
+                except asyncio.TimeoutError:
+                    console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
+                    return tab, "", True  # Force fallback
+                except Exception as e:  # Catch other potential errors during CDP
+                    console.print(f"[red]✗[/red] CDP error for {short_title}: {e}")
+                    return tab, "", True  # Force fallback
 
-            needs_fallback = not bool(html)
+                needs_fallback = not bool(html)
 
-            if needs_fallback:
-                console.print(f"[yellow]CDP failed for {short_title} - queuing fallback[/yellow]")
-            else:
-                char_count = len(html)
-                line_count = html.count("\n") + 1
-                console.print(
-                    f"[green]✓[/green] CDP success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
-                )
+                if needs_fallback:
+                    console.print(
+                        f"[yellow]CDP failed for {short_title} - queuing fallback[/yellow]"
+                    )
+                else:
+                    char_count = len(html)
+                    line_count = html.count("\n") + 1
+                    console.print(
+                        f"[green]✓[/green] CDP success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
+                    )
 
-            return tab, html, needs_fallback
+                return tab, html, needs_fallback
 
         # Process all tabs in parallel
         cdp_results = await asyncio.gather(*[process_tab_with_cdp_async(tab) for tab in tabs])
@@ -437,10 +442,10 @@ class ChromeManager:
             else:
                 result_tabs_with_html.append((tab, html))
 
-        # Phase 2: Process fallbacks sequentially
+        # Phase 2: Process fallbacks concurrently using Playwright
         if tabs_needing_fallback:
             console.print(
-                f"\n[bold cyan]Phase 2: Sequential Playwright fallbacks for {len(tabs_needing_fallback)} tabs...[/bold cyan]"
+                f"\n[bold cyan]Phase 2: Concurrent Playwright fallbacks for {len(tabs_needing_fallback)} tabs...[/bold cyan]"
             )
 
             try:
@@ -448,67 +453,57 @@ class ChromeManager:
                 from brocc_li.playwright_fallback import playwright_fallback
             except ImportError as e:
                 logger.error(f"Failed to import Playwright fallback: {e}")
+                # Return results obtained so far from CDP
                 return result_tabs_with_html
 
-            total_fallbacks = len(tabs_needing_fallback)
-
-            for i, tab in enumerate(tabs_needing_fallback):
+            # Create tasks for each fallback
+            fallback_tasks = []
+            tab_map = {}  # Map task to original tab data
+            for tab in tabs_needing_fallback:
                 tab_id = tab.get("id")
                 if tab_id:
                     title = tab.get("title", "Untitled")
                     short_title = (title[:30] + "...") if len(title) > 30 else title
+                    console.print(f"[dim]Playwright: Queuing {short_title}...[/dim]")
+                    # Create the async task
+                    task = asyncio.create_task(playwright_fallback.get_html_from_tab(tab_id))
+                    fallback_tasks.append(task)
+                    tab_map[task] = tab  # Store original tab info associated with this task
 
-                    # Calculate current index (1-indexed) for display purposes
-                    current_tab_index = i + 1
+            # Run all fallback tasks concurrently and gather results
+            fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
 
-                    # Get the current average processing time estimate
-                    try:
-                        from brocc_li.playwright_fallback import get_current_time_estimate
+            # Process the results
+            for i, result in enumerate(fallback_results):
+                task = fallback_tasks[i]
+                tab = tab_map[task]  # Get original tab info
+                title = tab.get("title", "Untitled")
+                short_title = (title[:30] + "...") if len(title) > 30 else title
 
-                        avg_estimate = get_current_time_estimate()
-                        time_left_estimate = avg_estimate * (
-                            total_fallbacks - current_tab_index + 1
-                        )
-
-                        # Format time estimate for display
-                        if time_left_estimate >= 60:
-                            # Use "Wait a minute..." instead of specific time when we hit the cap
-                            time_left_str = "Wait a minute..."
-                        else:
-                            time_left_str = f"~{int(time_left_estimate)}s remaining"
-
-                        console.print(
-                            f"[dim]Playwright ({current_tab_index}/{total_fallbacks}): {short_title}... {time_left_str}[/dim]"
-                        )
-                    except ImportError:
-                        console.print(
-                            f"[dim]Playwright ({current_tab_index}/{total_fallbacks}): {short_title}...[/dim]"
-                        )
-
-                    # Record start time to calculate processing duration
-                    start_time = time.time()
-
-                    # Run fallback with Playwright pipeline - now it's async native
-                    # Pass current tab index and total tabs
-                    html = await playwright_fallback.get_html_from_tab(
-                        tab_id, current_tab=current_tab_index, total_tabs=total_fallbacks
-                    )
-
-                    # Calculate processing time
-                    processing_time = time.time() - start_time
-
-                    if html:
+                if isinstance(result, Exception):
+                    console.print(f"[red]✗[/red] Playwright error for {short_title}: {result}")
+                    result_tabs_with_html.append((tab, ""))  # Append empty HTML on error
+                # Check if result is a string before calling len() or count()
+                elif isinstance(result, str):
+                    if result:  # Successfully got non-empty HTML
+                        html = result
                         char_count = len(html)
                         line_count = html.count("\n") + 1
+                        # Note: We don't have individual processing times here since they ran concurrently
                         console.print(
-                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines, {processing_time:.2f}s)"
+                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
                         )
-                    else:
+                        result_tabs_with_html.append((tab, html))
+                    else:  # Playwright returned empty string
                         console.print(
-                            f"[red]✗[/red] Playwright also failed for {short_title} ({processing_time:.2f}s)"
+                            f"[red]✗[/red] Playwright failed for {short_title} (returned empty)"
                         )
-
-                    result_tabs_with_html.append((tab, html))
+                        result_tabs_with_html.append((tab, ""))  # Append empty HTML
+                else:  # Should not happen, but handle unexpected result types
+                    console.print(
+                        f"[red]✗[/red] Playwright returned unexpected result type for {short_title}: {type(result)}"
+                    )
+                    result_tabs_with_html.append((tab, ""))  # Append empty HTML
 
         # Report final stats
         success_count = sum(1 for _, html in result_tabs_with_html if html)

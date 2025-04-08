@@ -160,19 +160,43 @@ async def get_chrome_info():
 async def get_tab_html_content(ws_url: str) -> str:
     """Get HTML with hard timeout using asyncio.wait_for"""
     try:
-        # Give up after 5 seconds total for entire CDP operation
-        return await asyncio.wait_for(_get_html_using_dom(ws_url), timeout=5.0)
+        # Give up after 10 seconds total for entire CDP operation
+        return await asyncio.wait_for(_get_html_using_dom(ws_url), timeout=10.0)
     except asyncio.TimeoutError:
-        logger.error("CDP HTML retrieval timed out after 5 seconds")
+        logger.error("CDP HTML retrieval timed out after 10 seconds")
         return ""
     except Exception as e:
         logger.error(f"CDP failed: {e}")
         return ""
 
 
+async def _send_cdp_command(ws, msg_id: int, method: str, params: Optional[dict] = None) -> dict:
+    """Send a CDP command and wait for the specific response matching the ID."""
+    command = {"id": msg_id, "method": method}
+    if params:
+        command["params"] = params
+
+    logger.debug(f"Sending CDP command (id={msg_id}): {method}")
+    await ws.send(json.dumps(command))
+
+    # Loop until we get the response matching our msg_id
+    while True:
+        response_raw = await ws.recv()
+        response = json.loads(response_raw)
+
+        # Check if it's the response we are waiting for
+        if response.get("id") == msg_id:
+            logger.debug(f"Received response for id={msg_id}")
+            return response
+        elif "method" in response:  # It's an event, log and ignore
+            logger.debug(f"Ignoring CDP event: {response.get('method')}")
+        else:  # Unexpected message format
+            logger.warning(f"Ignoring unexpected CDP message format: {response_raw}")
+
+
 async def _get_html_using_dom(ws_url: str) -> str:
     """Get HTML content using DOM.getOuterHTML CDP method"""
-    # No retry loop - just try once
+    msg_counter = 1  # Use a counter for unique message IDs
     try:
         logger.debug(f"Connecting to tab via WebSocket: {ws_url}")
         async with websockets.connect(
@@ -184,17 +208,18 @@ async def _get_html_using_dom(ws_url: str) -> str:
             # First check if page is ready using Page.getResourceTree
             # This will tell us quickly if it's a blank/loading page
             try:
-                page_enable_msg = json.dumps({"id": 1, "method": "Page.enable"})
-                await ws.send(page_enable_msg)
-                await ws.recv()  # Get response
+                # Enable Page domain (required for getResourceTree)
+                await _send_cdp_command(ws, msg_counter, "Page.enable")
+                msg_counter += 1
 
-                resource_msg = json.dumps({"id": 2, "method": "Page.getResourceTree"})
-                await ws.send(resource_msg)
-                resource_result = json.loads(await ws.recv())
+                # Get Resource Tree
+                resource_result = await _send_cdp_command(ws, msg_counter, "Page.getResourceTree")
+                msg_counter += 1
 
                 # Check if this is an about:blank or empty page
                 frame = resource_result.get("result", {}).get("frameTree", {}).get("frame", {})
                 url = frame.get("url", "")
+                logger.debug(f"Resource Tree frame check: url='{url}', frame_details={frame}")
                 if url in ["about:blank", ""]:
                     logger.debug("Detected blank/empty page - returning empty HTML")
                     return ""
@@ -203,36 +228,39 @@ async def _get_html_using_dom(ws_url: str) -> str:
                 logger.debug(f"Resource check failed: {e}, continuing with DOM method")
 
             # Enable DOM domain
-            enable_msg = json.dumps({"id": 3, "method": "DOM.enable"})
-            await ws.send(enable_msg)
-            result = json.loads(await ws.recv())
+            await _send_cdp_command(ws, msg_counter, "DOM.enable")
+            msg_counter += 1
 
             # Get document root node
-            get_doc_msg = json.dumps({"id": 4, "method": "DOM.getDocument"})
-            await ws.send(get_doc_msg)
-            result = json.loads(await ws.recv())
+            doc_result = await _send_cdp_command(ws, msg_counter, "DOM.getDocument")
+            msg_counter += 1
+            logger.debug(f"DOM.getDocument result: {doc_result}")
 
             # Extract root node ID from response
-            root_node_id = result.get("result", {}).get("root", {}).get("nodeId")
+            root_node_id = doc_result.get("result", {}).get("root", {}).get("nodeId")
             if not root_node_id:
                 logger.error("Failed to get root node ID")
                 return ""
 
             # Get outer HTML using the root node ID
-            get_html_msg = json.dumps(
-                {"id": 5, "method": "DOM.getOuterHTML", "params": {"nodeId": root_node_id}}
+            html_result = await _send_cdp_command(
+                ws, msg_counter, "DOM.getOuterHTML", {"nodeId": root_node_id}
             )
-            await ws.send(get_html_msg)
-            result = json.loads(await ws.recv())
+            msg_counter += 1
 
-            # Extract HTML content
-            html_content = result.get("result", {}).get("outerHTML", "")
+            # Extract HTML content and log summary
+            html_content = html_result.get("result", {}).get("outerHTML", "")
+            if "error" in html_result:
+                error_message = html_result["error"].get("message", "Unknown error")
+                logger.warning(f"DOM.getOuterHTML failed: {error_message}")
+            elif html_content:
+                logger.debug(f"DOM.getOuterHTML success: HTML length = {len(html_content)}")
+            else:
+                logger.warning("DOM.getOuterHTML succeeded but returned empty HTML")
 
             if html_content:
-                logger.debug("Successfully retrieved HTML content")
                 return html_content
             else:
-                logger.warning("DOM method returned empty HTML")
                 return ""
 
     except asyncio.TimeoutError:
