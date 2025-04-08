@@ -2,7 +2,7 @@ import re
 import unicodedata
 
 
-def slugify(text: str | None) -> str:
+def slugify(text: str | None, max_length: int = 255) -> str:
     """Convert text to a URL and filename safe slug that is reversible.
 
     Uses rare character sequences to maintain reversibility:
@@ -11,6 +11,7 @@ def slugify(text: str | None) -> str:
 
     Args:
         text: The text to slugify
+        max_length: The maximum length of the slug
 
     Returns:
         A URL-safe version of the text that can be unslugified
@@ -38,7 +39,11 @@ def slugify(text: str | None) -> str:
             hex_char = format(ord(char), "x")
             result += f"~{hex_char}~"
 
-    return result or "unknown"
+    # Generate full encoded string first
+    encoded = result
+
+    # Simple truncate to max_length
+    return (encoded[:max_length] if len(encoded) > max_length else encoded) or "unknown"
 
 
 def unslugify(slug: str) -> str:

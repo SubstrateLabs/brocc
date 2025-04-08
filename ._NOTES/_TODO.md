@@ -1,3 +1,4 @@
+- fix tests
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool

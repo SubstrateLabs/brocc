@@ -331,24 +331,22 @@ async def main() -> None:
         md_file = os.path.join(debug_dir, f"{slug}.md")
 
         # Extract and save markdown using markdownify
-        markdown = ""
-        if html:
-            try:
-                # Convert HTML to markdown with markdownify
-                markdown = md(
-                    html,
-                    heading_style="ATX",  # Use # style headings instead of underlines
-                    bullets="*",  # Consistently use * for bullet points
-                    autolinks=True,  # Convert URLs to markdown links when href matches text
-                    default_title=True,  # Use URL as title for links when no title is given
-                    newline_style="SPACES",  # Use standard two spaces + newline for breaks
-                    strip=["script", "style", "meta", "link"],  # Remove these elements entirely
-                    code_language="",
-                )  # Don't assume a specific language for code blocks
-            except Exception as e:
-                logger.error(f"Error converting HTML to markdown: {e}")
-                # Fallback if conversion fails
-                markdown = f"Error converting content: {str(e)}"
+        markdown = md(
+            html,
+            strip=[
+                "script",
+                "style",
+                "meta",
+                "link",
+                "noscript",
+                "svg",
+                "path",  # New tags to nuke
+                {"attrs": ["style"]},  # Kill inline styles too
+            ],
+            # Add these options to handle HTML5 weirdness
+            beautiful_soup_parser="html5lib",
+            escape_misc=True,  # Escape random punctuation that fucks with MD
+        )
 
         # Write to the file
         with open(md_file, "w", encoding="utf-8") as f:
