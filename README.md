@@ -39,4 +39,4 @@ Indexing personal data is a big responsibility. We believe this kind of software
 
 </details>
 
-### [FAQ](/faq)
+#### [FAQ](/faq)

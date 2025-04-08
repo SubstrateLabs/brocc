@@ -38,4 +38,4 @@ Indexing personal data is a big responsibility. We believe this kind of software
 - [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
 
 
-### [FAQ](/faq)
+#### [FAQ](/faq)

@@ -7,7 +7,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useRouter, usePathname } from "next/navigation";
 
 interface MdxAccordionGroupProps {
   children: React.ReactNode;
