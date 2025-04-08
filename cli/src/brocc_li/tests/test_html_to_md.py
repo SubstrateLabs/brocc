@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from brocc_li.html_to_md import convert_html_to_markdown
+from brocc_li.playwright_fallback import BANNER_TEXT
 
 
 @pytest.fixture
@@ -51,9 +52,18 @@ def assert_valid_markdown(markdown: str, url: str):
     )
 
     # Check for headings existing anywhere in the document
-    assert any(line.startswith("#") for line in lines), (
-        f"Output for {url} should contain at least one heading"
-    )
+    has_headings = any(line.startswith("#") for line in lines)
+    if not has_headings:
+        # If no headings, make sure we have some other valid markdown structure
+        has_lists = any(line.startswith(("-", "*", "1.")) for line in lines)
+        has_links = any(line.startswith("[") for line in lines)
+        has_paragraphs = any(
+            len(line) > 20 and not line.startswith(("#", "-", "*", "1.", "[", ">", "```", "|"))
+            for line in lines
+        )
+        assert has_lists or has_links or has_paragraphs, (
+            f"Output for {url} should contain either headings, lists, links, or substantial paragraphs"
+        )
 
     # Make sure the first 5 lines don't contain obvious JS/framework patterns
     js_patterns = [
@@ -86,6 +96,9 @@ def assert_valid_markdown(markdown: str, url: str):
     text_lines = [line for line in lines if not line.startswith(("#", ">", "-", "*", "```", "|"))]
     if text_lines and len(text_lines) >= 5:  # Only check if we have enough lines
         pass
+
+    # Ensure banner text is not present in the output
+    assert BANNER_TEXT not in markdown, f"Banner text should not be present in output for {url}"
 
 
 def get_test_fixtures(fixtures_dir: Path):

@@ -371,7 +371,7 @@ async def main() -> None:
         processed_urls.add(url)  # Mark this URL as processed to avoid duplicates
 
     # Helper function to display a list of tabs in a table
-    def display_tab_list(tabs_with_html, header, show_old_url=False, show_html_stats=False):
+    def display_tab_list(tabs_with_html, header, show_old_url=False):
         """Display a list of tabs in a table."""
         if not tabs_with_html:
             return
@@ -384,9 +384,7 @@ async def main() -> None:
         table.add_column("URL", style="blue")
         if show_old_url:
             table.add_column("Previous URL", style="dim")
-        if show_html_stats:
-            table.add_column("HTML Size", style="cyan")
-            table.add_column("Lines", style="cyan")
+        table.add_column("Markdown Size", style="cyan")
         table.add_column("Tab ID", style="dim", width=10)
 
         # Display each tab
@@ -407,21 +405,9 @@ async def main() -> None:
                 old_url = tab.get("old_url", "")
                 old_url_display = (old_url[:60] + "...") if len(old_url) > 60 else old_url
 
-            # Calculate HTML stats if requested
-            html_stats_display = []
-            if show_html_stats:
-                if html:
-                    char_count = len(html)
-                    line_count = html.count("\n") + 1 if html else 0
-                    html_stats_display = [
-                        f"{char_count:,} chars",  # Format with thousands separator
-                        f"{line_count:,}",
-                    ]
-                else:
-                    html_stats_display = [
-                        "[dim]N/A[/dim]",  # Indicate HTML wasn't available
-                        "[dim]N/A[/dim]",
-                    ]
+            # Calculate markdown size
+            markdown = convert_html_to_markdown(html, url, title)
+            markdown_size = f"{len(markdown):,} chars"
 
             # Show a shortened tab ID
             tab_id = tab.get("id", "")
@@ -434,8 +420,7 @@ async def main() -> None:
             row = [f"{i + 1}", title_display, url_display]
             if show_old_url:
                 row.append(old_url_display)
-            if show_html_stats:
-                row.extend(html_stats_display)
+            row.append(markdown_size)
             row.append(short_id)
 
             table.add_row(*row)
@@ -458,7 +443,6 @@ async def main() -> None:
             display_tab_list(
                 new_tabs_with_html,
                 "\n[bold green]+++ New Tabs:[/bold green]",
-                show_html_stats=True,
             )
             console.print(f"[dim]Added {len(new_tabs_with_html)} new tab(s)[/dim]")
 
@@ -476,7 +460,6 @@ async def main() -> None:
                 navigated_tabs_with_html,
                 "\n[bold blue]+++ Navigation in Existing Tabs:[/bold blue]",
                 show_old_url=True,
-                show_html_stats=True,
             )
             console.print(
                 f"[dim]Detected {len(navigated_tabs_with_html)} navigation(s) in existing tab(s)[/dim]"
@@ -515,7 +498,6 @@ async def main() -> None:
                 display_tab_list(
                     initial_tabs_with_html,
                     "\n[bold cyan]=== Current Open Tabs:[/bold cyan]",
-                    show_html_stats=True,
                 )
                 console.print(f"[dim]Found {len(initial_tabs_with_html)} HTTP/HTTPS tabs[/dim]\n")
 

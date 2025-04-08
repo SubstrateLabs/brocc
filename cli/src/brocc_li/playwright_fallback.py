@@ -13,6 +13,9 @@ from playwright.async_api import async_playwright
 from brocc_li.utils.chrome import REMOTE_DEBUG_PORT, is_chrome_debug_port_active
 from brocc_li.utils.logger import logger
 
+# Banner text shown in the browser when using Playwright fallback
+BANNER_TEXT = "🥦 READING... (Page will close automatically in a moment)"
+
 # Cache the playwright instance
 _playwright_instance = None
 
@@ -97,9 +100,9 @@ class PlaywrightFallback:
                 page = await context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
-            broccoli_marker_script = """
-            (function() {
-                function createBroccoliMarker() {
+            broccoli_marker_script = f"""
+            (function() {{
+                function createBroccoliMarker() {{
                     // Remove any existing markers first
                     const existingMarkers = document.querySelectorAll('.brocc-li-marker');
                     existingMarkers.forEach(marker => marker.remove());
@@ -107,7 +110,7 @@ class PlaywrightFallback:
                     // Create top banner
                     const banner = document.createElement('div');
                     banner.className = 'brocc-li-marker';
-                    banner.textContent = '🥦 READING... (Page will close automatically in a moment)';
+                    banner.textContent = '{BANNER_TEXT}';
                     banner.style.cssText = `
                         position: fixed;
                         top: 0;
@@ -122,55 +125,53 @@ class PlaywrightFallback:
                         line-height: 24px;
                         z-index: 2147483647;
                         font-family: system-ui, sans-serif;
-                        border-bottom: 2px solid #036303;
-                        box-shadow: 0 1px 5px rgba(0,0,0,0.3);
                     `;
                     
                     // Add banner to page
                     document.body.appendChild(banner);
-                }
+                }}
                 
                 // Create/restore marker when needed
-                function ensureMarkerExists() {
+                function ensureMarkerExists() {{
                     // Check if our marker exists and is visible
                     const markers = document.querySelectorAll('.brocc-li-marker');
-                    if (markers.length < 1) {
+                    if (markers.length < 1) {{
                         createBroccoliMarker();
-                    }
-                }
+                    }}
+                }}
                 
                 // Apply immediately if document is ready
-                if (document.body) {
+                if (document.body) {{
                     createBroccoliMarker();
-                } else {
+                }} else {{
                     // Wait for DOM to be ready
                     document.addEventListener('DOMContentLoaded', createBroccoliMarker);
-                }
+                }}
                 
                 // Set up continuous monitoring to ensure our marker stays visible
-                const observer = new MutationObserver(function() {
+                const observer = new MutationObserver(function() {{
                     ensureMarkerExists();
-                });
+                }});
                 
                 // Start observing once body exists
-                if (document.body) {
-                    observer.observe(document.body, { 
+                if (document.body) {{
+                    observer.observe(document.body, {{ 
                         childList: true, 
                         subtree: true 
-                    });
-                } else {
+                    }});
+                }} else {{
                     // Set up observer once body is available
-                    document.addEventListener('DOMContentLoaded', function() {
-                        observer.observe(document.body, { 
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        observer.observe(document.body, {{ 
                             childList: true, 
                             subtree: true 
-                        });
-                    });
-                }
+                        }});
+                    }});
+                }}
                 
                 // Check periodically to ensure our marker stays visible
                 setInterval(ensureMarkerExists, 500);
-            })();
+            }})();
             """
 
             # Add this script to run on every navigation and in every frame
@@ -284,19 +285,25 @@ class PlaywrightFallback:
 
     def __del__(self):
         """Ensure resources are cleaned up when object is garbage collected."""
-        # We can't await in __del__, so we create a task if there's a running event loop
+        # During interpreter shutdown, we can't do async cleanup
+        # Just log a warning and let the process exit
         try:
+            import sys
+
+            if sys.meta_path is None:
+                logger.debug("Skipping Playwright cleanup during interpreter shutdown")
+                return
+
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 loop.create_task(self.cleanup())
             else:
                 # If no loop is running, we can't do async cleanup here
-                # This should be rare, but just in case
                 logger.warning(
                     "No event loop running, can't clean up Playwright resources properly"
                 )
-        except RuntimeError:
-            # No event loop in this thread
+        except (RuntimeError, ImportError):
+            # No event loop in this thread or during shutdown
             pass
 
 
