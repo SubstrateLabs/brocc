@@ -1,3 +1,4 @@
+- vscode prettier in cli/frontend
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool

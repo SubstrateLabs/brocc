@@ -76,22 +76,21 @@ async def is_chrome_debug_port_active(port: int = REMOTE_DEBUG_PORT) -> bool:
         return False
 
 
-def is_chrome_process_running() -> bool:
+async def is_chrome_process_running() -> bool:
     """Check if Chrome application is running using psutil."""
-    for proc in psutil.process_iter(["name"]):
-        try:
-            proc_name = proc.info["name"].lower()
-            if proc_name in ["chrome", "chrome.exe", "google chrome", "chromium"]:
-                return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return False
 
+    # Since psutil is synchronous, run this in another thread
+    def _check_chrome_process():
+        for proc in psutil.process_iter(["name"]):
+            try:
+                proc_name = proc.info["name"].lower()
+                if proc_name in ["chrome", "chrome.exe", "google chrome", "chromium"]:
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return False
 
-async def is_chrome_process_running_async() -> bool:
-    """Async version of is_chrome_process_running."""
-    # Since psutil is synchronous, we need to run this in another thread
-    return await asyncio.to_thread(is_chrome_process_running)
+    return await asyncio.to_thread(_check_chrome_process)
 
 
 async def launch_chrome(debug_port: int = REMOTE_DEBUG_PORT, quiet: bool = False) -> bool:

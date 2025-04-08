@@ -8,7 +8,7 @@ from rich.console import Console
 from brocc_li.chrome_cdp import get_chrome_info, get_tab_html_content, get_tabs, open_new_tab
 from brocc_li.utils.chrome import (
     is_chrome_debug_port_active,
-    is_chrome_process_running_async,
+    is_chrome_process_running,
     launch_chrome,
     quit_chrome,
 )
@@ -104,7 +104,7 @@ class ChromeManager:
         """Get the current state of Chrome (running and debug port status)."""
         # These functions are now async, so we can call them directly
         has_debug_port = await is_chrome_debug_port_active()
-        is_running = has_debug_port or await is_chrome_process_running_async()
+        is_running = has_debug_port or await is_chrome_process_running()
         return ChromeState(
             is_running=is_running,
             has_debug_port=has_debug_port,

@@ -19,6 +19,7 @@ test:
 # Build frontend assets and copy to static directory
 build:
 	cd frontend && bun run build && cd ..
+	rm -rf src/brocc_li/static/*
 	cp -r frontend/dist/* src/brocc_li/static/
 
 # Install the package in development mode

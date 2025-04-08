@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from 'react';
 import { Button } from "@/components/ui/button"
-import { SquareArrowOutUpRight, Info } from 'lucide-react';
+import { SquareArrowOutUpRight, Info, TriangleAlert, ArrowRight } from 'lucide-react';
 
 // API endpoints
 const API_URL = 'http://127.0.0.1:8022';
@@ -28,7 +28,7 @@ type StatusContainerProps = {
 
 const StatusContainer = ({ children }: StatusContainerProps) => {
   return (
-    <div className="max-w-md mx-auto p-1 border border-dotted border-muted-foreground rounded relative">
+    <div className="w-full sticky top-0 px-2 py-1 border border-dotted border-muted-foreground bg-background z-10">
        {children}
     </div>
   );
@@ -40,7 +40,7 @@ const StatusMessage = ({ message, showSpinner = false }: { message: string, show
     {showSpinner && (
       <div className="mr-2 h-4 w-4 rounded-full border-2 border-t-transparent border-current animate-spin" />
     )}
-    <p className="text-sm">{message}</p>
+    <p className="text-xs">{message}</p>
   </div>
 );
 
@@ -137,11 +137,16 @@ export default function ChromeStatusComponent() {
     if (status.status_code === CHROME_STATUS.NOT_RUNNING) {
       return (
         <StatusContainer>
-          <p className="mb-2">Not connected. Brocc needs to launch Chrome to sync your browsing activity.</p>
-          <Button onClick={() => launchChrome(false)}>
-            <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
-            Launch Chrome
-          </Button>
+          <div className="flex items-center justify-between w-full">
+            <p className="flex items-center">
+              Not connected. Please launch Chrome to begin syncing
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </p>
+            <Button onClick={() => launchChrome(false)}>
+              <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
+              Launch Chrome
+            </Button>
+          </div>
         </StatusContainer>
       );
     }
@@ -150,14 +155,20 @@ export default function ChromeStatusComponent() {
     if (status.status_code === CHROME_STATUS.RUNNING_WITHOUT_DEBUG_PORT) {
       return (
         <StatusContainer>
-          <p className="mb-2">Not connected. Brocc needs to relaunch Chrome to sync your browsing activity.</p>
-          <Button onClick={() => launchChrome(true)}>
-            <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
-            Relaunch Chrome
-          </Button>
-          <div className="mt-2 text-sm">
-            <p className="text-muted-foreground">
-              Note: you may lose your open tabs when Brocc relaunches Chrome. 
+          <div className="flex items-center justify-between w-full">
+            <p className="flex items-center">
+              Not connected. Please relaunch Chrome to begin syncing
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </p>
+            <Button onClick={() => launchChrome(true)}>
+              <SquareArrowOutUpRight className="mr-2 h-4 w-4" />
+              Relaunch Chrome
+            </Button>
+          </div>
+          <div className="flex items-center justify-between w-full mt-2">
+            <p className="text-muted-foreground flex items-center">
+              <TriangleAlert className="mr-2 h-4 w-4 text-amber-500" />
+              You may lose your open tabs when Brocc relaunches Chrome. 
               To prevent this, check your startup settings:
             </p>
             <Button 
