@@ -46,16 +46,20 @@ chrome:
 test-md:
 	uv run pytest src/brocc_li/tests/test_html_to_md.py -v
 
-test-md-twitter-home:
+test-twitter-home:
 	uv run pytest src/brocc_li/tests/test_twitter_home.py -v -s
 
-test-md-twitter-thread:
+test-twitter-thread:
 	uv run pytest src/brocc_li/tests/test_twitter_thread.py -v -s 
 
-test-md-twitter-likes:
+test-twitter-likes:
 	uv run pytest src/brocc_li/tests/test_twitter_likes.py -v -s
 
-test-twitter: test-md-twitter-home test-md-twitter-thread test-md-twitter-likes
+test-twitter: test-twitter-home test-twitter-thread test-twitter-likes
+
+test-linkedin-feed:
+	uv run pytest src/brocc_li/tests/test_linkedin_feed.py -v -s
+
 
 
 
