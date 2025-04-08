@@ -4,7 +4,7 @@
 
 Brocc lets you **search and chat with your browsing activity**.
 
-[Install the beta using pipx](/faq#installation):
+[Install the beta using pipx](https://brocc.li/faq#installation):
 
 1. Install: `pipx install brocc-li`
 2. Run: `brocc`
@@ -38,4 +38,4 @@ Indexing personal data is a big responsibility. We believe this kind of software
 - [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
 
 
-#### [FAQ](/faq)
+#### [FAQ](https://brocc.li/faq)
