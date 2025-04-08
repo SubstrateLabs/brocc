@@ -30,28 +30,30 @@ if DEBUG:
 @pytest.fixture
 def fixtures_dir() -> Path:
     """Get the path to the fixtures directory."""
-    return Path(__file__).parent.parent / "fixtures"
+    return Path(__file__).parent.parent / "tests" / "html_fixtures"
 
 
-def assert_valid_markdown(markdown: str, url: str):
+def assert_valid_markdown(markdown: str, fixture_name: str):
     """Helper function to check common markdown conversion assertions."""
     # Basic sanity checks for the markdown output
     if not markdown:
         if DEBUG:
-            logger.error(f"❌ {url}: Markdown output is empty")
-        assert markdown, f"Markdown output for {url} should not be empty"
+            logger.error(f"❌ {fixture_name}: Markdown output is empty")
+        assert markdown, f"Markdown output for {fixture_name} should not be empty"
 
     if "Error converting" in markdown:
         if DEBUG:
-            logger.error(f"❌ {url}: Conversion error: {markdown}")
-        assert "Error converting" not in markdown, f"Conversion for {url} should not produce errors"
+            logger.error(f"❌ {fixture_name}: Conversion error: {markdown}")
+        assert "Error converting" not in markdown, (
+            f"Conversion for {fixture_name} should not produce errors"
+        )
 
     # Get the lines and analyze document structure
     lines = [line.strip() for line in markdown.splitlines() if line.strip()]
     if not lines:
         if DEBUG:
-            logger.error(f"❌ {url}: Output has no non-empty lines")
-        pytest.fail(f"Output for {url} has no non-empty lines")
+            logger.error(f"❌ {fixture_name}: Output has no non-empty lines")
+        pytest.fail(f"Output for {fixture_name} has no non-empty lines")
 
     # Check document structure - should start with valid markdown syntax
     first_line = lines[0]
@@ -68,25 +70,28 @@ def assert_valid_markdown(markdown: str, url: str):
 
     is_valid_md_start = any(checker(first_line) for checker in valid_md_starters)
     if not is_valid_md_start and DEBUG:
-        logger.error(f"❌ {url}: Invalid markdown start: '{first_line}'")
+        logger.error(f"❌ {fixture_name}: Invalid markdown start: '{first_line}'")
     assert is_valid_md_start, (
-        f"Document for {url} should start with valid markdown syntax, got: {first_line}"
+        f"Document for {fixture_name} should start with valid markdown syntax, got: {first_line}"
     )
 
-    # Check for headings existing anywhere in the document
+    # Check for content structure - either headings, lists, links, paragraphs, or tables
     has_headings = any(line.startswith("#") for line in lines)
-    if not has_headings:
-        # If no headings, make sure we have some other valid markdown structure
-        has_lists = any(line.startswith(("-", "*", "1.")) for line in lines)
-        has_links = any(line.startswith("[") for line in lines)
-        has_paragraphs = any(
-            len(line) > 20 and not line.startswith(("#", "-", "*", "1.", "[", ">", "```", "|"))
-            for line in lines
-        )
-        if not (has_lists or has_links or has_paragraphs) and DEBUG:
-            logger.error(f"❌ {url}: No headings, lists, links, or substantial paragraphs found")
-        assert has_lists or has_links or has_paragraphs, (
-            f"Output for {url} should contain either headings, lists, links, or substantial paragraphs"
+    has_lists = any(line.startswith(("-", "*", "1.")) for line in lines)
+    has_links = any(line.startswith("[") for line in lines)
+    has_tables = any(line.startswith("|") for line in lines)
+    has_paragraphs = any(
+        len(line) > 20 and not line.startswith(("#", "-", "*", "1.", "[", ">", "```", "|"))
+        for line in lines
+    )
+
+    if not (has_headings or has_lists or has_links or has_paragraphs or has_tables):
+        if DEBUG:
+            logger.error(
+                f"❌ {fixture_name}: No headings, lists, links, tables, or substantial paragraphs found"
+            )
+        pytest.fail(
+            f"Output for {fixture_name} should contain either headings, lists, links, tables, or substantial paragraphs"
         )
 
     # Make sure the first 5 lines don't contain obvious JS/framework patterns
@@ -108,8 +113,12 @@ def assert_valid_markdown(markdown: str, url: str):
         for pattern in js_patterns:
             if re.search(pattern, line):
                 if DEBUG:
-                    logger.error(f"❌ {url}: Line {i + 1} contains JS pattern '{pattern}': {line}")
-                pytest.fail(f"Line {i + 1} of {url} contains JS pattern '{pattern}': {line}")
+                    logger.error(
+                        f"❌ {fixture_name}: Line {i + 1} contains JS pattern '{pattern}': {line}"
+                    )
+                pytest.fail(
+                    f"Line {i + 1} of {fixture_name} contains JS pattern '{pattern}': {line}"
+                )
 
     # Look for suspicious combinations of HTML and JS-specific content
     html_patterns = ["<div", "<span", "className=", "onClick=", "data-", "style="]
@@ -117,21 +126,23 @@ def assert_valid_markdown(markdown: str, url: str):
         html_matches = sum(1 for pattern in html_patterns if pattern.lower() in line.lower())
         if html_matches >= 2:
             if DEBUG:
-                logger.error(f"❌ {url}: Line has multiple HTML/JS patterns: {line}")
+                logger.error(f"❌ {fixture_name}: Line has multiple HTML/JS patterns: {line}")
             pytest.fail(f"Line has multiple HTML/JS patterns: {line}")
 
-    # Check for overall document coherence - should have reasonable paragraph structure
+    # Check for overall document coherence - should have reasonable structure
     text_lines = [line for line in lines if not line.startswith(("#", ">", "-", "*", "```", "|"))]
     if text_lines and len(text_lines) >= 5:  # Only check if we have enough lines
         pass
 
     # Ensure banner text is not present in the output
     if BANNER_TEXT in markdown and DEBUG:
-        logger.error(f"❌ {url}: Banner text found in output")
-    assert BANNER_TEXT not in markdown, f"Banner text should not be present in output for {url}"
+        logger.error(f"❌ {fixture_name}: Banner text found in output")
+    assert BANNER_TEXT not in markdown, (
+        f"Banner text should not be present in output for {fixture_name}"
+    )
 
     if DEBUG:
-        logger.info(f"✅ {url}: Passed all markdown validation checks")
+        logger.info(f"✅ {fixture_name}: Passed all markdown validation checks")
 
 
 def get_test_fixtures(fixtures_dir: Path):
@@ -152,11 +163,10 @@ def test_all_underscore_fixtures(fixtures_dir: Path):
 
     for fixture_path in fixtures:
         fixture_name = fixture_path.name
-        url_name = fixture_name.removeprefix("_").removesuffix(".html")
-        url = f"https://example.com/{url_name}"
+        slug = fixture_name.removeprefix("_").removesuffix(".html")
 
         if DEBUG:
-            logger.info(f"Testing fixture: {fixture_name} -> {url}")
+            logger.info(f"Testing fixture: {fixture_name}")
 
         try:
             with open(fixture_path, encoding="utf-8") as f:
@@ -166,17 +176,17 @@ def test_all_underscore_fixtures(fixtures_dir: Path):
                 logger.info(f"  HTML size: {len(html)} bytes")
 
             # Convert and validate
-            markdown = convert_html_to_markdown(html, url=url)
+            markdown = convert_html_to_markdown(html, url=slug)
 
             if DEBUG:
                 logger.info(f"  Markdown size: {len(markdown)} bytes")
 
-            assert_valid_markdown(markdown, url)
-            passed.append(url_name)
+            assert_valid_markdown(markdown, fixture_name)
+            passed.append(slug)
         except Exception as e:
-            failed.append((url_name, str(e)))
+            failed.append((slug, str(e)))
             if DEBUG:
-                logger.error(f"❌ {url}: Failed with error: {e}")
+                logger.error(f"❌ {fixture_name}: Failed with error: {e}")
             raise  # Re-raise to keep pytest's normal behavior
 
     if DEBUG:

@@ -24,10 +24,18 @@ JS_FRAMEWORK_PATTERNS = [
 
 # Main content container selectors for JS frameworks
 MAIN_CONTENT_SELECTORS = [
-    "main",
+    # Most specific selectors first
     "article",
+    "main",
+    # Substack specific selectors
+    ".post-content",
+    ".post-wrapper",
+    ".post",
+    ".content-wrapper",
+    # Common content selectors
     ".content",
     "#content",
+    # Generic fallbacks
     ".main",
     "#main",
     ".container",
@@ -103,6 +111,34 @@ def clean_html(html: str) -> BeautifulSoup:
     return soup
 
 
+def is_good_content_container(container: Tag) -> bool:
+    """Check if a container is a good candidate for content extraction."""
+    if not container:
+        return False
+
+    # Check element count
+    element_count = len(container.find_all())
+    if element_count <= 1:
+        return False
+
+    # Check text content
+    text = container.get_text(strip=True)
+    if len(text) < 100:  # Less than 100 chars is probably not content
+        return False
+
+    # Check for paragraph content - good content containers have paragraphs
+    paragraphs = container.find_all("p")
+    if len(paragraphs) < 2:  # Need at least a couple paragraphs
+        return False
+
+    # Check paragraph text content - containers with empty p tags are not good
+    paragraph_text = sum(len(p.get_text(strip=True)) for p in paragraphs)
+    if paragraph_text < 100:
+        return False
+
+    return True
+
+
 def extract_content(soup: BeautifulSoup, html: str) -> Tag:
     """Extract the meaningful content from the soup."""
     # Get body or fallback to full soup
@@ -120,19 +156,80 @@ def extract_content(soup: BeautifulSoup, html: str) -> Tag:
         detected_patterns = [pattern for pattern in JS_FRAMEWORK_PATTERNS if pattern in html]
         logger.info(f"Detected JS framework patterns: {', '.join(detected_patterns)}")
 
-    if is_js_framework:
-        # Try to find the main content container
-        for selector in MAIN_CONTENT_SELECTORS:
-            found = soup.select(selector)
-            if found:
-                if DEBUG:
-                    logger.info(f"Found main content container using selector: {selector}")
-                    logger.info(f"Main content container has {len(found[0].find_all())} elements")
-                return found[0]
+    # Try to find the main content container
+    best_container = None
+    best_score = 0
+
+    # Try each selector in order
+    for selector in MAIN_CONTENT_SELECTORS:
+        found = soup.select(selector)
+        if not found:
+            continue
+
+        container = found[0]
+
+        # Calculate a score for this container
+        element_count = len(container.find_all())
+        text_length = len(container.get_text(strip=True))
+        p_count = len(container.find_all("p"))
+        h_count = len(container.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
+
+        # Only consider containers with substantial content
+        if text_length < 50 or element_count < 3:
+            if DEBUG:
+                logger.info(
+                    f"Skipping selector {selector} - insufficient content: {text_length} chars, {element_count} elements"
+                )
+            continue
+
+        # Calculate score - prefer containers with more content and structure
+        score = text_length + (element_count * 5) + (p_count * 10) + (h_count * 20)
 
         if DEBUG:
-            logger.warning("No main content container found despite JS framework detection")
+            logger.info(
+                f"Content container {selector}: score={score}, text={text_length}, elements={element_count}, p={p_count}, h={h_count}"
+            )
 
+        # Check if this is the best container so far
+        if score > best_score:
+            best_score = score
+            best_container = container
+            if DEBUG:
+                logger.info(f"New best container: {selector} with score {score}")
+
+    # If we found a good content container, use it
+    if best_container is not None:
+        if DEBUG:
+            logger.info(f"Selected best content container with score {best_score}")
+        return best_container
+
+    # Fallback: find tag with most paragraph content
+    if DEBUG:
+        logger.info("No suitable content container found, trying paragraph-based detection")
+
+    # Look for divs containing multiple paragraphs
+    div_scores = []
+    for div in soup.find_all("div"):
+        if not isinstance(div, Tag):
+            continue
+        p_tags = div.find_all("p")
+        if len(p_tags) > 2:  # At least 3 paragraphs
+            p_text = sum(len(p.get_text(strip=True)) for p in p_tags)
+            if p_text > 200:  # With substantial text
+                div_scores.append((div, p_text))
+
+    # Sort by paragraph text content
+    div_scores.sort(key=lambda x: x[1], reverse=True)
+
+    if div_scores:
+        best_div, score = div_scores[0]
+        if DEBUG:
+            logger.info(
+                f"Selected div with most paragraph content: {score} chars across {len(best_div.find_all('p'))} paragraphs"
+            )
+        return best_div
+
+    # If still nothing, return the original content
     return content
 
 
@@ -241,6 +338,27 @@ def post_process_markdown(markdown: str) -> str:
     return processed_markdown
 
 
+def direct_tag_extraction(soup: BeautifulSoup) -> str:
+    """Extract content directly from important tags when other methods fail."""
+    if DEBUG:
+        logger.info("Trying direct tag extraction as fallback")
+
+    # Try getting content from important tags directly
+    important_content = []
+    for tag_name in ["h1", "h2", "h3", "p", "ul", "ol", "table"]:
+        for tag in soup.find_all(tag_name):
+            text = tag.get_text(strip=True)
+            if text and len(text) > 15:  # Only include tags with substantial text
+                important_content.append(str(tag))
+
+    if important_content:
+        if DEBUG:
+            logger.info(f"Found {len(important_content)} important tags with content")
+        return "\n".join(important_content)
+
+    return ""
+
+
 def convert_html_to_markdown(
     html: str, url: Optional[str] = None, title: Optional[str] = None
 ) -> str:
@@ -267,8 +385,12 @@ def convert_html_to_markdown(
         # Convert to markdown
         if DEBUG:
             logger.info("Converting HTML to markdown with markdownify")
-            element_count = len(content.find_all()) if hasattr(content, "find_all") else "unknown"
-            logger.info(f"Converting content with {element_count} elements")
+            # Check if content has find_all method before using it
+            if hasattr(content, "find_all") and callable(content.find_all):
+                element_count = len(content.find_all())
+                logger.info(f"Converting content with {element_count} elements")
+            else:
+                logger.info("Converting content (unable to count elements)")
 
         markdown = md(
             str(content),
@@ -281,8 +403,51 @@ def convert_html_to_markdown(
         if DEBUG:
             logger.info(f"Markdownify produced {len(markdown)} characters")
 
+        # If markdown is empty or very small, try the body as fallback
+        if len(markdown.strip()) < 100 and content != soup.body and soup.body:
+            if DEBUG:
+                logger.warning(
+                    f"Initial markdown conversion produced limited output ({len(markdown)} chars), falling back to body"
+                )
+            content = soup.body
+            markdown = md(
+                str(content),
+                strip=strip_list,
+                beautiful_soup_parser="html5lib",
+                escape_misc=True,
+                heading_style="ATX",
+            )
+            if DEBUG:
+                logger.info(f"Fallback body conversion produced {len(markdown)} characters")
+
         # Clean up the resulting markdown
         cleaned_markdown = post_process_markdown(markdown)
+
+        # If still not enough content, try direct tag extraction
+        if len(cleaned_markdown.strip()) < 100:
+            if DEBUG:
+                logger.warning(
+                    f"Markdown still limited after processing ({len(cleaned_markdown)} chars), trying direct tag extraction"
+                )
+
+            direct_content = direct_tag_extraction(soup)
+            if direct_content:
+                direct_markdown = md(
+                    direct_content,
+                    strip=strip_list,
+                    beautiful_soup_parser="html5lib",
+                    escape_misc=True,
+                    heading_style="ATX",
+                )
+                direct_cleaned = post_process_markdown(direct_markdown)
+
+                # Use direct extraction if it produced more content
+                if len(direct_cleaned) > len(cleaned_markdown):
+                    if DEBUG:
+                        logger.info(
+                            f"Using direct tag extraction result: {len(direct_cleaned)} vs {len(cleaned_markdown)} chars"
+                        )
+                    cleaned_markdown = direct_cleaned
 
         if DEBUG:
             logger.info(f"Final markdown length: {len(cleaned_markdown)} characters")

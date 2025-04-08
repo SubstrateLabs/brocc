@@ -312,7 +312,7 @@ async def main() -> None:
     debug_dir = Path(__file__).parent / "debug"
 
     # Set up fixtures directory for HTML files
-    fixtures_dir = Path(__file__).parent / "fixtures"
+    fixtures_dir = Path(__file__).parent / "tests" / "html_fixtures"
 
     # Clear and recreate the debug directory
     if debug_dir.exists():

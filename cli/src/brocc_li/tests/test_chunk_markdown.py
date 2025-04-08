@@ -255,7 +255,7 @@ def test_chunk_markdown_with_local_images():
     """Test chunking markdown with local image paths using the example doc."""
     # Get the path to the example markdown file
     # Since tests run from the cli directory, the path is relative to that
-    example_file_path = "example-docs/simple.md"
+    example_file_path = "src/brocc_li/tests/md_fixtures/simple.md"
 
     # Verify file exists
     assert os.path.exists(example_file_path), f"Example file {example_file_path} not found"
