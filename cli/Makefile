@@ -39,17 +39,6 @@ clean:
 dev: build
 	uv run brocc
 
-# Run chrome_manager.py main
 chrome:
-	uv run python -m brocc_li.chrome_manager
+	uv run python -m brocc_li.chrome_tabs
 
-help:
-	@echo "make format      - Format code with ruff"
-	@echo "make lint        - Check code with ruff without fixing"
-	@echo "make type-check  - Run pyright type checking"
-	@echo "make test        - Run tests"
-	@echo "make build       - Build frontend assets"
-	@echo "make dev         - Build and run the app"
-	@echo "make install     - Install package in development mode"
-	@echo "make clean       - Clean up cache and build artifacts"
-	@echo "make chrome      - Launch Chrome with debug port enabled"

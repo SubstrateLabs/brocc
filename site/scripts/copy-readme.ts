@@ -1,5 +1,7 @@
 /**
- * Copies root README.md to site/markdown/readme.mdx and transforms <details> tags to use MdxAccordion components.
+ * Copies root README.md to:
+ * - cli/readme.md (simplified version with details/summary converted to plain markdown)
+ * - site/markdown/readme.mdx (transformed with MdxAccordion components)
  */
 
 import fs from 'fs';
@@ -8,6 +10,10 @@ import path from 'path';
 // --- Configuration ---
 const rootDir = path.resolve(__dirname, '../../');
 const sourceFile = path.join(rootDir, 'README.md');
+// CLI target (simplified copy)
+const cliDir = path.join(rootDir, 'cli');
+const cliTargetFile = path.join(cliDir, 'readme.md');
+// Site target (transformed copy)
 const targetDir = path.join(__dirname, '../markdown');
 const targetFile = path.join(targetDir, 'readme.mdx');
 const accordionImport = 'import { MdxAccordionGroup, MdxAccordionItem } from "@/components/mdx/Accordion";\n';
@@ -26,19 +32,37 @@ const getValue = (title: string): string => {
 };
 
 // --- Main Logic ---
-// Make sure target directory exists
-if (!fs.existsSync(targetDir)) {
-  fs.mkdirSync(targetDir, { recursive: true });
-}
-
 try {
   // Read the source file
-  let content = fs.readFileSync(sourceFile, 'utf8');
+  const originalContent = fs.readFileSync(sourceFile, 'utf8');
+  
+  // 1. Make sure CLI directory exists
+  if (!fs.existsSync(cliDir)) {
+    fs.mkdirSync(cliDir, { recursive: true });
+  }
+  
+  // 2. Create simplified version for CLI - convert details/summary to plain headers
+  let cliContent = originalContent;
+  cliContent = cliContent.replace(/<details.*?>\s*<summary><h2>(.*?)<\/h2><\/summary>\s*([\s\S]*?)\s*<\/details>/g, (match, title, content) => {
+    return `\n## ${title}\n\n${content.trim()}\n`;
+  });
+  
+  // Write the simplified content to the CLI target file
+  fs.writeFileSync(cliTargetFile, cliContent);
+  console.log(`Successfully copied and simplified README.md from ${sourceFile} to ${cliTargetFile}`);
+  
+  // 3. Make sure target directory exists for transformed site version
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
 
-  // 1. Add the import statements
+  // Start with the original content for site transformations
+  let content = originalContent;
+
+  // 4. Add the import statements
   content = accordionImport + codeBlockImport + content;
 
-  // 2. Find the first <details open> and determine defaultValue
+  // 5. Find the first <details open> and determine defaultValue
   let defaultValue = '';
   const firstOpenDetailsMatch = content.match(/<details\s+open>\s*<summary>([\s\S]*?)<\/summary>/);
   if (firstOpenDetailsMatch && firstOpenDetailsMatch[1]) {
@@ -46,7 +70,7 @@ try {
     defaultValue = getValue(firstTitle);
   }
 
-  // 3. Wrap everything in MdxAccordionGroup
+  // 6. Wrap everything in MdxAccordionGroup
   content = content.replace(
     /(<details[\s\S]*?<\/details>)/, // Find the first details block
     `<MdxAccordionGroup${defaultValue ? ` defaultValue="${defaultValue}"` : ''}>\n$1` // Add opening group tag before it
@@ -57,7 +81,7 @@ try {
   );
 
 
-  // 4. Replace all <details>, <summary>, and </details>
+  // 7. Replace all <details>, <summary>, and </details>
   content = content.replace(/<details.*?>\s*<summary>(.*?)<\/summary>\s*([\s\S]*?)\s*<\/details>/g, (match, summaryContent, detailsContent) => {
     const title = getTitle(summaryContent);
     const value = getValue(title);
@@ -66,7 +90,7 @@ try {
     return `<MdxAccordionItem title="${title}" value="${value}">\n${cleanedDetailsContent}\n</MdxAccordionItem>`;
   });
 
-  // 5. Replace code blocks with CodeBlock component
+  // 8. Replace code blocks with CodeBlock component
   content = content.replace(/```(\w+)?\n([\s\S]*?)\n```/gm, (match, language, code) => {
     // Escape backticks and curly braces in the code
     const escapedCode = code.replace(/`/g, '\\`').replace(/{/g, '\\{').replace(/}/g, '\\}');
@@ -74,7 +98,7 @@ try {
     return `<CodeBlock${languageProp} code={\`${escapedCode}\`} />`;
   });
 
-  // 6. Replace inline code tags with InlineCode component
+  // 9. Replace inline code tags with InlineCode component
   content = content.replace(/`([^`]+)`/g, (match, code) => {
     // Escape backticks and curly braces in the code
     const escapedCode = code.replace(/`/g, '\\`').replace(/{/g, '\\{').replace(/}/g, '\\}');

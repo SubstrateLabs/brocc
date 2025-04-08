@@ -1,3 +1,4 @@
+- chrome manager main refactor
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool
@@ -10,9 +11,7 @@
 - rework prototype extract code
 
 ## cleanup
-- copy readme to cli/readme.md
-- clean up fastapi server
-  - review best practices for variables + async stuff
+- fastapi server: review, research best practices
 
 ## backlog
 

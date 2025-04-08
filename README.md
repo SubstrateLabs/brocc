@@ -3,7 +3,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/brocc-li.svg)](https://pypi.org/project/brocc-li)
 
 
-Brocc lets you **search everything you see in your browser**. 
+Brocc lets you **search everything you've seen in your browser**. 
 
 Try the beta application:
 
