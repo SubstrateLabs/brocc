@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup, Tag
 from bs4.element import Comment
 from markdownify import markdownify as md
 
-from brocc_li.playwright_fallback import BANNER_TEXT
 from brocc_li.utils.logger import logger
 
 # Debug flag - set to match the test debug setting
@@ -48,6 +47,9 @@ ELEMENTS_TO_REMOVE = ["script", "style", "noscript", "svg", "iframe", "canvas"]
 # Content start pattern detection
 CONTENT_START_PATTERNS = r"function|document|window|\{|\}|var|const|let|==|=>|\(self|\[0\]"
 
+# Pattern to match all variants of the broccoli banner text
+BANNER_TEXT_PATTERN = r"🥦\s*(Reading|READING).*?(pages|PAGES|\.\.\.)"
+
 
 def clean_html(html: str) -> BeautifulSoup:
     """Clean HTML by removing scripts, comments and unwanted elements."""
@@ -85,9 +87,14 @@ def clean_html(html: str) -> BeautifulSoup:
 
     # Remove the banner text if present
     banner_removed = 0
-    for element in soup.find_all(string=lambda text: BANNER_TEXT in text):
+    for element in soup.find_all(
+        string=lambda text: bool(
+            text and re.search(BANNER_TEXT_PATTERN, text, re.IGNORECASE) is not None
+        )
+    ):
         element.extract()
         banner_removed += 1
+
     if DEBUG and banner_removed > 0:
         logger.info(f"Removed {banner_removed} elements with banner text")
 

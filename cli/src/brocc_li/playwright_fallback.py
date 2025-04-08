@@ -5,6 +5,9 @@ This module uses async Playwright API for better thread safety.
 """
 
 import asyncio
+import time
+from collections import deque
+from typing import Deque, Tuple
 
 import aiohttp
 from playwright.async_api import Error as PlaywrightError
@@ -16,8 +19,45 @@ from brocc_li.utils.logger import logger
 # Banner text shown in the browser when using Playwright fallback
 BANNER_TEXT = "🥦 READING... (Page will close automatically in a moment)"
 
+# Estimated time per tab in seconds (average) - initial default value
+ESTIMATED_SECONDS_PER_TAB = 8  # Playwright navigation takes ~8 seconds per tab on average
+
 # Cache the playwright instance
 _playwright_instance = None
+
+# Track processing times to calculate a running average (last N tabs)
+_tab_processing_times: Deque[Tuple[float, float]] = deque(
+    maxlen=10
+)  # Store (timestamp, duration) pairs
+
+
+def get_current_time_estimate() -> float:
+    """
+    Get the current estimated seconds per tab based on recent processing history.
+
+    Returns:
+        float: Estimated seconds per tab (defaults to ESTIMATED_SECONDS_PER_TAB if no data)
+    """
+    if not _tab_processing_times:
+        return ESTIMATED_SECONDS_PER_TAB
+
+    # Calculate average from recent times
+    total_time = sum(duration for _, duration in _tab_processing_times)
+    return total_time / len(_tab_processing_times)
+
+
+def add_tab_processing_time(duration: float) -> None:
+    """
+    Add a tab processing time measurement to our running average.
+
+    Args:
+        duration: The time in seconds it took to process the tab
+    """
+    current_time = time.time()
+    _tab_processing_times.append((current_time, duration))
+    logger.debug(
+        f"Tab processed in {duration:.2f}s. New average: {get_current_time_estimate():.2f}s"
+    )
 
 
 async def get_playwright():
@@ -61,7 +101,7 @@ class PlaywrightFallback:
                     logger.error(f"Failed to connect to Chrome browser: {e}")
                     self._browser = None
 
-    async def get_html_from_url(self, url: str) -> str:
+    async def get_html_from_url(self, url: str, current_tab: int = 0, total_tabs: int = 0) -> str:
         """
         Get HTML content from a URL using Playwright.
 
@@ -70,6 +110,8 @@ class PlaywrightFallback:
 
         Args:
             url: The URL to get HTML from
+            current_tab: Current tab number being processed (1-indexed)
+            total_tabs: Total number of tabs to process
 
         Returns:
             HTML content as string, empty string if failed
@@ -83,6 +125,9 @@ class PlaywrightFallback:
             return ""
 
         page = None
+        html = ""
+        start_time = time.time()  # Start timing
+
         try:
             # First check if there are any existing browser contexts (windows)
             contexts = self._browser.contexts
@@ -100,6 +145,26 @@ class PlaywrightFallback:
                 page = await context.new_page()
                 logger.debug("Created new tab in existing Chrome window")
 
+            # Get current time estimate based on the running average
+            current_estimate = get_current_time_estimate()
+
+            # Calculate banner text with progress if available
+            banner_text = BANNER_TEXT
+            if current_tab > 0 and total_tabs > 0:
+                # Calculate remaining tabs and time estimate
+                remaining_tabs = total_tabs - current_tab + 1  # Include current tab
+                time_estimate = remaining_tabs * current_estimate
+
+                # Check if we're at or above the cap
+                if time_estimate >= 60:
+                    # Use "Wait a minute..." instead of the time
+                    time_display = "About a minute remaining"
+                else:
+                    # For shorter times, display seconds
+                    time_display = f"{int(time_estimate)}s remaining"
+
+                banner_text = f"🥦 Reading {current_tab}/{total_tabs} pages... {time_display}"
+
             broccoli_marker_script = f"""
             (function() {{
                 function createBroccoliMarker() {{
@@ -110,7 +175,7 @@ class PlaywrightFallback:
                     // Create top banner
                     const banner = document.createElement('div');
                     banner.className = 'brocc-li-marker';
-                    banner.textContent = '{BANNER_TEXT}';
+                    banner.textContent = '{banner_text}';
                     banner.style.cssText = `
                         position: fixed;
                         top: 0;
@@ -201,13 +266,12 @@ class PlaywrightFallback:
                 html = await page.content()
                 if html and len(html) > 500:  # Ensure we have meaningful content
                     logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
-                    return html
                 else:
                     logger.warning("Playwright returned insufficient HTML content")
             except Exception as e:
                 logger.warning(f"Error getting page content: {e}")
 
-            return ""
+            return html
 
         except PlaywrightError as e:
             logger.error(f"Playwright error with {url}: {e}")
@@ -216,6 +280,15 @@ class PlaywrightFallback:
             logger.error(f"Unexpected error with Playwright: {e}")
             return ""
         finally:
+            # Calculate processing time and update the running average if content was retrieved
+            end_time = time.time()
+            duration = end_time - start_time
+
+            if html:  # Only track successful extractions
+                # Add this measurement to our running average
+                add_tab_processing_time(duration)
+                logger.debug(f"Tab processing took {duration:.2f}s")
+
             # Make sure to clean up the temporary tab/page
             if page:
                 try:
@@ -224,7 +297,13 @@ class PlaywrightFallback:
                 except Exception as e:
                     logger.debug(f"Error closing page: {e}")
 
-    async def get_html_from_tab(self, tab_id: str, debug_port: int = REMOTE_DEBUG_PORT) -> str:
+    async def get_html_from_tab(
+        self,
+        tab_id: str,
+        current_tab: int = 0,
+        total_tabs: int = 0,
+        debug_port: int = REMOTE_DEBUG_PORT,
+    ) -> str:
         """
         Get HTML content from an existing Chrome tab using Playwright.
 
@@ -233,6 +312,8 @@ class PlaywrightFallback:
 
         Args:
             tab_id: The Chrome tab ID
+            current_tab: Current tab number being processed (1-indexed)
+            total_tabs: Total number of tabs to process
             debug_port: Chrome debug port
 
         Returns:
@@ -267,8 +348,8 @@ class PlaywrightFallback:
 
             logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {url}")
 
-            # Get HTML using a temporary tab in the main window
-            return await self.get_html_from_url(url)
+            # Get HTML using a temporary tab in the main window, passing progress info
+            return await self.get_html_from_url(url, current_tab, total_tabs)
 
         except Exception as e:
             logger.error(f"Error getting tab info for Playwright fallback: {e}")

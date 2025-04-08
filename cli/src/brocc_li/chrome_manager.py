@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from enum import Enum
 from typing import List, NamedTuple
 
@@ -294,7 +295,9 @@ class ChromeManager:
 
         return tabs
 
-    async def get_tab_html(self, tab_id: str, cdp_only: bool = False) -> str:
+    async def get_tab_html(
+        self, tab_id: str, cdp_only: bool = False, current_tab: int = 0, total_tabs: int = 0
+    ) -> str:
         """
         Get the HTML content from a specific tab using its ID.
 
@@ -305,6 +308,8 @@ class ChromeManager:
         Args:
             tab_id: The ID of the tab to get HTML from
             cdp_only: If True, only try CDP method without Playwright fallback
+            current_tab: Current tab number being processed (1-indexed, for progress display)
+            total_tabs: Total number of tabs to process (for progress display)
 
         Returns:
             HTML content as string, empty string if tab not found or connection fails
@@ -352,7 +357,10 @@ class ChromeManager:
                 from brocc_li.playwright_fallback import playwright_fallback
 
                 # Use our fallback method which opens a new tab with anti-detection features
-                html = await playwright_fallback.get_html_from_tab(tab_id)
+                # Pass progress information for the banner display
+                html = await playwright_fallback.get_html_from_tab(
+                    tab_id, current_tab=current_tab, total_tabs=total_tabs
+                )
 
                 if html:
                     logger.debug(
@@ -400,6 +408,7 @@ class ChromeManager:
 
             console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
             try:
+                # Explicitly set cdp_only=True to skip fallback during initial phase
                 html = await self.get_tab_html(tab_id, cdp_only=True)
             except asyncio.TimeoutError:
                 console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
@@ -441,27 +450,63 @@ class ChromeManager:
                 logger.error(f"Failed to import Playwright fallback: {e}")
                 return result_tabs_with_html
 
+            total_fallbacks = len(tabs_needing_fallback)
+
             for i, tab in enumerate(tabs_needing_fallback):
                 tab_id = tab.get("id")
                 if tab_id:
                     title = tab.get("title", "Untitled")
                     short_title = (title[:30] + "...") if len(title) > 30 else title
 
-                    console.print(
-                        f"[dim]Playwright ({i + 1}/{len(tabs_needing_fallback)}): {short_title}...[/dim]"
-                    )
+                    # Calculate current index (1-indexed) for display purposes
+                    current_tab_index = i + 1
+
+                    # Get the current average processing time estimate
+                    try:
+                        from brocc_li.playwright_fallback import get_current_time_estimate
+
+                        avg_estimate = get_current_time_estimate()
+                        time_left_estimate = avg_estimate * (
+                            total_fallbacks - current_tab_index + 1
+                        )
+
+                        # Format time estimate for display
+                        if time_left_estimate >= 60:
+                            # Use "Wait a minute..." instead of specific time when we hit the cap
+                            time_left_str = "Wait a minute..."
+                        else:
+                            time_left_str = f"~{int(time_left_estimate)}s remaining"
+
+                        console.print(
+                            f"[dim]Playwright ({current_tab_index}/{total_fallbacks}): {short_title}... {time_left_str}[/dim]"
+                        )
+                    except ImportError:
+                        console.print(
+                            f"[dim]Playwright ({current_tab_index}/{total_fallbacks}): {short_title}...[/dim]"
+                        )
+
+                    # Record start time to calculate processing duration
+                    start_time = time.time()
 
                     # Run fallback with Playwright pipeline - now it's async native
-                    html = await playwright_fallback.get_html_from_tab(tab_id)
+                    # Pass current tab index and total tabs
+                    html = await playwright_fallback.get_html_from_tab(
+                        tab_id, current_tab=current_tab_index, total_tabs=total_fallbacks
+                    )
+
+                    # Calculate processing time
+                    processing_time = time.time() - start_time
 
                     if html:
                         char_count = len(html)
                         line_count = html.count("\n") + 1
                         console.print(
-                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines)"
+                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines, {processing_time:.2f}s)"
                         )
                     else:
-                        console.print(f"[red]✗[/red] Playwright also failed for {short_title}")
+                        console.print(
+                            f"[red]✗[/red] Playwright also failed for {short_title} ({processing_time:.2f}s)"
+                        )
 
                     result_tabs_with_html.append((tab, html))
 
@@ -469,13 +514,22 @@ class ChromeManager:
         success_count = sum(1 for _, html in result_tabs_with_html if html)
         failure_count = len(tabs) - success_count
 
+        # Get the current average processing time if available
+        try:
+            from brocc_li.playwright_fallback import get_current_time_estimate
+
+            avg_time = get_current_time_estimate()
+            time_info = f" (avg {avg_time:.2f}s/tab)"
+        except ImportError:
+            time_info = ""
+
         if success_count == len(tabs):
             console.print(
-                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs![/bold green]"
+                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs!{time_info}[/bold green]"
             )
         else:
             console.print(
-                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs ({failure_count} failed)[/bold yellow]"
+                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs ({failure_count} failed){time_info}[/bold yellow]"
             )
 
         return result_tabs_with_html

@@ -1,5 +1,6 @@
-- (polish) add number of pages indicator in reading banner (and use regex to detect)
+- investigate cdp reading flakiness
 - pdf handling (docling)
+- polish md extraction for certain pages with unstructured
 - deepresearch: latest best pdf/paper metadata tool
 - schema design:
   - source / location: needs another layer
@@ -12,7 +13,6 @@
 
 ## backlog
 
-- polish md extraction for certain pages with unstructured
 - AI: pydanticai + openrouter
 - simple update cli flow using pypi version
 - cli oauth flow
