@@ -11,20 +11,20 @@ from playwright.sync_api import (
     TimeoutError,
 )
 
-from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
-from brocc_li.extract.extract_markdown import extract_markdown
-from brocc_li.extract.extract_navigate_content import extract_navigate_content
-from brocc_li.extract.extract_schema import extract_schema
-from brocc_li.extract.find_container import find_container
-from brocc_li.extract.find_element import find_element
-from brocc_li.extract.is_valid_page import is_valid_page
-from brocc_li.extract.rate_limit_backoff_s import (
+from brocc_li.scroll_prototype.adjust_timeout_counter import adjust_timeout_counter
+from brocc_li.scroll_prototype.extract_markdown import extract_markdown
+from brocc_li.scroll_prototype.extract_navigate_content import extract_navigate_content
+from brocc_li.scroll_prototype.extract_schema import extract_schema
+from brocc_li.scroll_prototype.find_container import find_container
+from brocc_li.scroll_prototype.find_element import find_element
+from brocc_li.scroll_prototype.is_valid_page import is_valid_page
+from brocc_li.scroll_prototype.rate_limit_backoff_s import (
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
 )
-from brocc_li.extract.restore_scroll import restore_scroll_position
-from brocc_li.extract.save_extract_log import save_extract_log
-from brocc_li.extract.scroll_strategies import perform_adaptive_scroll
-from brocc_li.extract.wait_for_navigation import (
+from brocc_li.scroll_prototype.restore_scroll import restore_scroll_position
+from brocc_li.scroll_prototype.save_extract_log import save_extract_log
+from brocc_li.scroll_prototype.scroll_strategies import perform_adaptive_scroll
+from brocc_li.scroll_prototype.wait_for_navigation import (
     DEFAULT_JITTER_FACTOR,
     wait_for_navigation,
 )

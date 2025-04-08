@@ -1,6 +1,6 @@
 from playwright.sync_api import Page, TimeoutError
 
-from brocc_li.extract.is_valid_page import is_valid_page
+from brocc_li.scroll_prototype.is_valid_page import is_valid_page
 from brocc_li.types.extract_feed_config import ExtractFeedConfig
 from brocc_li.utils.logger import logger
 from brocc_li.utils.random_delay import random_delay_with_jitter

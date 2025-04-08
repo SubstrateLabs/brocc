@@ -3,8 +3,8 @@ from typing import Any
 from playwright.sync_api import Page
 from pydantic import BaseModel
 
-from brocc_li.extract.extract_field import extract_field
-from brocc_li.extract.save_extract_log import save_extract_log
+from brocc_li.scroll_prototype.extract_field import extract_field
+from brocc_li.scroll_prototype.save_extract_log import save_extract_log
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
 )

@@ -1,4 +1,6 @@
 - polish twitter + linkedin extraction w unstructured
+- handle scrolling
+- instagram test
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>

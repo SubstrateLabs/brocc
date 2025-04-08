@@ -2,9 +2,9 @@ import time
 
 from playwright.sync_api import Page
 
-from brocc_li.extract.adjust_timeout_counter import adjust_timeout_counter
-from brocc_li.extract.extract_markdown import extract_markdown
-from brocc_li.extract.rate_limit_backoff_s import (
+from brocc_li.scroll_prototype.adjust_timeout_counter import adjust_timeout_counter
+from brocc_li.scroll_prototype.extract_markdown import extract_markdown
+from brocc_li.scroll_prototype.rate_limit_backoff_s import (
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
     rate_limit_backoff_s,
 )

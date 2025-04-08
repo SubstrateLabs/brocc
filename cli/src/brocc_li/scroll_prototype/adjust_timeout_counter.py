@@ -1,4 +1,4 @@
-from brocc_li.extract.rate_limit_backoff_s import (
+from brocc_li.scroll_prototype.rate_limit_backoff_s import (
     RATE_LIMIT_CONSECUTIVE_TIMEOUTS_THRESHOLD,
 )
 

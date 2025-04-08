@@ -3,8 +3,8 @@ import time
 
 from playwright.sync_api import Page
 
-from brocc_li.extract.human_scroll import human_scroll
-from brocc_li.extract.restore_scroll import (
+from brocc_li.scroll_prototype.human_scroll import human_scroll
+from brocc_li.scroll_prototype.restore_scroll import (
     get_current_scroll_position,
     scroll_to_bottom,
 )

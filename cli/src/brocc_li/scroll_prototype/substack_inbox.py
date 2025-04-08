@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 from typing import ClassVar
 
-from brocc_li.extract.extract_field import ExtractField
+from brocc_li.scroll_prototype.extract_field import ExtractField
 from brocc_li.types.doc import DocExtractor, Source
 from brocc_li.types.extract_feed_config import (
     ExtractFeedConfig,
