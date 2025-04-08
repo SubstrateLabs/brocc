@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from brocc_li.parsers.twitter_home import convert_twitter_feed_html_to_md
+from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
 from brocc_li.utils.logger import logger
 
 DEBUG = False
@@ -15,23 +15,15 @@ def fixtures_dir() -> Path:
     return Path(__file__).parent.parent / "tests" / "html_fixtures"
 
 
-def test_x_home(fixtures_dir: Path):
-    """Test Twitter feed HTML to markdown conversion with BeautifulSoup."""
+def test_parse(fixtures_dir: Path):
     fixture_name = "_x-home.html"
     fixture_path = fixtures_dir / fixture_name
-    slug = fixture_name.removeprefix("_").removesuffix(".html")
-
-    logger.info(f"Testing Twitter feed conversion with fixture: {fixture_name}")
-
     assert fixture_path.exists(), f"Fixture {fixture_name} not found at {fixture_path}"
-
     with open(fixture_path, encoding="utf-8") as f:
         html = f.read()
 
-    logger.info(f"HTML size: {len(html)} bytes for {fixture_name}")
-
     # Convert using BeautifulSoup-based parser
-    markdown = convert_twitter_feed_html_to_md(html, url=slug)
+    markdown = twitter_feed_html_to_md(html)
 
     # Print markdown if DEBUG flag is enabled
     if DEBUG:
@@ -59,7 +51,9 @@ def test_x_home(fixtures_dir: Path):
     assert "Advanced Manufacturing Company of America" in markdown, "Missing Jai's tweet content"
 
     # Check for media attachments
-    assert "[video](" in markdown, "Missing video attachment"
+    assert "![Video Thumbnail](" in markdown or "![Embedded video](" in markdown, (
+        "Missing video attachment"
+    )
     assert "![" in markdown, "Missing image attachment"
 
     # Check for engagement metrics format
