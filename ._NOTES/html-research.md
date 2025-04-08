@@ -1,0 +1,3 @@
+- [markdownify](https://github.com/matthewwithanm/python-markdownify) seems like a good default
+- unstructured's partition_html: https://docs.unstructured.io/open-source/core-functionality/partitioning#partition-html
+  - perhaps useful for "mid-level" extraction (vs. low-level selectors)

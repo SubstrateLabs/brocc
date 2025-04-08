@@ -1,11 +1,16 @@
 import asyncio
+import os
+import shutil
 import signal
 import time
 from typing import Awaitable, Callable, List, NamedTuple, Optional, Set, Union
 
+from markdownify import markdownify as md
+
 from brocc_li.chrome_cdp import get_chrome_info
 from brocc_li.chrome_manager import ChromeManager, TabReference
 from brocc_li.utils.logger import logger
+from brocc_li.utils.slugify import slugify
 
 
 class TabChangeEvent(NamedTuple):
@@ -301,6 +306,57 @@ async def main() -> None:
     manager = ChromeManager()
     tabs_monitor = ChromeTabs(manager)
 
+    # Set up debug directory for markdown files in current directory
+    debug_dir = os.path.join(os.getcwd(), "debug")
+
+    # Clear and recreate the debug directory
+    if os.path.exists(debug_dir):
+        logger.info(f"Clearing debug directory: {debug_dir}")
+        shutil.rmtree(debug_dir)
+    os.makedirs(debug_dir, exist_ok=True)
+    logger.info(f"Created debug directory: {debug_dir}")
+    logger.info("Using markdownify to extract content from tabs")
+
+    # Track processed URLs to avoid duplicates
+    processed_urls = set()
+
+    # Save markdown to file
+    def save_markdown_for_url(url, html, title=""):
+        """Save markdown extracted from HTML to a file."""
+        if not url or url in processed_urls:
+            return
+
+        # Generate a slugified filename - creates URL-safe filesystem names
+        slug = slugify(url)
+        md_file = os.path.join(debug_dir, f"{slug}.md")
+
+        # Extract and save markdown using markdownify
+        markdown = ""
+        if html:
+            try:
+                # Convert HTML to markdown with markdownify
+                markdown = md(
+                    html,
+                    heading_style="ATX",  # Use # style headings instead of underlines
+                    bullets="*",  # Consistently use * for bullet points
+                    autolinks=True,  # Convert URLs to markdown links when href matches text
+                    default_title=True,  # Use URL as title for links when no title is given
+                    newline_style="SPACES",  # Use standard two spaces + newline for breaks
+                    strip=["script", "style", "meta", "link"],  # Remove these elements entirely
+                    code_language="",
+                )  # Don't assume a specific language for code blocks
+            except Exception as e:
+                logger.error(f"Error converting HTML to markdown: {e}")
+                # Fallback if conversion fails
+                markdown = f"Error converting content: {str(e)}"
+
+        # Write to the file
+        with open(md_file, "w", encoding="utf-8") as f:
+            f.write(markdown)
+
+        logger.info(f"Saved markdown for {url} to {md_file}")
+        processed_urls.add(url)  # Mark this URL as processed to avoid duplicates
+
     # Helper function to display a list of tabs in a table
     def display_tab_list(tabs_with_html, header, show_old_url=False, show_html_stats=False):
         """Display a list of tabs in a table."""
@@ -328,6 +384,9 @@ async def main() -> None:
 
             url = tab.get("url", "")
             url_display = (url[:60] + "...") if len(url) > 60 else url
+
+            # Save markdown for this tab
+            save_markdown_for_url(url, html, title)
 
             # Show the old URL if requested and available
             old_url_display = ""
@@ -433,6 +492,12 @@ async def main() -> None:
             if filtered_tabs:
                 initial_tabs_with_html = await manager.get_parallel_tab_html(filtered_tabs)
 
+                # Save markdown for initial tabs
+                for tab, html in initial_tabs_with_html:
+                    url = tab.get("url", "")
+                    title = tab.get("title", "Untitled")
+                    save_markdown_for_url(url, html, title)
+
                 # Display initial tabs in a table
                 display_tab_list(
                     initial_tabs_with_html,
@@ -459,6 +524,10 @@ async def main() -> None:
     finally:
         # Stop monitoring and clean up resources
         await tabs_monitor.stop_monitoring()
+
+        # Log summary of markdown files saved
+        if "processed_urls" in locals():
+            logger.success(f"Saved markdown for {len(processed_urls)} unique URLs to {debug_dir}")
 
         # Clean up Playwright resources if we used them
         try:

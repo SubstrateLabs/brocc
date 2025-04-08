@@ -26,6 +26,7 @@ dependencies = [
     "fastapi>=0.115.12",
     "html-to-markdown>=1.2.0",
     "lancedb>=0.21.2",
+    "markdownify>=1.1.0",
     "numpy>=2.2.4",
     "pandas>=2.2.3",
     "pillow>=11.2.0",

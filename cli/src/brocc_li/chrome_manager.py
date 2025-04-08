@@ -395,21 +395,20 @@ class ChromeManager:
 
         async def process_tab_with_cdp_async(tab):
             tab_id = tab.get("id")
-            if not tab_id:
-                return tab, "", True
-
             title = tab.get("title", "Untitled")
             short_title = (title[:30] + "...") if len(title) > 30 else title
 
             console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
-            # Use cdp_only=True for first pass to speed up parallel processing
-            html = await self.get_tab_html(tab_id, cdp_only=True)
+            try:
+                html = await self.get_tab_html(tab_id, cdp_only=True)
+            except asyncio.TimeoutError:
+                console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
+                return tab, "", True  # Force fallback
 
             needs_fallback = not bool(html)
+
             if needs_fallback:
-                console.print(
-                    f"[yellow]CDP failed for {short_title} - queuing for Playwright fallback[/yellow]"
-                )
+                console.print(f"[yellow]CDP failed for {short_title} - queuing fallback[/yellow]")
             else:
                 char_count = len(html)
                 line_count = html.count("\n") + 1

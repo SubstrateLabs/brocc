@@ -158,28 +158,16 @@ async def get_chrome_info():
 
 
 async def get_tab_html_content(ws_url: str) -> str:
-    """
-    Connect to a Chrome tab via WebSocket debugger URL and get HTML content.
-
-    Uses single-attempt approach without retries to quickly detect if CDP will work.
-    If this fails, ChromeManager will fallback to Playwright approach.
-
-    Args:
-        ws_url: WebSocket debugger URL for the tab
-
-    Returns:
-        HTML content as string, empty string if fails
-    """
-    if not ws_url:
-        logger.error("Missing WebSocket URL for tab")
+    """Get HTML with hard timeout using asyncio.wait_for"""
+    try:
+        # Give up after 5 seconds total for entire CDP operation
+        return await asyncio.wait_for(_get_html_using_dom(ws_url), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.error("CDP HTML retrieval timed out after 5 seconds")
         return ""
-
-    html = await _get_html_using_dom(ws_url)
-    if html:
-        return html
-
-    logger.error("CDP HTML extraction failed")
-    return ""
+    except Exception as e:
+        logger.error(f"CDP failed: {e}")
+        return ""
 
 
 async def _get_html_using_dom(ws_url: str) -> str:
