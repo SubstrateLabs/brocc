@@ -1,6 +1,4 @@
-- fix tests
-- factor out md extract
-- markdown extraction (unstructured)
+- (polish) add number of pages indicator in reading banner (and use regex to detect)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool
 - schema design:
@@ -14,6 +12,7 @@
 
 ## backlog
 
+- polish md extraction for certain pages with unstructured
 - AI: pydanticai + openrouter
 - simple update cli flow using pypi version
 - cli oauth flow

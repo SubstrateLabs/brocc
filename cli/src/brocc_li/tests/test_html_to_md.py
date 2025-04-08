@@ -14,6 +14,17 @@ import pytest
 
 from brocc_li.html_to_md import convert_html_to_markdown
 from brocc_li.playwright_fallback import BANNER_TEXT
+from brocc_li.utils.logger import logger
+
+# Set to True to enable debug logging
+DEBUG = True
+
+# Sync debug setting with the HTML-to-MD module
+if DEBUG:
+    # Override the html_to_md module's DEBUG setting
+    import brocc_li.html_to_md
+
+    brocc_li.html_to_md.DEBUG = DEBUG
 
 
 @pytest.fixture
@@ -25,12 +36,21 @@ def fixtures_dir() -> Path:
 def assert_valid_markdown(markdown: str, url: str):
     """Helper function to check common markdown conversion assertions."""
     # Basic sanity checks for the markdown output
-    assert markdown, f"Markdown output for {url} should not be empty"
-    assert "Error converting" not in markdown, f"Conversion for {url} should not produce errors"
+    if not markdown:
+        if DEBUG:
+            logger.error(f"❌ {url}: Markdown output is empty")
+        assert markdown, f"Markdown output for {url} should not be empty"
+
+    if "Error converting" in markdown:
+        if DEBUG:
+            logger.error(f"❌ {url}: Conversion error: {markdown}")
+        assert "Error converting" not in markdown, f"Conversion for {url} should not produce errors"
 
     # Get the lines and analyze document structure
     lines = [line.strip() for line in markdown.splitlines() if line.strip()]
     if not lines:
+        if DEBUG:
+            logger.error(f"❌ {url}: Output has no non-empty lines")
         pytest.fail(f"Output for {url} has no non-empty lines")
 
     # Check document structure - should start with valid markdown syntax
@@ -47,6 +67,8 @@ def assert_valid_markdown(markdown: str, url: str):
     ]
 
     is_valid_md_start = any(checker(first_line) for checker in valid_md_starters)
+    if not is_valid_md_start and DEBUG:
+        logger.error(f"❌ {url}: Invalid markdown start: '{first_line}'")
     assert is_valid_md_start, (
         f"Document for {url} should start with valid markdown syntax, got: {first_line}"
     )
@@ -61,6 +83,8 @@ def assert_valid_markdown(markdown: str, url: str):
             len(line) > 20 and not line.startswith(("#", "-", "*", "1.", "[", ">", "```", "|"))
             for line in lines
         )
+        if not (has_lists or has_links or has_paragraphs) and DEBUG:
+            logger.error(f"❌ {url}: No headings, lists, links, or substantial paragraphs found")
         assert has_lists or has_links or has_paragraphs, (
             f"Output for {url} should contain either headings, lists, links, or substantial paragraphs"
         )
@@ -83,6 +107,8 @@ def assert_valid_markdown(markdown: str, url: str):
     for i, line in enumerate(lines[:5]):
         for pattern in js_patterns:
             if re.search(pattern, line):
+                if DEBUG:
+                    logger.error(f"❌ {url}: Line {i + 1} contains JS pattern '{pattern}': {line}")
                 pytest.fail(f"Line {i + 1} of {url} contains JS pattern '{pattern}': {line}")
 
     # Look for suspicious combinations of HTML and JS-specific content
@@ -90,6 +116,8 @@ def assert_valid_markdown(markdown: str, url: str):
     for line in lines:
         html_matches = sum(1 for pattern in html_patterns if pattern.lower() in line.lower())
         if html_matches >= 2:
+            if DEBUG:
+                logger.error(f"❌ {url}: Line has multiple HTML/JS patterns: {line}")
             pytest.fail(f"Line has multiple HTML/JS patterns: {line}")
 
     # Check for overall document coherence - should have reasonable paragraph structure
@@ -98,7 +126,12 @@ def assert_valid_markdown(markdown: str, url: str):
         pass
 
     # Ensure banner text is not present in the output
+    if BANNER_TEXT in markdown and DEBUG:
+        logger.error(f"❌ {url}: Banner text found in output")
     assert BANNER_TEXT not in markdown, f"Banner text should not be present in output for {url}"
+
+    if DEBUG:
+        logger.info(f"✅ {url}: Passed all markdown validation checks")
 
 
 def get_test_fixtures(fixtures_dir: Path):
@@ -111,15 +144,44 @@ def test_all_underscore_fixtures(fixtures_dir: Path):
     fixtures = get_test_fixtures(fixtures_dir)
     assert fixtures, "No underscore-prefixed fixtures found"
 
+    if DEBUG:
+        logger.info(f"Found {len(fixtures)} test fixtures to process")
+
+    passed = []
+    failed = []
+
     for fixture_path in fixtures:
         fixture_name = fixture_path.name
-        with open(fixture_path, encoding="utf-8") as f:
-            html = f.read()
-
-        # Create a mock URL based on the filename
         url_name = fixture_name.removeprefix("_").removesuffix(".html")
         url = f"https://example.com/{url_name}"
 
-        # Convert and validate
-        markdown = convert_html_to_markdown(html, url=url)
-        assert_valid_markdown(markdown, url)
+        if DEBUG:
+            logger.info(f"Testing fixture: {fixture_name} -> {url}")
+
+        try:
+            with open(fixture_path, encoding="utf-8") as f:
+                html = f.read()
+
+            if DEBUG:
+                logger.info(f"  HTML size: {len(html)} bytes")
+
+            # Convert and validate
+            markdown = convert_html_to_markdown(html, url=url)
+
+            if DEBUG:
+                logger.info(f"  Markdown size: {len(markdown)} bytes")
+
+            assert_valid_markdown(markdown, url)
+            passed.append(url_name)
+        except Exception as e:
+            failed.append((url_name, str(e)))
+            if DEBUG:
+                logger.error(f"❌ {url}: Failed with error: {e}")
+            raise  # Re-raise to keep pytest's normal behavior
+
+    if DEBUG:
+        logger.info(f"Tests completed: {len(passed)} passed, {len(failed)} failed")
+        if passed:
+            logger.info(f"Passed: {', '.join(passed)}")
+        if failed:
+            logger.error(f"Failed: {', '.join(name for name, _ in failed)}")
