@@ -1,4 +1,4 @@
-.PHONY: format lint type-check test install clean build dev chrome
+.PHONY: format lint type-check test install clean build dev chrome test-md
 
 # Format code with ruff
 format:
@@ -42,4 +42,8 @@ dev: build
 
 chrome:
 	uv run python -m brocc_li.chrome_tabs
+
+# Run HTML to Markdown conversion tests
+test-md:
+	uv run pytest src/brocc_li/tests/test_html_to_md.py -v
 

@@ -3,6 +3,7 @@
 **/.pytest_cache
 .DS_Store
 cli/debug
+cli/src/brocc_li/debug
 **/.venv
 
 # Logs

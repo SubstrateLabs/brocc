@@ -1,14 +1,13 @@
 import asyncio
-import os
 import shutil
 import signal
 import time
+from pathlib import Path
 from typing import Awaitable, Callable, List, NamedTuple, Optional, Set, Union
-
-from markdownify import markdownify as md
 
 from brocc_li.chrome_cdp import get_chrome_info
 from brocc_li.chrome_manager import ChromeManager, TabReference
+from brocc_li.html_to_md import convert_html_to_markdown
 from brocc_li.utils.logger import logger
 from brocc_li.utils.slugify import slugify
 
@@ -292,6 +291,9 @@ async def main() -> None:
     from rich.console import Console
     from rich.table import Table
 
+    # Configuration toggle for saving HTML fixtures
+    SAVE_FIXTURES = True
+
     # Set up signal handlers for cleaner exit
     def signal_handler(sig, frame):
         logger.info("Tab monitor stopped by user.")
@@ -306,19 +308,36 @@ async def main() -> None:
     manager = ChromeManager()
     tabs_monitor = ChromeTabs(manager)
 
-    # Set up debug directory for markdown files in current directory
-    debug_dir = os.path.join(os.getcwd(), "debug")
+    # Set up debug directory for markdown files in package directory
+    debug_dir = Path(__file__).parent / "debug"
+
+    # Set up fixtures directory for HTML files
+    fixtures_dir = Path(__file__).parent / "fixtures"
 
     # Clear and recreate the debug directory
-    if os.path.exists(debug_dir):
+    if debug_dir.exists():
         logger.info(f"Clearing debug directory: {debug_dir}")
         shutil.rmtree(debug_dir)
-    os.makedirs(debug_dir, exist_ok=True)
+    debug_dir.mkdir(exist_ok=True)
     logger.info(f"Created debug directory: {debug_dir}")
+
+    # Create fixtures directory if it doesn't exist (without clearing it)
+    if SAVE_FIXTURES:
+        fixtures_dir.mkdir(exist_ok=True)
+        logger.info(f"Using fixtures directory: {fixtures_dir}")
+
     logger.info("Using markdownify to extract content from tabs")
 
     # Track processed URLs to avoid duplicates
     processed_urls = set()
+    # Track saved HTML fixtures to avoid overwriting
+    saved_fixtures = set()
+
+    # Load existing fixture filenames to avoid overwriting
+    if SAVE_FIXTURES and fixtures_dir.exists():
+        saved_fixtures = {f.stem for f in fixtures_dir.glob("*.html")}
+        if saved_fixtures:
+            logger.info(f"Found {len(saved_fixtures)} existing HTML fixtures")
 
     # Save markdown to file
     def save_markdown_for_url(url, html, title=""):
@@ -328,148 +347,21 @@ async def main() -> None:
 
         # Generate a slugified filename - creates URL-safe filesystem names
         slug = slugify(url)
-        md_file = os.path.join(debug_dir, f"{slug}.md")
+        md_file = debug_dir / f"{slug}.md"
 
-        # Extract and save markdown using markdownify
-        try:
-            import re
+        # Save the original HTML if fixtures are enabled and not already saved
+        if SAVE_FIXTURES and html and slug not in saved_fixtures:
+            html_file = fixtures_dir / f"{slug}.html"
+            try:
+                with open(html_file, "w", encoding="utf-8") as f:
+                    f.write(html)
+                logger.debug(f"Saved HTML fixture for {url} to {html_file}")
+                saved_fixtures.add(slug)  # Mark this fixture as saved
+            except Exception as e:
+                logger.error(f"Error saving HTML fixture: {e}")
 
-            from bs4 import BeautifulSoup
-            from bs4.element import Comment
-
-            # First, use BeautifulSoup to extract only the meaningful content
-            soup = BeautifulSoup(html, "html5lib")
-
-            # Remove all script, style tags and their contents
-            for script in soup(["script", "style", "noscript", "svg", "iframe", "canvas"]):
-                script.decompose()
-
-            # Remove all html comments
-            for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
-                comment.extract()
-
-            # Remove all elements with class containing typical frontend framework identifiers
-            for element in soup.find_all(
-                class_=re.compile(r"(css-|js-|react-|\_\_next|anticon|data-)")
-            ):
-                element.decompose()
-
-            # Remove all elements with inline JS handlers
-            for element in soup.find_all(
-                lambda tag: any(
-                    attr.startswith("on") for attr in tag.attrs if isinstance(attr, str)
-                )
-            ):
-                element.decompose()
-
-            # Extract just the body content, or the whole document if no body found
-            body = soup.body
-            content = body if body else soup
-
-            # Detect if this is a modern JS framework page by checking for certain patterns
-            js_framework_patterns = [
-                "self.__next_f",
-                "document.querySelector",
-                "ReactDOM",
-                "window.matchMedia",
-                "_next/static",
-                "hydration",
-                "react-root",
-            ]
-
-            is_js_framework = any(pattern in html for pattern in js_framework_patterns)
-
-            # For JS framework pages, be more aggressive in pruning content
-            if is_js_framework:
-                # Try to find the main content container
-                main_content = None
-                for candidate in [
-                    "main",
-                    "article",
-                    ".content",
-                    "#content",
-                    ".main",
-                    "#main",
-                    ".container",
-                    ".page",
-                ]:
-                    found = soup.select(candidate)
-                    if found:
-                        main_content = found[0]
-                        break
-
-                # If we found a main content container, use that instead
-                if main_content:
-                    content = main_content
-
-            # Now convert the cleaned HTML to markdown
-            markdown = md(
-                str(content),
-                strip=[
-                    # Standard elements to remove
-                    "script",
-                    "style",
-                    "meta",
-                    "link",
-                    "head",
-                    "noscript",
-                    "svg",
-                    "path",
-                    # Frontend framework garbage
-                    "iframe",
-                    "canvas",
-                    # Common UI elements that don't add value in markdown
-                    "footer",
-                    "nav",
-                    "header",
-                    "button",
-                    "input",
-                    # Remove elements with specific attributes
-                    {"attrs": ["style"]},
-                    {"attrs": {"id": "__next"}},
-                    {"attrs": {"id": "app"}},
-                    {"attrs": {"id": "root"}},
-                ],
-                # Add these options to handle HTML5 weirdness
-                beautiful_soup_parser="html5lib",
-                escape_misc=True,  # Escape random punctuation that fucks with MD
-                heading_style="ATX",  # Use # style headings instead of underlines
-            )
-
-            # Post-process markdown to clean it up
-            lines = markdown.split("\n")
-
-            # Remove empty lines at start
-            while lines and not lines[0].strip():
-                lines.pop(0)
-
-            # If there are still weird JS/CSS artifacts at the top, try to detect where content starts
-            if lines and any(
-                re.search(r"function|document|window|\{|\}|var|const|let|==|=>|\(self|\[0\]", line)
-                for line in [lines[0]]
-            ):
-                start_idx = 0
-                # Look for the first line that seems like actual content (with a header, paragraph, etc.)
-                for i, line in enumerate(lines):
-                    if line.strip() and (
-                        line.strip().startswith("#")  # Heading
-                        or re.match(
-                            r"^[A-Z]", line.strip()
-                        )  # Sentence starting with capital letter
-                        or line.strip().startswith("*")  # List item
-                        or line.strip().startswith("-")  # List item
-                        or line.strip().startswith(">")
-                    ):  # Blockquote
-                        start_idx = i
-                        break
-                lines = lines[start_idx:]
-
-            # Reassemble the cleaned markdown
-            markdown = "\n".join(lines)
-
-        except Exception as e:
-            logger.error(f"Error converting HTML to markdown: {e}")
-            markdown = f"Error extracting content from {url}: {str(e)}"
+        # Extract and save markdown using our utility function
+        markdown = convert_html_to_markdown(html, url, title)
 
         # Write to the file
         with open(md_file, "w", encoding="utf-8") as f:
