@@ -1,0 +1,39 @@
+import { CodeBlock, InlineCode } from "@/components/mdx/CodeBlock";
+import Image from "next/image";
+import {
+  MdxAccordionGroup,
+  MdxAccordionItem,
+} from "@/components/mdx/Accordion";
+
+<MdxAccordionGroup defaultValue="installation">
+<MdxAccordionItem title="Installation" value="installation">
+
+We're using [pipx](https://pipx.pypa.io) to distribute the beta version of Brocc, but plan to release a more traditional application in the future.
+
+After installing with pipx, you can launch the app by running `brocc` in your terminal.
+
+Your terminal will launch a window with the Brocc UI. If you close your terminal session, Brocc will stop running.
+
+</MdxAccordionItem>
+
+<MdxAccordionItem title="Chrome startup" value="chrome-startup">
+
+Brocc can only connect to Chrome if it's running in a specific configuration, and will guide you to relaunch Chrome.
+
+We recommend updating your Chrome startup settings so you don't lose your open tabs:
+
+1. Copy this URL into your Chrome address bar: <InlineCode code={`chrome://settings/?search=startup`} />
+
+2. Select **Continue where you left off**:
+
+<Image
+  src="/chrome-startup.png"
+  alt="Chrome startup settings"
+  width={800}
+  height={600}
+  className="rounded-md"
+/>
+
+</MdxAccordionItem>
+
+</MdxAccordionGroup>

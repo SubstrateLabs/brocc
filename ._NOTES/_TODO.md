@@ -8,14 +8,14 @@
     - capture parent doc for threads, comments
     - is this the same as "parent url" for browser nav?
 - rework prototype extract code
+- homepage + faq page anchors + accordion (expand accordion based on anchor)
 
 ## backlog
 
 - AI: pydanticai + openrouter
+- simple update cli flow using pypi version
 - cli oauth flow
-- lucide icons in fasthtml
-- faq item: must use chrome
-  - faq page anchors + accordion (expand accordion based on anchor)
+- speed up launch process
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)
 - wrap python process in minimal app bundle

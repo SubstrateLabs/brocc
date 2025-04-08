@@ -2,19 +2,14 @@
 
 [![PyPI - Version](https://img.shields.io/pypi/v/brocc-li.svg)](https://pypi.org/project/brocc-li)
 
+Brocc lets you **search and chat with your browsing activity**.
 
-Brocc lets you **search everything you've seen in your browser**. 
-
-Try the beta application:
+[Install the beta using pipx](/faq#installation):
 
 1. Install: `pipx install brocc-li`
 2. Run: `brocc`
 
-<details open>
-<summary><h2>How it works</h2></summary>
-
-
-</details>
+Brocc connects to Chrome and indexes every page you navigate to, creating a searchable, AI-enabled database for everything you've seen. Your data is stored locally on your computer.
 
 <details>
 <summary><h2>System design</h2></summary>
@@ -22,9 +17,7 @@ Try the beta application:
 Indexing personal data is a big responsibility. We believe this kind of software should be:
 
 1. **Local**: Your data belongs on your computer. Brocc never logs or stores your data in the cloud (however, AI features use cloud AI models).
-2. **Open**: Our system design and source code are available for inspection. We welcome open-source contributions.
-
-Our goal is to build lightweight, durable software with minimal system requirements. We carefully choose dependencies that have this quality themselves, making pragmatic exceptions.
+2. **Open**: Our system design and code are open to the public and we welcome contributions.
 
 #### Overview
 
@@ -44,6 +37,6 @@ Our goal is to build lightweight, durable software with minimal system requireme
 - [WorkOS](https://workos.com): Used for auth.
 - [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted): Used to cache session information.
 
-
 </details>
 
+### [FAQ](/faq)

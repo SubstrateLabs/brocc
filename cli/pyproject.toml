@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "brocc-li"
 dynamic = ["version"]
-description = 'Know thyself'
+description = 'Search and chat with your digital life'
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

@@ -10,23 +10,27 @@ type HeaderProps = {
     id: string;
     [key: string]: unknown;
   } | null;
-  signInUrl: string;
 };
 
-export function Header({ user, signInUrl }: HeaderProps) {
+export function Header({ user }: HeaderProps) {
   const pathname = usePathname();
   const isOnHome = pathname === "/";
+  const isOnFaq = pathname === "/faq";
 
   return (
     <header className="top-0 z-50 w-full flex justify-between items-center border-b border-gray-200 bg-background/80 backdrop-blur-sm relative">
       <div className="absolute inset-0 bg-[radial-gradient(#d1d5db_0.5px,transparent_0.5px)] bg-[length:4px_4px] opacity-50" />
       <div className="relative z-10">
-        {isOnHome ? (
-          <div className="text-sm font-medium text-muted-foreground px-4">Know thyself</div>
-        ) : (
+        {!isOnHome && (
           <Link href="/">
             <Button variant="ghost">
-              <Image src="/brocc.svg" alt="Broccoli" width={16} height={16} className="mr-1" />
+              <Image
+                src="/brocc.svg"
+                alt="Broccoli"
+                width={16}
+                height={16}
+                className="mr-1"
+              />
               Brocc
             </Button>
           </Link>
@@ -34,10 +38,10 @@ export function Header({ user, signInUrl }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-2 relative z-10">
-        {isOnHome && !user && (
-          <Link href={signInUrl}>
-            <Button variant="default">Sign in</Button>
-          </Link>
+        {isOnFaq && (
+          <div className="text-sm font-medium text-muted-foreground px-4">
+            Frequently asked questions
+          </div>
         )}
         {isOnHome && user && (
           <Link href="/dashboard">

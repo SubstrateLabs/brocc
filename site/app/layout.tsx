@@ -1,6 +1,6 @@
 import "./globals.css";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
-import { getSignInUrl, withAuth } from "@workos-inc/authkit-nextjs";
+import { withAuth } from "@workos-inc/authkit-nextjs";
 import type { Metadata } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
@@ -18,8 +18,8 @@ const ibmPlexSans = IBM_Plex_Sans({
 // Berkeley Mono Variable is loaded via @font-face in globals.css
 
 export const metadata: Metadata = {
-  title: "Brocc | Know thyself",
-  description: "Search your life",
+  title: "Brocc",
+  description: "Search and chat with your digital life",
   icons: {
     icon: [
       {
@@ -48,15 +48,24 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const { user } = await withAuth();
-  const signInUrl = await getSignInUrl();
 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="preload" href="/BerkeleyMonoVariable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link
+          rel="preload"
+          href="/BerkeleyMonoVariable.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className={`${ibmPlexSans.variable} antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem={false}
+        >
           <AuthKitProvider>
             <SWRConfig
               value={{
@@ -65,10 +74,8 @@ export default async function RootLayout({
               }}
             >
               <div className="min-h-screen flex flex-col">
-                <Header user={user ? { ...user, id: user.id } : null} signInUrl={signInUrl} />
-                <div className="flex-1">
-                  {children}
-                </div>
+                <Header user={user ? { ...user, id: user.id } : null} />
+                <div className="flex-1">{children}</div>
                 <Footer />
               </div>
             </SWRConfig>
