@@ -50,7 +50,14 @@ test-md-twitter-home:
 	uv run pytest src/brocc_li/tests/test_twitter_home.py -v -s
 
 test-md-twitter-thread:
-	uv run pytest src/brocc_li/tests/test_twitter_thread.py -v -s --log-cli-level=DEBUG
+	uv run pytest src/brocc_li/tests/test_twitter_thread.py -v -s 
+
+test-md-twitter-likes:
+	uv run pytest src/brocc_li/tests/test_twitter_likes.py -v -s
+
+test-md-twitter-bookmarks:
+	uv run pytest src/brocc_li/tests/test_twitter_bookmarks.py -v -s
+
 
 
 

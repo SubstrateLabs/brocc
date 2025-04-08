@@ -16,17 +16,7 @@ DEBUG = False
 
 
 def twitter_thread_html_to_md(html: str) -> Optional[str]:
-    """
-    Convert Twitter thread HTML to structured Markdown using BeautifulSoup.
-
-    Args:
-        html: The HTML content of the Twitter thread
-
-    Returns:
-        Formatted markdown text or None on failure
-    """
     try:
-        logger.info("Starting Twitter thread parsing with BeautifulSoup")
         soup = BeautifulSoup(html, "html.parser")
 
         # Find all tweets using the container selector

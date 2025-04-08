@@ -47,16 +47,6 @@ def _is_section_relevant(header_text: str) -> bool:
 
 
 def twitter_feed_html_to_md(html: str) -> Optional[str]:
-    """
-    Convert Twitter HTML to structured Markdown using BeautifulSoup,
-    extracting tweets and sections with proper formatting.
-
-    Args:
-        html: The HTML content to convert
-
-    Returns:
-        Formatted markdown text, or None on failure.
-    """
     try:
         soup = BeautifulSoup(html, "html.parser")
 

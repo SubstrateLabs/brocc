@@ -2,7 +2,6 @@
   - unified twitter utils
 - twitter profile
 - twitter likes (on personal profile)
-- twitter bookmarks
 - linkedin feed, profile
 - twitter messages
 - linkedin messages
@@ -29,6 +28,11 @@
 - fix emoji parsing in tweet content (currently we drop emojis)
 - wrap python process in minimal app bundle
   - see https://github.com/linkedin/shiv
+
+## parser backlog
+
+- twitter profile (no content in md)
+- twitter bookmarks (no content in md)
 
 ## ideas
 
