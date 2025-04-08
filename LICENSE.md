@@ -7,7 +7,9 @@
 
 # Business Source License 1.1
 
-License text copyright © 2024 MariaDB plc, All Rights Reserved. “Business Source License” is a trademark of MariaDB plc.
+Original license text copyright © 2024 MariaDB plc, All Rights Reserved. “Business Source License” is a trademark of MariaDB plc.
+
+License has been edited to make the effective date the later of the change date or the the fourth anniversary of the first publicly available distribution of a specific version of the Licensed Work. Previously, it was the earlier of the two dates.
 
 ## Terms
 
