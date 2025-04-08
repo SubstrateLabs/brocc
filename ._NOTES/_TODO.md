@@ -1,6 +1,10 @@
-- polish twitter + linkedin extraction w unstructured
+- linkedin feed, profile
+- twitter messages
+- linkedin messages
+- gmail
+- instagram
+- delegate to parsers based on url
 - handle scrolling
-- instagram test
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>

@@ -366,11 +366,14 @@ async def main() -> None:
         markdown = convert_html_to_markdown(html, url, title)
 
         # Write to the file
-        with open(md_file, "w", encoding="utf-8") as f:
-            f.write(markdown)
+        if markdown is not None:
+            with open(md_file, "w", encoding="utf-8") as f:
+                f.write(markdown)
 
-        logger.info(f"Saved markdown for {url} to {md_file}")
-        processed_urls.add(url)  # Mark this URL as processed to avoid duplicates
+            logger.info(f"Saved markdown for {url} to {md_file}")
+            processed_urls.add(url)  # Mark this URL as processed to avoid duplicates
+        else:
+            logger.warning(f"Markdown conversion failed for {url}, skipping file save.")
 
     # Helper function to display a list of tabs in a table
     def display_tab_list(tabs_with_html, header, show_old_url=False):
@@ -409,7 +412,7 @@ async def main() -> None:
 
             # Calculate markdown size
             markdown = convert_html_to_markdown(html, url, title)
-            markdown_size = f"{len(markdown):,} chars"
+            markdown_size = f"{len(markdown):,} chars" if markdown is not None else "N/A"
 
             # Show a shortened tab ID
             tab_id = tab.get("id", "")

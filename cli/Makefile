@@ -46,7 +46,7 @@ chrome:
 test-md:
 	uv run pytest src/brocc_li/tests/test_html_to_md.py -v
 
-test-md-twitter:
-	uv run pytest src/brocc_li/tests/test_html_to_md_twitter.py -v -s
+test-md-twitter-home:
+	uv run pytest src/brocc_li/tests/test_twitter_home.py -v -s
 
 

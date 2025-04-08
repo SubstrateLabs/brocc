@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import brocc_li.html_to_md
 from brocc_li.html_to_md import convert_html_to_markdown
 from brocc_li.playwright_fallback import BANNER_TEXT
 from brocc_li.utils.logger import logger
