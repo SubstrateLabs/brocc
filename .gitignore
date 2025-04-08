@@ -4,7 +4,7 @@
 .DS_Store
 cli/debug
 cli/src/brocc_li/debug
-cli/src/brocc_li/fixtures/[^_]*.html
+cli/src/brocc_li/tests/html_fixtures/[^_]*.html
 **/.venv
 
 # Logs

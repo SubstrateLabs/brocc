@@ -368,7 +368,7 @@ def direct_tag_extraction(soup: BeautifulSoup) -> str:
 
 def convert_html_to_markdown(
     html: str, url: Optional[str] = None, title: Optional[str] = None
-) -> str:
+) -> Optional[str]:
     """
     Convert HTML to Markdown with enhanced cleaning and processing.
 
@@ -458,6 +458,12 @@ def convert_html_to_markdown(
 
         if DEBUG:
             logger.info(f"Final markdown length: {len(cleaned_markdown)} characters")
+
+        # Return None if the final markdown is empty or whitespace only
+        if not cleaned_markdown.strip():
+            if DEBUG:
+                logger.info("Final markdown is empty, returning None")
+            return None
 
         return cleaned_markdown
 

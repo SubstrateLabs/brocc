@@ -1,6 +1,7 @@
-## recommendation
+## summary
 
 - Docling
+- and Grobid for article metadata
 - PyMuPDF4LLM – good for non-scanned PDFs
 - Markitdown – low quality
 

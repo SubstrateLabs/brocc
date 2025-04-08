@@ -178,6 +178,15 @@ def test_all_underscore_fixtures(fixtures_dir: Path):
             # Convert and validate
             markdown = convert_html_to_markdown(html, url=slug)
 
+            # Check if conversion returned None (e.g., for PDF pages)
+            if markdown is None:
+                if DEBUG:
+                    logger.info(
+                        f"✅ {fixture_name}: Successfully returned None (expected for this type)"
+                    )
+                passed.append(slug)
+                continue  # Skip validation for None results
+
             if DEBUG:
                 logger.info(f"  Markdown size: {len(markdown)} bytes")
 

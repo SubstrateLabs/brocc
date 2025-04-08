@@ -1,7 +1,4 @@
-- investigate cdp reading flakiness
-- pdf handling (docling)
-- polish md extraction for certain pages with unstructured
-- deepresearch: latest best pdf/paper metadata tool
+- polish twitter + linkedin extraction w unstructured
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>
@@ -9,12 +6,12 @@
     - capture parent doc for threads, comments
     - is this the same as "parent url" for browser nav?
 - rework prototype extract code
-- homepage + faq page anchors + accordion (expand accordion based on anchor)
+- simple update cli flow using pypi version
 
 ## backlog
 
 - AI: pydanticai + openrouter
-- simple update cli flow using pypi version
+- pdf extraction (docling + grobid)
 - cli oauth flow
 - speed up launch process
 - usage tracking in pg on /embed
