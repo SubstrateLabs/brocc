@@ -1,15 +1,13 @@
-- vscode prettier in cli/frontend
 - markdown extraction (unstructured)
 - pdf handling (docling)
 - deepresearch: latest best pdf/paper metadata tool
 - schema design:
-  - source / location: needs another layer 
+  - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>
   - field for parent doc id
     - capture parent doc for threads, comments
     - is this the same as "parent url" for browser nav?
 - rework prototype extract code
-
 
 ## backlog
 

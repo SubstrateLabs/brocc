@@ -14,14 +14,21 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "javascript.updateImportsOnFileMove.enabled": "always",
-  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff"
   },
   "python.analysis.typeCheckingMode": "basic",
   "python.analysis.useLibraryCodeForTypes": true,
-  "prettier.configPath": "./next/.prettierrc.json",
+  "prettier.configPath": ".prettierrc.json",
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.terminal.activateEnvironment": true,
-  "python.analysis.extraPaths": ["${workspaceFolder}/.venv/lib/python3.12/site-packages"]
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/.venv/lib/python3.12/site-packages"
+  ]
 }
