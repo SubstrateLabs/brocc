@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set, TypedDict
 
 from bs4 import Tag
 
@@ -7,6 +7,16 @@ from brocc_li.utils.logger import logger
 
 # Set this to True to enable debug logging
 DEBUG = False
+
+
+class UserInfo(TypedDict, total=False):
+    """Structure to hold extracted user information."""
+
+    name: Optional[str]
+    handle: Optional[str]
+    handle_url: Optional[str]
+    timestamp: Optional[str]
+    timestamp_full: Optional[str]
 
 
 def format_user_link(name: str, handle: str, handle_url: str) -> str:
@@ -64,19 +74,241 @@ def format_metrics(metrics: Dict[str, str]) -> str:
     return " ".join(parts)
 
 
-def extract_tweet_content(tweet_element: Tag) -> str:
+def extract_user_info(tweet_element: Tag, debug: bool = False) -> UserInfo:
+    """
+    Extracts user name, handle, URL, and timestamp from a tweet element.
+
+    Args:
+        tweet_element: The BeautifulSoup Tag representing the tweet article.
+        enable_debug_logging: Whether to enable debug logging.
+
+    Returns:
+        A dictionary containing the extracted user information.
+    """
+    user_info: UserInfo = {
+        "name": None,
+        "handle": None,
+        "handle_url": None,
+        "timestamp": None,
+        "timestamp_full": None,
+    }
+
+    user_name_section = tweet_element.select_one('[data-testid="User-Name"]')
+    if not user_name_section:
+        if debug:
+            logger.debug("Could not find User-Name section in tweet.")
+        # Try a fallback using common link structure near the top
+        user_link = tweet_element.select_one('div > div > div > a[role="link"]')
+        if user_link and isinstance(user_link, Tag):
+            href = user_link.get("href")
+            if isinstance(href, str) and href.startswith("/") and href.endswith("/status/"):
+                spans = user_link.select("span")
+                if len(spans) >= 2:
+                    potential_name = spans[0].get_text(strip=True)
+                    potential_handle = spans[-1].get_text(strip=True)
+                    if potential_handle.startswith("@"):
+                        user_info["name"] = potential_name
+                        user_info["handle"] = potential_handle
+                        user_info["handle_url"] = href
+                        if debug:
+                            logger.debug(
+                                f"Found user info via fallback: {user_info['name']} ({user_info['handle']})"
+                            )
+        # Even if fallback works, try finding time separately
+        time_element = tweet_element.select_one("time")
+        if time_element:
+            user_info["timestamp"] = time_element.get_text(strip=True)
+            user_info["timestamp_full"] = time_element.get("datetime")
+        return user_info  # Return whatever was found
+
+    # --- Name Extraction ---
+    name_container = user_name_section.select_one(
+        'a[role="link"] > div[dir="ltr"], div[dir="ltr"] > span'
+    )
+    if name_container:
+        name_parts = []
+        for elem in name_container.descendants:
+            if isinstance(elem, str):
+                text = elem.strip()
+                if text and "Verified account" not in text and "follows you" not in text:
+                    name_parts.append(text)
+            elif isinstance(elem, Tag) and elem.name == "span":
+                span_text = elem.get_text(strip=True)
+                if (
+                    span_text
+                    and "Verified account" not in span_text
+                    and "follows you" not in span_text
+                ):
+                    already_added = any(span_text in part for part in name_parts)
+                    if not already_added:
+                        name_parts.append(span_text)
+        if name_parts:
+            potential_name = " ".join(name_parts)
+            unique_parts = []
+            seen = set()
+            for part in potential_name.split():
+                if part not in seen:
+                    unique_parts.append(part)
+                    seen.add(part)
+            user_info["name"] = " ".join(unique_parts)
+    # Fallback name extraction
+    if not user_info["name"]:
+        fallback_name_element = user_name_section.select_one(
+            'a span[data-testid*="UserName"], div span[data-testid*="UserName"]'
+        )
+        if fallback_name_element:
+            potential_name = fallback_name_element.get_text(separator=" ", strip=True)
+            if "Verified account" not in potential_name:
+                user_info["name"] = " ".join(potential_name.split())
+    if debug:
+        logger.debug(f"Extracted Name: '{user_info['name']}'")
+
+    # --- Handle and URL Extraction ---
+    handle_link = user_name_section.find(
+        "a",
+        href=lambda h: isinstance(h, str) and h.startswith("/") and "/status/" not in h,
+        recursive=False,
+    )
+    if not handle_link:
+        handle_link = user_name_section.find(
+            "a",
+            href=lambda h: isinstance(h, str) and h.startswith("/") and "/status/" not in h,
+        )
+
+    if isinstance(handle_link, Tag):
+        href_val = handle_link.get("href")
+        if isinstance(href_val, str):
+            user_info["handle_url"] = href_val
+            if debug:
+                logger.debug(f"Found potential handle URL: '{user_info['handle_url']}'")
+
+    # Find handle text (@...)
+    handle_text_element = user_name_section.find(
+        lambda tag: isinstance(tag, Tag)
+        and tag.name == "span"
+        and tag.get_text(strip=True).startswith("@")
+    )
+
+    if isinstance(handle_text_element, Tag):
+        handle_text_str = str(handle_text_element.get_text(strip=True)).strip()
+        user_info["handle"] = handle_text_str
+        if debug:
+            logger.debug(f"Extracted Handle: '{user_info['handle']}'")
+    elif debug:
+        logger.debug("Could not find span element with text starting with @.")
+
+    # --- Timestamp Extraction ---
+    time_element = user_name_section.select_one("time")
+    if time_element:
+        user_info["timestamp"] = time_element.get_text(strip=True)
+        user_info["timestamp_full"] = time_element.get("datetime")
+    else:
+        # Fallback for relative time in link
+        time_link = user_name_section.find(
+            "a", href=lambda h: isinstance(h, str) and "/status/" in h
+        )
+        if isinstance(time_link, Tag):
+            time_text = time_link.get_text(strip=True)
+            if time_text and not time_text.startswith("@") and len(time_text) < 15:
+                user_info["timestamp"] = time_text
+                time_tag_inside = time_link.find("time")
+                if isinstance(time_tag_inside, Tag):
+                    user_info["timestamp_full"] = time_tag_inside.get("datetime")
+
+    if debug:
+        logger.debug(f"Final extracted user_info: {user_info}")
+
+    return user_info
+
+
+def format_tweet_markdown(
+    user_info: UserInfo,
+    content: str,
+    media_strings: List[str],
+    metrics: Dict[str, str],
+) -> str:
+    """
+    Formats the extracted tweet components into a Markdown block.
+
+    Args:
+        user_info: Dictionary containing user name, handle, url, timestamp.
+        content: The main text content of the tweet.
+        media_strings: List of markdown-formatted media links.
+        metrics: Dictionary of engagement metrics.
+
+    Returns:
+        A formatted Markdown string representing the tweet.
+    """
+    header_parts = ["###"]
+    name = user_info.get("name")
+    handle = user_info.get("handle")
+    handle_url = user_info.get("handle_url")
+    timestamp = user_info.get("timestamp")
+    timestamp_full = user_info.get("timestamp_full")
+
+    user_link_added = False
+    if name and handle and handle_url:
+        try:
+            user_link = format_user_link(name, handle, handle_url)
+            header_parts.append(user_link)
+            user_link_added = True
+        except Exception as e:
+            logger.warning(
+                f"Error formatting user link (name={name}, handle={handle}, url={handle_url}): {e}"
+            )
+            # Fallback to plain text if formatting fails
+            header_parts.append(f"{name} {handle}")
+    elif handle:
+        clean_handle = handle.lstrip("@")
+        profile_url = f"https://x.com/{clean_handle}"  # Basic fallback URL
+        if handle_url:
+            profile_url = handle_url
+            if profile_url.startswith("/"):
+                profile_url = f"https://x.com{profile_url}"
+        header_parts.append(f"[{handle}]({profile_url})")
+        user_link_added = True
+    elif name:
+        header_parts.append(name)
+
+    if timestamp:
+        separator = " ·" if user_link_added else ""  # Add space before dot
+        header_parts.append(f"{separator} {timestamp}")
+        if timestamp_full:
+            header_parts.append(f" ({timestamp_full})")
+
+    header = " ".join(header_parts)
+
+    # Assemble block
+    tweet_block_parts = [header]
+    if content:
+        # Ensure newline separation, avoid triple newline if header is just "###"
+        sep = "\n" if header == "###" else "\n\n"
+        tweet_block_parts.append(f"{sep}{content}")
+
+    if media_strings:
+        tweet_block_parts.append(f"\n\n{' '.join(media_strings)}")
+
+    metrics_str = format_metrics(metrics)
+    if metrics_str:
+        tweet_block_parts.append(f"\n\n{metrics_str}")
+
+    return "".join(tweet_block_parts)
+
+
+def extract_tweet_content(tweet_element: Tag, debug: bool = False) -> str:
     """
     Extract and format tweet text content.
 
     Args:
         tweet_element: BeautifulSoup Tag containing the tweet
+        enable_debug_logging: Whether to enable debug logging.
 
     Returns:
         Formatted tweet content as markdown string
     """
     tweet_text_element = tweet_element.select_one('[data-testid="tweetText"]')
     if not tweet_text_element:
-        if DEBUG:
+        if debug:
             logger.debug("No tweet text element found in tweet")
         return ""
 
@@ -157,12 +389,13 @@ def extract_tweet_content(tweet_element: Tag) -> str:
     return content
 
 
-def extract_media(tweet_element: Tag) -> List[str]:
+def extract_media(tweet_element: Tag, debug: bool = False) -> List[str]:
     """
     Extract media elements (images, videos, gifs) from a tweet.
 
     Args:
         tweet_element: BeautifulSoup Tag containing the tweet
+        enable_debug_logging: Whether to enable debug logging.
 
     Returns:
         List of markdown-formatted media strings
@@ -200,7 +433,7 @@ def extract_media(tweet_element: Tag) -> List[str]:
                     # This is heuristic and might need adjustment based on actual HTML patterns
                     f"https://x.com{link_href.split('/photo/')[0]}"
                     # Let's just use the src for now, but log the potential link
-                    if DEBUG:
+                    if debug:
                         logger.debug(f"Found image link: {link_href}, using src: {src}")
 
             alt = img.get("alt", "image")
@@ -245,7 +478,7 @@ def extract_media(tweet_element: Tag) -> List[str]:
                     full_link = (
                         f"https://x.com{link_href}" if link_href.startswith("/") else link_href
                     )
-                    if DEBUG:
+                    if debug:
                         logger.debug(f"Found video link: {full_link}, using poster: {poster}")
                     # For now, still using poster as the primary reference
                     video_url = poster
@@ -292,12 +525,13 @@ def extract_media(tweet_element: Tag) -> List[str]:
     return media_strings
 
 
-def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
+def extract_metrics(tweet_element: Tag, debug: bool = False) -> Dict[str, str]:
     """
     Extract engagement metrics (replies, retweets, likes, views).
 
     Args:
         tweet_element: BeautifulSoup Tag containing the tweet
+        enable_debug_logging: Whether to enable debug logging.
 
     Returns:
         Dictionary of engagement metrics
@@ -308,26 +542,26 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
         "likes": "0",
         "views": "0",  # Added views
     }
-    if DEBUG:
+    if debug:
         logger.debug("--- Extracting metrics for tweet ---")
 
     # Common pattern: find the group containing interaction buttons
     action_bar = tweet_element.select_one('[role="group"]')
     if not action_bar:
-        if DEBUG:
+        if debug:
             logger.debug(
                 'Could not find action bar group [role="group"]. Dumping tweet element HTML:'
             )
             logger.debug(tweet_element.prettify()[:1000])  # Log first 1000 chars
         return metrics
 
-    if DEBUG:
+    if debug:
         logger.debug(f'Found action bar [role="group"]: {action_bar.prettify()[:500]}')
 
     # --- Try parsing aria-label first for all metrics ---
     aria_label = action_bar.get("aria-label", "")
     if isinstance(aria_label, str) and aria_label:
-        if DEBUG:
+        if debug:
             logger.debug(f"Found aria-label on action bar: '{aria_label}'")
         # Use regex to find counts for each metric
         replies_match = re.search(r"(\d[\d,]*) repl(?:y|ies)", aria_label, re.IGNORECASE)
@@ -346,14 +580,14 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
         if views_match:
             metrics["views"] = views_match.group(1).replace(",", "")
 
-        if DEBUG:
+        if debug:
             logger.debug(f"Metrics extracted from aria-label: {metrics}")
 
     # --- Original button finding logic (modified selector) ---
     buttons = action_bar.select(
         'button[data-testid="reply"], button[data-testid="retweet"], button[data-testid="like"]'
     )
-    if DEBUG:
+    if debug:
         logger.debug(f"Found {len(buttons)} potential metric buttons with updated selector.")
 
     for i, button in enumerate(buttons):
@@ -364,7 +598,7 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
         if not isinstance(test_id, str):
             continue  # Ensure test_id is a string
 
-        if DEBUG:
+        if debug:
             logger.debug(f"Button {i}: test_id='{test_id}', HTML: {button.prettify()[:200]}")
 
         # Find the text within the button, usually in a span sibling to the icon path
@@ -374,16 +608,16 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
         count = "0"
         if text_span:
             raw_text = text_span.get_text(strip=True)
-            if DEBUG:
+            if debug:
                 logger.debug(f"  Found text span: '{raw_text}'")
             if raw_text.isdigit():
                 count = raw_text
             elif "K" in raw_text or "M" in raw_text:  # Handle K/M suffixes
                 count = raw_text  # Keep the formatted string like "1.2K"
             else:
-                if DEBUG:
+                if debug:
                     logger.debug(f"  Text span content '{raw_text}' is not a digit or K/M format.")
-        elif DEBUG:
+        elif debug:
             logger.debug(
                 "  Could not find text span with selector 'span[data-testid=\"app-text-transition-container\"] span span'"
             )
@@ -391,27 +625,27 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
         # Only update if aria-label didn't provide a value (or if we want to overwrite)
         if test_id == "reply" and metrics["replies"] == "0":
             metrics["replies"] = count
-            if DEBUG:
+            if debug:
                 logger.debug(f"  Assigned replies = {count} (from button)")
         elif test_id == "retweet" and metrics["retweets"] == "0":
             metrics["retweets"] = count
-            if DEBUG:
+            if debug:
                 logger.debug(f"  Assigned retweets = {count} (from button)")
         elif test_id == "like" and metrics["likes"] == "0":
             metrics["likes"] = count
-            if DEBUG:
+            if debug:
                 logger.debug(f"  Assigned likes = {count} (from button)")
 
     # --- View count finding logic (fallback if not found in aria-label) ---
     if metrics["views"] == "0":
-        if DEBUG:
+        if debug:
             logger.debug("--- Searching for Views metric (Fallback) ---")
         likes_button_text_container = action_bar.find(
             lambda tag: isinstance(tag, Tag) and tag.name == "span" and "Likes" in tag.get_text()
         )
         view_count = "0"
         if likes_button_text_container:
-            if DEBUG:
+            if debug:
                 # Ensure it's a Tag before prettifying
                 log_text = str(likes_button_text_container)[:200]  # Fallback to string conversion
                 if isinstance(likes_button_text_container, Tag):
@@ -422,7 +656,7 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
                 "a", href=lambda h: isinstance(h, str) and ("/analytics" in h or "/status/" in h)
             )
             if isinstance(view_link, Tag):  # Check if view_link is a Tag
-                if DEBUG:
+                if debug:
                     # Ensure it's a Tag before prettifying
                     log_text = str(view_link)[:300]  # Fallback
                     if isinstance(view_link, Tag):
@@ -434,36 +668,36 @@ def extract_metrics(tweet_element: Tag) -> Dict[str, str]:
                 )  # Adjust selector as needed, try common patterns
                 if view_text_span:
                     view_count_text = view_text_span.get_text(strip=True)
-                    if DEBUG:
+                    if debug:
                         logger.debug(f"Found potential view count text span: '{view_count_text}'")
                     # Extract number part if possible
                     # Handle cases like "1,234 Views" or "10K Views" or just "123"
                     view_count_match = re.match(r"^([\d,\.]+[KkMm]?)\b", view_count_text)
                     if view_count_match:
                         view_count = view_count_match.group(1)
-                        if DEBUG:
+                        if debug:
                             logger.debug(f"Extracted view count: {view_count}")
                     elif view_count_text.isdigit():  # Handle plain numbers
                         view_count = view_count_text
-                        if DEBUG:
+                        if debug:
                             logger.debug(f"Extracted plain digit view count: {view_count}")
-                    elif DEBUG:
+                    elif debug:
                         logger.debug(
                             f"View count text '{view_count_text}' did not match expected pattern."
                         )
-                elif DEBUG:
+                elif debug:
                     logger.debug("Could not find view count text span in the view link.")
-            elif DEBUG:
+            elif debug:
                 logger.debug("Could not find parent/sibling link for views near the 'Likes' text.")
-        elif DEBUG:
+        elif debug:
             logger.debug("Could not find 'Likes' text span container to anchor view search.")
 
         # Assign the fallback view count if found
         metrics["views"] = view_count
-    elif DEBUG:
+    elif debug:
         logger.debug("View count already found from aria-label or button parsing.")
 
-    if DEBUG:
+    if debug:
         logger.debug(f"Final metrics: {metrics}")
 
     return metrics

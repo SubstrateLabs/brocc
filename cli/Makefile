@@ -1,4 +1,4 @@
-.PHONY: format lint type-check test install clean build dev chrome test-md
+.PHONY: format lint type-check test install clean build dev chrome test-md test-twitter
 
 # Format code with ruff
 format:
@@ -55,8 +55,7 @@ test-md-twitter-thread:
 test-md-twitter-likes:
 	uv run pytest src/brocc_li/tests/test_twitter_likes.py -v -s
 
-test-md-twitter-bookmarks:
-	uv run pytest src/brocc_li/tests/test_twitter_bookmarks.py -v -s
+test-twitter: test-md-twitter-home test-md-twitter-thread test-md-twitter-likes
 
 
 

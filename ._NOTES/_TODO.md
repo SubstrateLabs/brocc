@@ -1,10 +1,4 @@
-- twitter thread
-  - unified twitter utils
-- twitter profile
-- twitter likes (on personal profile)
 - linkedin feed, profile
-- twitter messages
-- linkedin messages
 - gmail
 - instagram
 - delegate to parsers based on url
@@ -33,6 +27,7 @@
 
 - twitter profile (no content in md)
 - twitter bookmarks (no content in md)
+- twitter messages
 
 ## ideas
 

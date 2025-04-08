@@ -2,12 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from brocc_li.parsers import twitter_thread
 from brocc_li.parsers.twitter_thread import twitter_thread_html_to_md
 from brocc_li.utils.logger import logger
-
-# Set to True to print full output
-DEBUG = False
 
 
 @pytest.fixture
@@ -27,9 +23,6 @@ def test_parse(fixtures_dir: Path):
     with open(fixture_path, encoding="utf-8") as f:
         html = f.read()
     logger.info(f"Loaded {len(html)} bytes of HTML")
-
-    # Set debug mode in the parser to match the test's DEBUG setting
-    twitter_thread.DEBUG = DEBUG
 
     # Convert using our parser
     logger.info("Converting HTML to markdown using twitter_thread_html_to_md")
@@ -68,12 +61,6 @@ def test_parse(fixtures_dir: Path):
 
     # Check header formatting
     assert "### " in markdown, "Missing H3 headers for tweets"
-
-    # Print final markdown output if DEBUG is enabled
-    if DEBUG:
-        print("\n\n=== TWITTER THREAD AS MARKDOWN ===\n")
-        print(markdown)
-        print("\n=== END MARKDOWN OUTPUT ===\n")
 
     logger.info(
         f"✅ Twitter thread conversion test passed for {fixture_name}. Markdown length: {len(markdown)}"

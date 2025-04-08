@@ -5,8 +5,6 @@ import pytest
 from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
 from brocc_li.utils.logger import logger
 
-DEBUG = False
-
 
 @pytest.fixture
 def fixtures_dir() -> Path:
@@ -24,12 +22,6 @@ def test_parse(fixtures_dir: Path):
 
     # Convert using BeautifulSoup-based parser
     markdown = twitter_feed_html_to_md(html)
-
-    # Print markdown if DEBUG flag is enabled
-    if DEBUG:
-        print("\n--- START MARKDOWN ---")
-        print(markdown)
-        print("--- END MARKDOWN ---\n")
 
     # Basic assertions
     assert markdown is not None, "Conversion returned None"
