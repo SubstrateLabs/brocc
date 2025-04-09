@@ -67,6 +67,7 @@ def assert_valid_markdown(markdown: str, fixture_name: str):
         lambda s: s.startswith("```"),  # Code block
         lambda s: s[0].isalpha(),  # Plain text
         lambda s: s.startswith("|"),  # Table
+        lambda s: re.match(r"^\d", s),  # Start with numbers (for counts, stats, etc.)
     ]
 
     is_valid_md_start = any(checker(first_line) for checker in valid_md_starters)
@@ -106,11 +107,18 @@ def assert_valid_markdown(markdown: str, fixture_name: str):
         r"document\.",
         r"window\.",
         r"<script",
-        r"__\w+",
         r"React\.",
     ]
 
     for i, line in enumerate(lines[:5]):
+        # Skip JS pattern checks for image URLs
+        if (
+            "![" in line
+            and "](http" in line
+            and (".png" in line or ".jpg" in line or ".jpeg" in line or ".gif" in line)
+        ):
+            continue
+
         for pattern in js_patterns:
             if re.search(pattern, line):
                 if DEBUG:

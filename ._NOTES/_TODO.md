@@ -10,6 +10,7 @@
 - rework prototype extract code
 - simple update cli flow using pypi version
 - wrap parser code in execution timeout
+- CI tests
 
 ## backlog
 

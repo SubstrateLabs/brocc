@@ -45,7 +45,9 @@ def test_parse(debug: bool = DEBUG):
     assert len(h3_titles) >= 15, "Expected at least 15 posts"
 
     # Check that posts have titles and metadata
-    assert any("### Pivot or Persist?" in line for line in lines), "Missing expected post title"
+    assert any("Pivot or Persist?" in line for line in lines if line.startswith("###")), (
+        "Missing expected post title"
+    )
     assert any("**Newsletter**" in line and "Kyla" in line for line in lines), (
         "Missing newsletter metadata"
     )
@@ -55,8 +57,12 @@ def test_parse(debug: bool = DEBUG):
     assert any("**Date**" in line for line in lines), "Missing date metadata"
 
     # Verify some specific posts exist with their metadata
-    assert any("### Tariff Q&A:" in line for line in lines), "Missing Tariff Q&A post"
-    assert any("### Gemini 2.5 Pro" in line for line in lines), "Missing Gemini post"
+    assert any("Tariff Q&A:" in line for line in lines if line.startswith("###")), (
+        "Missing Tariff Q&A post"
+    )
+    assert any("Gemini 2.5 Pro" in line for line in lines if line.startswith("###")), (
+        "Missing Gemini post"
+    )
 
     # Check for formatting patterns
     newsletter_metadata = [line for line in lines if "- **Newsletter**:" in line]
