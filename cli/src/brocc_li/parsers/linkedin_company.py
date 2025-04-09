@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-from unstructured.documents.elements import Element, Image, NarrativeText, Text, Title
+from unstructured.documents.elements import Element, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import is_noisy
+from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn company-specific noise patterns
@@ -65,87 +65,6 @@ def _is_element_noise(element: Element, debug: bool = False) -> bool:
     if is_company_noise(element_text, debug=debug):
         return True
     return False
-
-
-def _extract_company_metadata(
-    elements: List[Element], debug: bool = False
-) -> Dict[str, Optional[str]]:
-    """
-    Extract company metadata from the elements.
-    Returns a dictionary with metadata.
-    """
-    metadata: Dict[str, Optional[str]] = {
-        "name": None,
-        "description": None,
-        "logo_url": None,
-        "industry": None,
-        "location": None,
-        "website": None,
-        "followers": None,
-        "employees": None,
-    }
-
-    # Typically, company name and logo are among the first elements
-    max_metadata_idx = min(15, len(elements))
-
-    for i, element in enumerate(elements[:max_metadata_idx]):
-        text = str(element).strip()
-
-        # Company name is likely a Title near the top
-        if isinstance(element, Title) and not metadata["name"] and i < 3:
-            metadata["name"] = text
-            if debug:
-                logger.debug(f"Found company name: {text}")
-
-        # Logo is likely an Image with the company name in it
-        elif isinstance(element, Image) and not metadata["logo_url"] and i < 3:
-            if element.metadata and element.metadata.image_url:
-                metadata["logo_url"] = element.metadata.image_url
-                if debug:
-                    logger.debug("Found company logo URL")
-
-        # Description is usually a larger NarrativeText after the name/logo
-        elif isinstance(element, NarrativeText) and not metadata["description"] and i < 10:
-            if len(text) > 50:  # Likely a description if it's long enough
-                metadata["description"] = text
-                if debug:
-                    logger.debug(f"Found company description: {text[:50]}...")
-
-        # Website typically contains http/https
-        elif (
-            isinstance(element, Text)
-            and not metadata["website"]
-            and ("http:" in text.lower() or "https:" in text.lower() or "www." in text.lower())
-        ):
-            metadata["website"] = text
-            if debug:
-                logger.debug(f"Found website: {text}")
-
-        # Industry and Location are typically short Text elements
-        elif isinstance(element, Text):
-            if not metadata["industry"] and any(
-                keyword in text
-                for keyword in ["Software", "Technology", "Marketing", "Industry", "Finance"]
-            ):
-                metadata["industry"] = text
-                if debug:
-                    logger.debug(f"Found industry: {text}")
-            elif not metadata["location"] and any(
-                loc in text for loc in ["CA", "NY", "TX", "San", "New York", "Boston", "Location"]
-            ):
-                metadata["location"] = text
-                if debug:
-                    logger.debug(f"Found location: {text}")
-            elif not metadata["followers"] and "followers" in text.lower():
-                metadata["followers"] = text
-                if debug:
-                    logger.debug(f"Found followers: {text}")
-            elif not metadata["employees"] and "employees" in text.lower():
-                metadata["employees"] = text
-                if debug:
-                    logger.debug(f"Found employees: {text}")
-
-    return metadata
 
 
 def _extract_section_by_title(
@@ -377,7 +296,7 @@ def linkedin_company_html_to_md(html: str, debug: bool = False) -> Optional[str]
             return "<!-- No elements remaining after filtering noise -->"
 
         # --- Extract Company Metadata --- #
-        company_metadata = _extract_company_metadata(filtered_elements, debug)
+        company_metadata = extract_company_metadata(filtered_elements, debug=debug)
 
         # --- Extract Additional Sections --- #
         overview_section = _extract_overview_section(filtered_elements, debug=debug)

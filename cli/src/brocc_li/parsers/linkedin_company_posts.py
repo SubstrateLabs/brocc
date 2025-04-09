@@ -1,9 +1,9 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from unstructured.documents.elements import Element, Image, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import is_noisy
+from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn company post-specific noise patterns (start empty, add as needed)
@@ -63,89 +63,6 @@ def _is_element_noise(element: Element, debug: bool = False) -> bool:
     if is_company_post_noise(element_text, debug=debug):
         return True
     return False
-
-
-def _extract_company_metadata(
-    elements: List[Element], debug: bool = False
-) -> Tuple[Dict[str, Optional[str]], int]:
-    """
-    Extract company metadata from the beginning elements.
-    Returns a dictionary with metadata and the index where metadata ends.
-    """
-    metadata: Dict[str, Optional[str]] = {
-        "name": None,
-        "description": None,
-        "logo_url": None,
-        "industry": None,
-        "location": None,
-        "followers": None,
-        "employees": None,
-    }
-
-    # Typically metadata is at the beginning, let's examine first ~15 elements
-    max_metadata_idx = min(15, len(elements))
-    end_idx = 0
-
-    for i, element in enumerate(elements[:max_metadata_idx]):
-        text = str(element).strip()
-
-        # Company name is likely a Title near the top
-        if isinstance(element, Title) and not metadata["name"] and i < 3:
-            metadata["name"] = text
-            if debug:
-                logger.debug(f"Found company name: {text}")
-
-        # Logo is likely an Image with the company name in it
-        elif isinstance(element, Image) and not metadata["logo_url"] and i < 3:
-            if element.metadata and element.metadata.image_url:
-                metadata["logo_url"] = element.metadata.image_url
-                if debug:
-                    logger.debug("Found company logo URL")
-
-        # Description is usually a larger NarrativeText near the top
-        elif isinstance(element, NarrativeText) and not metadata["description"] and i < 5:
-            metadata["description"] = text
-            if debug:
-                logger.debug(f"Found company description: {text[:50]}...")
-
-        # Industry and Location are typically short Text elements
-        elif isinstance(element, Text):
-            if (
-                not metadata["industry"]
-                and "Software" in text
-                or "Technology" in text
-                or "Marketing" in text
-            ):
-                metadata["industry"] = text
-                if debug:
-                    logger.debug(f"Found industry: {text}")
-            elif not metadata["location"] and any(
-                loc in text for loc in ["CA", "NY", "TX", "San", "New York", "Boston"]
-            ):
-                metadata["location"] = text
-                if debug:
-                    logger.debug(f"Found location: {text}")
-            elif not metadata["followers"] and "followers" in text.lower():
-                metadata["followers"] = text
-                if debug:
-                    logger.debug(f"Found followers: {text}")
-            elif not metadata["employees"] and "employees" in text.lower():
-                metadata["employees"] = text
-                if debug:
-                    logger.debug(f"Found employees: {text}")
-
-        # Stop after we've found a post title (usually "Feed post number X")
-        if isinstance(element, Title) and "Feed post" in text:
-            end_idx = i
-            if debug:
-                logger.debug(f"Stopping metadata extraction at element {i}: {text}")
-            break
-
-    # If we didn't hit a natural end, assume first 10 elements contain metadata
-    if end_idx == 0 and len(elements) > 10:
-        end_idx = 10
-
-    return metadata, end_idx
 
 
 def _is_post_title(element: Element) -> bool:
@@ -266,7 +183,9 @@ def linkedin_company_posts_html_to_md(html: str, debug: bool = False) -> Optiona
             return "<!-- No elements remaining after filtering noise -->"
 
         # --- Extract Company Metadata --- #
-        company_metadata, metadata_end_idx = _extract_company_metadata(filtered_elements, debug)
+        company_metadata, metadata_end_idx = extract_company_metadata(
+            filtered_elements, include_end_idx=True, debug=debug
+        )
 
         # Create company header markdown
         company_header_md = f"# {company_metadata['name'] or 'Company Profile'}\n\n"

@@ -1,9 +1,9 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
-from unstructured.documents.elements import Element, Image, NarrativeText, Text, Title
+from unstructured.documents.elements import Element, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import is_noisy
+from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn company about page-specific noise patterns
@@ -66,156 +66,6 @@ def _is_element_noise(element: Element, debug: bool = False) -> bool:
     if is_about_noise(element_text, debug=debug):
         return True
     return False
-
-
-def _extract_company_metadata(
-    elements: List[Element], debug: bool = False
-) -> Dict[str, Optional[str]]:
-    """
-    Extract company metadata from the about page elements.
-    Returns a dictionary with metadata.
-    """
-    metadata: Dict[str, Optional[str]] = {
-        "name": None,
-        "website": None,
-        "industry": None,
-        "company_size": None,
-        "type": None,
-        "founded": None,
-        "specialties": None,
-        "logo_url": None,
-    }
-
-    # Company info is usually near the top
-    max_metadata_idx = min(20, len(elements))
-
-    for i, element in enumerate(elements[:max_metadata_idx]):
-        text = str(element).strip()
-        text_lower = text.lower()
-
-        # Company name is likely a Title near the top
-        if isinstance(element, Title) and not metadata["name"] and i < 3:
-            metadata["name"] = text
-            if debug:
-                logger.debug(f"Found company name: {text}")
-
-        # Logo is likely an Image with the company name in it
-        elif isinstance(element, Image) and not metadata["logo_url"] and i < 3:
-            if element.metadata and element.metadata.image_url:
-                metadata["logo_url"] = element.metadata.image_url
-                if debug:
-                    logger.debug("Found company logo URL")
-
-        # Website - detect both labeled and unlabeled websites
-        elif (
-            isinstance(element, Text)
-            and not metadata["website"]
-            and (
-                "http:" in text_lower
-                or "https:" in text_lower
-                or "www." in text_lower
-                or ".com" in text_lower
-            )
-        ):
-            website_text = text
-            if "website" in text_lower:
-                website_text = text.replace("Website", "").replace("website", "").strip()
-            metadata["website"] = website_text
-            if debug:
-                logger.debug(f"Found website: {website_text}")
-
-        # Industry - detect both labeled and unlabeled industry
-        elif isinstance(element, Text) and not metadata["industry"]:
-            if "industry" in text_lower:
-                metadata["industry"] = text.replace("Industry", "").replace("industry", "").strip()
-                if debug:
-                    logger.debug(f"Found labeled industry: {metadata['industry']}")
-            # Detect standalone industry text (common industries)
-            elif i < 10 and any(
-                keyword in text_lower
-                for keyword in [
-                    "software",
-                    "technology",
-                    "healthcare",
-                    "finance",
-                    "education",
-                    "marketing",
-                    "consulting",
-                    "manufacturing",
-                    "retail",
-                    "media",
-                    "development",
-                    "services",
-                ]
-            ):
-                metadata["industry"] = text
-                if debug:
-                    logger.debug(f"Found unlabeled industry: {text}")
-
-        # Company size - detect both labeled and employees count pattern
-        elif isinstance(element, Text) and not metadata["company_size"]:
-            if "company size" in text_lower:
-                metadata["company_size"] = (
-                    text.replace("Company size", "").replace("company size", "").strip()
-                )
-                if debug:
-                    logger.debug(f"Found labeled company size: {metadata['company_size']}")
-            # Detect standalone company size text (pattern: XX-YY employees or XX,YYY employees)
-            elif "employees" in text_lower and (
-                any(char.isdigit() for char in text_lower) or "-" in text_lower
-            ):
-                metadata["company_size"] = text
-                if debug:
-                    logger.debug(f"Found unlabeled company size: {text}")
-
-        # Type
-        elif isinstance(element, Text) and not metadata["type"]:
-            if "type" in text_lower:
-                metadata["type"] = text.replace("Type", "").replace("type", "").strip()
-                if debug:
-                    logger.debug(f"Found type: {metadata['type']}")
-            # Common company types
-            elif i < 10 and any(
-                company_type in text_lower
-                for company_type in [
-                    "public company",
-                    "private company",
-                    "nonprofit",
-                    "government",
-                    "self-employed",
-                    "partnership",
-                    "sole proprietorship",
-                ]
-            ):
-                metadata["type"] = text
-                if debug:
-                    logger.debug(f"Found unlabeled company type: {text}")
-
-        # Founded
-        elif isinstance(element, Text) and not metadata["founded"]:
-            if "founded" in text_lower:
-                metadata["founded"] = text.replace("Founded", "").replace("founded", "").strip()
-                if debug:
-                    logger.debug(f"Found founded: {metadata['founded']}")
-            # Year pattern (standalone 4 digit number that could be a year)
-            elif i < 10 and text.isdigit() and len(text) == 4 and 1900 < int(text) < 2100:
-                metadata["founded"] = text
-                if debug:
-                    logger.debug(f"Found potential founding year: {text}")
-
-        # Specialties
-        elif (
-            isinstance(element, Text)
-            and not metadata["specialties"]
-            and "specialties" in text_lower
-        ):
-            metadata["specialties"] = (
-                text.replace("Specialties", "").replace("specialties", "").strip()
-            )
-            if debug:
-                logger.debug(f"Found specialties: {metadata['specialties']}")
-
-    return metadata
 
 
 def _extract_overview_section(elements: List[Element], debug: bool = False) -> Optional[str]:
@@ -411,7 +261,24 @@ def linkedin_company_about_html_to_md(html: str, debug: bool = False) -> Optiona
             return "<!-- No elements remaining after filtering noise -->"
 
         # --- Extract Company Metadata --- #
-        company_metadata = _extract_company_metadata(filtered_elements, debug)
+        company_metadata = extract_company_metadata(filtered_elements, max_elements=20, debug=debug)
+
+        # Extract website from description if not found directly
+        if not company_metadata["website"] and company_metadata["description"]:
+            desc = company_metadata["description"].lower()
+            # Look for common URL patterns in the description
+            if ".com" in desc or ".org" in desc or ".io" in desc or ".ai" in desc:
+                # Common ways URLs are introduced in text
+                for prefix in ["at ", "visit ", "check out ", "website: ", "site: "]:
+                    if prefix in desc:
+                        start_idx = desc.find(prefix) + len(prefix)
+                        # Look for end of URL (space or punctuation)
+                        url_text = desc[start_idx:].split()[0].strip(",.:;!?()")
+                        if "." in url_text and len(url_text) > 4:  # Simple validation
+                            company_metadata["website"] = url_text
+                            if debug:
+                                logger.debug(f"Extracted website from description: {url_text}")
+                            break
 
         # --- Extract Additional Sections --- #
         overview_section = _extract_overview_section(filtered_elements, debug=debug)

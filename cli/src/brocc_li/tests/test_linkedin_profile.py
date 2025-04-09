@@ -12,7 +12,7 @@ def fixtures_dir() -> Path:
     return Path(__file__).parent.parent / "tests" / "html_fixtures"
 
 
-DEBUG = True  # Enable debug output by default
+DEBUG = False  # Enable debug output by default
 
 
 def test_parse_profile(fixtures_dir: Path, debug: bool = DEBUG):
@@ -29,10 +29,11 @@ def test_parse_profile(fixtures_dir: Path, debug: bool = DEBUG):
     # Convert using unstructured-based parser, pass debug parameter
     markdown = linkedin_profile_html_to_md(html, debug=debug)
 
-    # Print the output for inspection
-    print("\n--- START LINKEDIN PROFILE MARKDOWN OUTPUT ---")
-    print(markdown)
-    print("--- END LINKEDIN PROFILE MARKDOWN OUTPUT ---\n")
+    if debug:
+        # Print the output for inspection
+        print("\n--- START LINKEDIN PROFILE MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END LINKEDIN PROFILE MARKDOWN OUTPUT ---\n")
 
     # No assertions, just basic checks to ensure parsing completed
     assert markdown is not None, "Conversion returned None"

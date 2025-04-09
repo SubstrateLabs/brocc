@@ -13,7 +13,7 @@ def fixtures_dir() -> Path:
     return Path(__file__).parent.parent / "tests" / "html_fixtures"
 
 
-DEBUG = True  # Enable debug output by default
+DEBUG = False  # Enable debug output by default
 
 
 def test_parse_company_posts(fixtures_dir: Path, debug: bool = DEBUG):
@@ -31,10 +31,11 @@ def test_parse_company_posts(fixtures_dir: Path, debug: bool = DEBUG):
     # Convert using the company posts parser
     markdown = linkedin_company_posts_html_to_md(html, debug=debug)
 
-    # Print the output for inspection
-    print("\n--- START LINKEDIN COMPANY POSTS MARKDOWN OUTPUT ---")
-    print(markdown)
-    print("--- END LINKEDIN COMPANY POSTS MARKDOWN OUTPUT ---\n")
+    if debug:
+        # Print the output for inspection
+        print("\n--- START LINKEDIN COMPANY POSTS MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END LINKEDIN COMPANY POSTS MARKDOWN OUTPUT ---\n")
 
     # Basic checks
     assert markdown is not None, "Conversion returned None"
