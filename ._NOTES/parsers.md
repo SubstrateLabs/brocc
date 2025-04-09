@@ -1,10 +1,14 @@
-- unstructured is a nice easy way to cleanup markdown that's almost there, good place to start
+- unstructured is a nice easy way to cleanup markdown that's almost there, good default
 - beautifulsoup selectors + structural logging is more robust but can be hairy
 - ideal is using playwright and evaluating selectors on live page (but that's slow)
 
 ## prompts
 
-implement linkedin_company_about.py and the test, following same pattern as linkedin_company but none of that company stuff way simpler, basically the same deal but none of the logic just straight converting unstructured to markdown, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.)
+implement linkedin_messages and the test, following same pattern as the examples provided but none of the bespoke logic way simpler, basically the same deal but none of the logic just straight converting unstructured to markdown, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.) remember unstructured doesnt do markdown you have to do it yourself. don't add too much noise filtering initially as you need to see the debug logs first to know what to filter. implement the basic thing and ask me to run the test.
+
+---
+
+look at the screenshot and debug logs, improve the formatting and filtering.
 
 ## twitter
 

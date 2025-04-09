@@ -1,6 +1,11 @@
-- linkedin_utils -> unstructured_utils
-- parallelize test_html_to_md
-- gmail
+- linkedin search
+- linkedin connections me
+- linkedin search connections
+- linkedin company people
+- instagram feed
+- instagram profile (me)
+- instagram profile (other)
+- gmail v2
 - instagram
 - delegate to parsers based on url
 - handle scrolling + rescrape
@@ -12,6 +17,7 @@
     - is this the same as "parent url" for browser nav?
 - rework prototype extract code
 - simple update cli flow using pypi version
+- wrap parser code in execution timeout
 
 ## backlog
 

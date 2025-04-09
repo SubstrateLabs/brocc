@@ -78,13 +78,17 @@ test-linkedin-company-about:
 test-linkedin-connections-me:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_connections_me.py -v -s
 
+test-linkedin-messages:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_messages.py -v -s
+
 test-linkedin: \
 	test-linkedin-feed \
 	test-linkedin-company \
 	test-linkedin-profile \
 	test-linkedin-company-posts \
 	test-linkedin-company-about \
-	test-linkedin-connections-me
+	test-linkedin-connections-me \
+	test-linkedin-messages
 
 
 
