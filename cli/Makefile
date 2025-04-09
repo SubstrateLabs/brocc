@@ -60,6 +60,10 @@ test-twitter: test-twitter-home test-twitter-thread test-twitter-likes
 test-linkedin-feed:
 	uv run pytest src/brocc_li/tests/test_linkedin_feed.py -v -s
 
+test-linkedin-profile:
+	uv run pytest src/brocc_li/tests/test_linkedin_profile.py -v -s
+
+
 
 
 

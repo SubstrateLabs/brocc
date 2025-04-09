@@ -1,6 +1,7 @@
-- linkedin feed, profile
-- gmail
+- linkedin profile
+- linkedin company feed
 - instagram
+- gmail
 - delegate to parsers based on url
 - handle scrolling
 - schema design:
