@@ -2,7 +2,13 @@ from typing import Optional
 
 from unstructured.documents.elements import Image, NarrativeText, Text
 
-from brocc_li.parsers.instagram_utils import partition_instagram_html
+from brocc_li.parsers.instagram_utils import (
+    clean_element_text,
+    format_timestamp,
+    is_profile_picture,
+    is_timestamp,
+    partition_instagram_html,
+)
 from brocc_li.utils.logger import logger
 
 
@@ -27,19 +33,16 @@ def instagram_home_html_to_md(html: str, debug: bool = False) -> Optional[str]:
             element_text = str(element).strip()
 
             # Pattern: profile picture + username + timestamp
-            profile_pic_match = "profile picture" in element_text
+            profile_pic_match = is_profile_picture(element)
 
             if profile_pic_match and i + 2 < len(filtered_elements):
                 # Next element should be username
                 username_element = filtered_elements[i + 1]
                 username_text = str(username_element).strip()
 
-                # Third element could be timestamp (like "5d", "1w")
+                # Third element could be timestamp
                 timestamp_element = filtered_elements[i + 2]
-                timestamp_text = str(timestamp_element).strip()
-                timestamp_match = len(timestamp_text) <= 4 and (
-                    "d" in timestamp_text or "w" in timestamp_text or "h" in timestamp_text
-                )
+                timestamp_match = is_timestamp(timestamp_element)
 
                 if timestamp_match:
                     # We found a new post!
@@ -89,8 +92,7 @@ def instagram_home_html_to_md(html: str, debug: bool = False) -> Optional[str]:
 
             # Find all potential post boundaries (profile pictures)
             for i, element in enumerate(filtered_elements):
-                element_text = str(element).strip()
-                if "profile picture" in element_text:
+                if is_profile_picture(element):
                     post_boundaries.append(i)
 
             # Add sentinel at the end
@@ -140,12 +142,13 @@ def instagram_home_html_to_md(html: str, debug: bool = False) -> Optional[str]:
                     continue
 
                 # Skip profile pictures and username repetitions
-                if "profile picture" in element_text or element_text == username:
+                if is_profile_picture(element) or element_text == username:
                     continue
 
                 # Handle timestamp
-                if len(element_text) <= 4 and any(t in element_text for t in ["d", "w", "h", "m"]):
-                    post_lines.append(f"*Posted {element_text} ago*")
+                if is_timestamp(element):
+                    timestamp = format_timestamp(element_text)
+                    post_lines.append(f"*Posted {timestamp}*")
                     continue
 
                 # Collect likes info for later
@@ -202,8 +205,9 @@ def instagram_home_html_to_md(html: str, debug: bool = False) -> Optional[str]:
                         continue
 
                     # Add the text content
+                    cleaned_text = clean_element_text(element_text)
                     seen_text.add(element_text)
-                    post_lines.append(element_text)
+                    post_lines.append(cleaned_text)
                     has_content = True
 
             # Add likes at the end if collected

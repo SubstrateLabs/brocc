@@ -124,9 +124,14 @@ test-instagram-home:
 test-instagram-profile:
 	uv run pytest src/brocc_li/tests/parsers/test_instagram_profile.py -v -s
 
+test-instagram-inbox:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_inbox.py -v -s
+
+
 test-instagram: \
 	test-instagram-home \
-	test-instagram-profile
+	test-instagram-profile \
+	test-instagram-inbox
 
 test-substack-inbox:
 	uv run pytest src/brocc_li/tests/parsers/test_substack_inbox.py -v -s

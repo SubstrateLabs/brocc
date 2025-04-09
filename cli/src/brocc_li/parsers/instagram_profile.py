@@ -3,7 +3,11 @@ from typing import Dict, List, Optional
 
 from unstructured.documents.elements import Element, Image, NarrativeText, Text, Title
 
-from brocc_li.parsers.instagram_utils import partition_instagram_html
+from brocc_li.parsers.instagram_utils import (
+    clean_element_text,
+    is_profile_picture,
+    partition_instagram_html,
+)
 from brocc_li.utils.logger import logger
 
 
@@ -69,11 +73,7 @@ def instagram_profile_html_to_md(html: str, debug: bool = False) -> Optional[str
             element_text = str(element).strip()
 
             # Find profile picture element (usually the first image)
-            if (
-                isinstance(element, Image)
-                and "profile picture" in element_text.lower()
-                and profile_pic_element_idx == -1
-            ):
+            if is_profile_picture(element) and profile_pic_element_idx == -1:
                 profile_pic_element_idx = i
                 if debug:
                     logger.debug(f"Found profile picture element at index {i}")
@@ -104,6 +104,25 @@ def instagram_profile_html_to_md(html: str, debug: bool = False) -> Optional[str
                     )
 
         # Collect bio elements (NarrativeText/Text between username and posts start)
+        # Also backup bio search by looking for bio-like text throughout
+        backup_bio_elements = []
+        for i, element in enumerate(filtered_elements):
+            element_text = str(element).strip().lower()
+            # Look for typical bio phrases
+            if isinstance(element, (NarrativeText, Text)) and (
+                ("writer" in element_text and "x" in element_text)
+                or ("bio" in element_text)
+                or ("followed by" in element_text)
+                or ("posts" in element_text and "followers" in element_text)
+                or element_text.startswith("@")
+            ):
+                backup_bio_elements.append(element)
+                if debug:
+                    logger.debug(
+                        f"Found potential bio element (backup method): {element_text} at index {i}"
+                    )
+
+        # Main method for bio collection - between username and posts section
         if username_idx != -1 and posts_start_idx != -1:
             potential_bio_elements = filtered_elements[username_idx + 1 : posts_start_idx]
             for element in potential_bio_elements:
@@ -126,6 +145,14 @@ def instagram_profile_html_to_md(html: str, debug: bool = False) -> Optional[str
             logger.debug(
                 f"Could not reliably determine bio range. Username Index: {username_idx}, Posts Start Index: {posts_start_idx}"
             )
+
+        # If no bio elements found through main method, use backup bio elements
+        if not bio_elements and backup_bio_elements:
+            if debug:
+                logger.debug(
+                    "Using backup bio elements since no bio elements found through main method"
+                )
+            bio_elements = backup_bio_elements
 
         # Format profile information as markdown
         markdown_blocks = []
@@ -201,7 +228,7 @@ def instagram_profile_html_to_md(html: str, debug: bool = False) -> Optional[str
                 element_text = str(element).strip()
 
                 # Basic check to avoid adding profile pic again if logic failed above
-                if "profile picture" in element_text.lower():
+                if is_profile_picture(element):
                     continue
 
                 if element_text in seen_images:
@@ -220,7 +247,7 @@ def instagram_profile_html_to_md(html: str, debug: bool = False) -> Optional[str
                         clean_text = f"Post {image_count} - Image"
                     else:
                         # Keep original description but maybe shorten if too long? Currently keeping full.
-                        clean_text = element_text
+                        clean_text = clean_element_text(element_text)
                     markdown_blocks.append(f"### Post {image_count}")
                     markdown_blocks.append(f"*{clean_text}*")
 
