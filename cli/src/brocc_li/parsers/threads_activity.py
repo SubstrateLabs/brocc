@@ -3,6 +3,11 @@ from typing import List, Optional
 from unstructured.documents.elements import Element
 from unstructured.partition.html import partition_html
 
+from brocc_li.parsers.threads_utils import (
+    clean_username,
+    is_profile_picture,
+    is_timestamp,
+)
 from brocc_li.utils.logger import logger
 
 
@@ -12,26 +17,12 @@ def partition_threads_activity_html(html: str, debug: bool = False) -> List[Elem
         if debug:
             logger.debug("Starting HTML partitioning for Threads activity...")
 
-        elements = partition_html(
-            text=html,
-            # Add any relevant partition_html arguments if needed, e.g.:
-            # strategy="hi_res", # If dealing with complex layouts, might be useful later
-            # hi_res_model_name="yolox", # Example model
-            # languages=["eng"], # Specify language if known
-            # include_page_breaks=False,
-            # chunking_strategy="by_title", # Maybe useful later
-            # max_characters=1500, # Default chunking settings
-            # new_after_n_chars=1200,
-            # combine_text_under_n_chars=200,
-        )
+        elements = partition_html(text=html)
 
         if debug:
             logger.debug(f"Initial partition yielded {len(elements)} elements.")
-            # for i, element in enumerate(elements):
-            #     logger.debug(f"  Element {i}: {type(element).__name__} - {str(element)[:100]}...")
 
         # --- Basic Filtering (Keep minimal for now) ---
-        # We will add more filtering later based on debug output
         filtered_elements = []
         for element in elements:
             element_text = str(element).strip()
@@ -40,41 +31,20 @@ def partition_threads_activity_html(html: str, debug: bool = False) -> List[Elem
                     logger.debug("Filtering empty element")
                 continue
 
-            # Add very basic noise filtering if obvious patterns emerge early
-            # Example (adjust based on actual HTML):
-            # if element_text.lower() in ["notifications", "search", "profile"]:
-            #     if debug:
-            #         logger.debug(f"Filtering potential nav element: {element_text}")
-            #     continue
-
             filtered_elements.append(element)
 
         if debug:
             logger.debug(f"{len(filtered_elements)} elements remain after basic filtering.")
-            # for i, element in enumerate(filtered_elements):
-            #     logger.debug(f"  Filtered Element {i}: {type(element).__name__} - {str(element)[:100]}...")
 
         return filtered_elements
 
-    except Exception as e:
+    except Exception:
         logger.error("Error during Threads activity HTML partitioning", exc_info=True)
         return []  # Return empty list on error
 
 
 def threads_activity_html_to_md(html: str, debug: bool = False) -> Optional[str]:
-    """
-    Converts Threads activity HTML content to Markdown format.
-
-    Args:
-        html: The HTML content as a string.
-        debug: If True, enables detailed debug logging.
-
-    Returns:
-        A string containing the Markdown representation of the Threads activity,
-        or None if an error occurs or no content is found.
-    """
     try:
-        # Use the specific partitioning function
         elements = partition_threads_activity_html(html, debug=debug)
 
         if not elements:
@@ -95,7 +65,7 @@ def threads_activity_html_to_md(html: str, debug: bool = False) -> Optional[str]
             element_text = str(element).strip()
 
             # Detect start of a new item based on profile picture text
-            if "'s profile picture" in element_text and current_item_elements:
+            if is_profile_picture(element) and current_item_elements:
                 if debug:
                     logger.debug(f"Detected new activity item start at index {i}: {element_text}")
                 activity_items.append(current_item_elements)
@@ -138,9 +108,9 @@ def threads_activity_html_to_md(html: str, debug: bool = False) -> Optional[str]
                     logger.debug(f"  Item {item_idx}, Elem {elem_idx}: {element_text[:80]}...")
 
                 # 1. Profile picture - usually first element
-                if "'s profile picture" in element_text and not profile_pic_skipped:
+                if is_profile_picture(element) and not profile_pic_skipped:
                     # Extract username if possible, might be in the next element too
-                    extracted_user = element_text.replace("'s profile picture", "").strip()
+                    extracted_user = clean_username(element_text)
                     if extracted_user:  # Basic check
                         username = extracted_user
                     if debug:
@@ -167,11 +137,7 @@ def threads_activity_html_to_md(html: str, debug: bool = False) -> Optional[str]
                         continue  # Move to next element
 
                 # 3. Timestamp - usually short, ends with h, d, w, m, y
-                if (
-                    len(element_text) <= 5
-                    and element_text[-1] in "hdwmy"
-                    and element_text[:-1].isdigit()
-                ):
+                if is_timestamp(element, debug=debug):
                     timestamp = element_text
                     if debug:
                         logger.debug(f"    Found timestamp: {timestamp}")
@@ -217,29 +183,78 @@ def threads_activity_html_to_md(html: str, debug: bool = False) -> Optional[str]
 
             # --- Assemble Markdown for the item ---
             item_markdown = []
-            # Heading: Action by User
-            heading = f"### {action_text or 'Activity'} by {username}"
+
+            # Format username as a link (https://www.threads.net/@username)
+            username_link = f"[{username}](https://www.threads.net/@{username})"
+
+            # Heading: Action by User with username as a link
+            heading = f"### {action_text or 'Activity'} by {username_link}"
             item_markdown.append(heading)
 
-            # Metadata bullets
-            if timestamp:
-                item_markdown.append(f"*   Timestamp: {timestamp}")
-            # Add more metadata if needed, e.g. if action_text was generic:
-            # if action_text and action_text != "Activity":
-            #    item_markdown.append(f"*   Action: {action_text}")
-
-            # Content
+            # Content - Deduplicated
+            unique_content_lines = []
+            seen_content = set()
             if content:
-                item_markdown.append(
-                    "\n" + "\n".join(content)
-                )  # Add a newline before content block
+                # Deduplicate based on the first N characters to handle minor variations
+                # and ignore very short lines that are likely fragments
+                dedup_length = 50  # Consider first 50 chars for uniqueness
+                min_length = 10  # Ignore lines shorter than 10 chars
 
-            # Stats
+                for line in content:
+                    trimmed_line = line.strip()
+                    if len(trimmed_line) < min_length:
+                        continue
+                    # Check based on a prefix to catch element splitting
+                    line_prefix = trimmed_line[:dedup_length]
+                    if line_prefix not in seen_content:
+                        unique_content_lines.append(trimmed_line)
+                        seen_content.add(line_prefix)
+                        if debug:
+                            logger.debug(f"    Adding unique content line: {trimmed_line[:80]}...")
+                    elif debug:
+                        logger.debug(f"    Skipping duplicate content line: {trimmed_line[:80]}...")
+
+            if unique_content_lines:
+                item_markdown.append("")  # Add an empty line after heading
+                item_markdown.append("\n".join(unique_content_lines))
+
+            # Metrics section - Includes timestamp and stats
+            metrics = []
+
+            # Add timestamp as a metric
+            if timestamp:
+                metrics.append(f"*   {timestamp}")
+
+            # Stats - Deduplicated
+            unique_stats = []
+            seen_stats = set()
             if stats:
-                item_markdown.append("\n*   Stats: " + ", ".join(stats))
+                for stat in stats:
+                    if stat not in seen_stats:
+                        unique_stats.append(stat)
+                        seen_stats.add(stat)
 
-            if item_markdown:  # Only add if we generated something
-                markdown_blocks.append("\n".join(item_markdown))
+                # Add stats as metrics
+                if len(unique_stats) >= 2:
+                    metrics.append(f"*   {unique_stats[0]} likes")
+                    metrics.append(f"*   {unique_stats[1]} replies")
+
+            # Add metrics if we have any
+            if metrics:
+                item_markdown.append("")  # Add an empty line before metrics
+                item_markdown.extend(metrics)
+
+            # Only add the block if it has more than just the header and timestamp
+            # Avoid adding items that only have a header/timestamp (like disco_stevo's)
+            if len(item_markdown) > 1:  # Header always present
+                if unique_content_lines or unique_stats:  # Ensure there's *some* detail
+                    markdown_blocks.append("\n".join(item_markdown))
+                elif debug:
+                    logger.debug(
+                        f"Skipping item {item_idx} (username: {username}) as it lacks unique content/stats beyond header/timestamp."
+                    )
+            elif debug:
+                logger.debug(f"Skipping item {item_idx} (username: {username}) as it seems empty.")
 
         # Join all blocks with triple newlines
         markdown = "\n\n\n".join(markdown_blocks)

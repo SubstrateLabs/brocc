@@ -6,7 +6,7 @@ from brocc_li.parsers.instagram_saved_collection import instagram_saved_collecti
 from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-DEBUG = True
+DEBUG = False
 FIXTURE_NAME = "_instagram-saved-collection.html"
 
 
@@ -54,13 +54,13 @@ def test_parse(debug: bool = DEBUG):
     assert "Tiu Kelep Waterfall" in markdown, "Missing location reference from Post 1"
 
     # Check for specific hashtags in posts
-    assert "**Tags**: #travelindonesia #solotravel #solotrip #adventure" in markdown, (
-        "Missing hashtags from Post 1"
-    )
-    assert "BROMO 15 07 23" in markdown, "Missing BROMO content in Post 2"
-    assert "**Tags**: #bromo #wonderfulindonesia #beautifuldestinations" in markdown, (
-        "Missing hashtags from Post 2"
-    )
+    for hashtag in ["#travelindonesia", "#solotravel", "#solotrip", "#adventure"]:
+        assert hashtag in post_sections[1], f"Missing hashtag {hashtag} in Post 1"
+
+    assert "BROMO 15 07 23" in post_sections[2], "Missing BROMO content in Post 2"
+
+    for hashtag in ["#bromo", "#wonderfulindonesia", "#beautifuldestinations"]:
+        assert hashtag in post_sections[2], f"Missing hashtag {hashtag} in Post 2"
 
     # Image URL assertions
     assert "![Image](https://instagram" in markdown, "Missing image links"
@@ -73,6 +73,44 @@ def test_parse(debug: bool = DEBUG):
     # Check post 3 and 4 formatting
     assert "Image" in post_sections[3], "Post 3 should contain generic image content"
     assert "Image" in post_sections[4], "Post 4 should contain generic image content"
+
+    # Additional focused assertions based on output
+
+    # More specific content checks for Post 1
+    assert "I felt like a princess surrounded by a bunch of guards" in post_sections[1], (
+        "Missing princess metaphor in Post 1"
+    )
+    assert (
+        "📍Not an attraction, just a bridge leading to Tiu Kelep Waterfall" in post_sections[1]
+    ), "Missing location emoji and description in Post 1"
+
+    # More specific content checks for Post 2
+    assert "⛰️" in post_sections[2], "Missing mountain emoji in Post 2"
+
+    # Check Post 3 attribution format
+    assert (
+        "Photo by ULEKAN BALI™ | Traditional Indonesian Cuisine on June 01, 2023"
+        in post_sections[3]
+    ), "Missing correct attribution in Post 3"
+
+    # Check Post 4 attribution format
+    assert (
+        "Photo shared by Bodyworks Spa on October 25, 2022 tagging @sal.harris" in post_sections[4]
+    ), "Missing correct attribution in Post 4"
+
+    # Check URL formats and patterns
+    for image_url in image_urls:
+        assert "cdn.net" in image_url, f"Image URL missing CDN domain: {image_url}"
+        assert re.search(r"_n\.jpg\?", image_url), (
+            f"Image URL missing expected jpg format: {image_url}"
+        )
+
+    # Check tag formatting consistency
+    assert "**Tags**:" in post_sections[1], "Missing Tags section in Post 1"
+    assert "**Tags**:" in post_sections[2], "Missing Tags section in Post 2"
+
+    # Check specific image formats in URLs
+    assert re.search(r"t51\.2885-15/\d+", markdown), "Missing expected image format pattern in URLs"
 
     logger.info(
         f"✅ Instagram saved collection conversion test ran for {FIXTURE_NAME}. "

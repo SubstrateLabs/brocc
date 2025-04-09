@@ -1,3 +1,4 @@
+- new parsers for ig, threads
 - delegate to parsers based on url
 - test twitter following + followers
 - test linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers

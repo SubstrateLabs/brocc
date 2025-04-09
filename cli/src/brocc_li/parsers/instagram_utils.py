@@ -1,7 +1,7 @@
-from typing import List, Optional, Dict, Any, Set
 import re
+from typing import Any, Dict, List, Optional, Set
 
-from unstructured.documents.elements import Element, Image, Text, ListItem, NarrativeText, Title
+from unstructured.documents.elements import Element, Image, ListItem, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
 from brocc_li.utils.logger import logger
@@ -247,3 +247,155 @@ def process_instagram_feed_elements(
 
     logger.info(f"Processed feed elements into {len(posts)} posts.")
     return posts
+
+
+def format_feed_posts_to_md(posts: List[Dict[str, Any]], section_title: str = "Posts") -> List[str]:
+    """Formats a list of processed feed posts into Markdown blocks.
+
+    Args:
+        posts: List of post dictionaries from process_instagram_feed_elements.
+        section_title: The title for the Markdown section (e.g., '## Posts').
+
+    Returns:
+        A list of strings, where each string is a Markdown block
+        (section header, post header, post content, etc.).
+    """
+    if not posts:
+        # Return list containing header and placeholder comment
+        return [f"## {section_title}", "<!-- No posts extracted -->"]
+
+    markdown_blocks = [f"## {section_title}"]
+
+    for idx, post in enumerate(posts, 1):
+        post_content_blocks = []  # Store content parts (text, metadata, image, tags)
+
+        # Add user info if available
+        if "user" in post.get("metadata", {}):
+            post_content_blocks.append(f"**From**: {post['metadata']['user']}")
+
+        # Add post text
+        if post.get("text"):
+            # Join the list of text lines into a single block
+            post_content_blocks.append("\n".join(post["text"]))
+
+        # Add metadata if available (e.g., engagement count)
+        if "count" in post.get("metadata", {}):
+            post_content_blocks.append(f"**{post['metadata']['count']}** likes/views")
+
+        # Add image URL if available
+        if "image_url" in post.get("metadata", {}):
+            url = post["metadata"]["image_url"]
+            # Simple truncation for display
+            display_url = url[:80] + "[...]" if len(url) > 83 else url
+            post_content_blocks.append(f"![Image]({display_url})")
+
+        # Add hashtags section if found
+        if post.get("hashtags"):
+            # Join the set of hashtags into a space-separated string
+            post_content_blocks.append(f"**Tags**: {' '.join(sorted(post['hashtags']))}")
+
+        # Construct the full markdown for this post IF it has content parts
+        if post_content_blocks:
+            # Start with the header, then join the content blocks with double newlines
+            full_post_md = f"### Post {idx}\n\n" + "\n\n".join(post_content_blocks)
+            markdown_blocks.append(full_post_md)
+
+    # Ensure we always return a list. If only the header was added, add a comment.
+    if len(markdown_blocks) == 1:
+        markdown_blocks.append("<!-- Posts processed, but no content to display -->")
+
+    return markdown_blocks
+
+
+def common_instagram_parser(
+    html: str,
+    page_title: str,
+    section_title: str = "Posts",
+    debug: bool = False,
+    preprocess_fn=None,
+    empty_warning_msg: str = "No posts extracted from elements.",
+    empty_placeholder_msg: str = "<!-- No posts extracted -->",
+) -> str:
+    """
+    Common Instagram HTML parser function that handles the typical flow of parsing,
+    extracting posts, and formatting to markdown.
+
+    Args:
+        html: The raw HTML string to parse
+        page_title: The title to use for the page (without markdown symbols)
+        section_title: Title for the posts section (without markdown symbols)
+        debug: Enable debug logging
+        preprocess_fn: Optional function to preprocess elements before processing posts.
+                      Should take (elements, debug) and return (elements, custom_data).
+        empty_warning_msg: Warning message to log if no posts are extracted
+        empty_placeholder_msg: Placeholder HTML comment for empty results
+
+    Returns:
+        Formatted markdown string
+    """
+    try:
+        logger.info(f"Starting Instagram {page_title.lower()} parsing")
+
+        # Partition HTML using shared utility function
+        filtered_elements = partition_instagram_html(html, debug=debug)
+
+        if not filtered_elements:
+            logger.warning("No elements remaining after filtering.")
+            return "<!-- No elements remaining after filtering -->"
+
+        # Optional preprocessing of elements
+        custom_data = None
+        if preprocess_fn:
+            filtered_elements, custom_data = preprocess_fn(filtered_elements, debug)
+
+            # Check if custom_data contains a page_title override
+            if isinstance(custom_data, dict) and "page_title" in custom_data:
+                page_title = custom_data["page_title"]
+                if debug:
+                    logger.debug(f"Using custom page title from preprocessor: {page_title}")
+
+        # Process elements into structured posts
+        posts = process_instagram_feed_elements(filtered_elements, debug=debug)
+
+        # Build markdown output
+        markdown_blocks = [f"# {page_title}"]
+
+        # Add any custom data before posts section
+        if custom_data:
+            if isinstance(custom_data, str):
+                markdown_blocks.append(custom_data)
+            elif isinstance(custom_data, list):
+                markdown_blocks.extend(custom_data)
+            elif isinstance(custom_data, dict) and "description" in custom_data:
+                markdown_blocks.append(custom_data["description"])
+
+        # Format posts to markdown
+        post_blocks = format_feed_posts_to_md(posts, section_title=section_title)
+        if post_blocks and len(post_blocks) > 1:  # At least header + one post
+            markdown_blocks.extend(post_blocks)
+        else:
+            logger.warning(empty_warning_msg)
+            markdown_blocks.append(empty_placeholder_msg)
+
+        # Join all blocks with double newlines to create final markdown
+        markdown = "\n\n".join(markdown_blocks)
+
+        # Check if result is effectively empty
+        is_empty = not markdown.strip() or markdown == f"# {page_title}\n\n{empty_placeholder_msg}"
+
+        if is_empty:
+            logger.warning("Parsing resulted in effectively empty markdown after processing.")
+            return "<!-- Parsing completed, but resulted in empty or placeholder output -->"
+
+        logger.info(
+            f"Instagram {page_title.lower()} HTML to markdown conversion completed successfully."
+        )
+        return markdown.strip()
+
+    except Exception as e:
+        logger.error(
+            f"Error processing Instagram {page_title.lower()} HTML with unstructured",
+            exc_info=True,
+        )
+        # Return error message in the output for debugging
+        return f"Error processing Instagram {page_title.lower()} HTML with unstructured: {e}"

@@ -4,7 +4,7 @@ from brocc_li.parsers.threads_activity import threads_activity_html_to_md
 from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-DEBUG = True
+DEBUG = False
 FIXTURE_NAME = "_threads-activity.html"
 
 
@@ -31,16 +31,42 @@ def test_parse_threads_activity(debug: bool = DEBUG):
     assert markdown is not None, "Conversion returned None"
     assert isinstance(markdown, str), "Conversion did not return a string"
     assert "Error processing" not in markdown, f"Conversion failed: {markdown}"
+    assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
+    assert "<!-- No elements" not in markdown, "Parser reported no elements found."
 
-    # We can't assert much more until we see the output
-    # assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
-    # assert "<!-- No elements" not in markdown, "Parser reported no elements found."
+    # Focused high-level assertions
+    # Check for specific users and content patterns
+    assert "### Started a thread by [stoopingnyc]" in markdown, "Missing stoopingnyc's thread"
+    assert "Is everyone putting out their large sideboards?" in markdown, (
+        "Missing stoopingnyc's content"
+    )
+
+    # Verify profile links format
+    assert "https://www.threads.net/@" in markdown, "Missing profile links"
+
+    # Check for timestamp format
+    assert "*   5h" in markdown, "Missing timestamp in expected format"
+
+    # Verify likes and replies stats exist only for appropriate entries
+    assert "102 likes" in markdown, "Missing likes count for walter.chen's post"
+    assert "18 replies" in markdown, "Missing replies count for walter.chen's post"
+
+    # Check some other key activity types
+    assert "### Followed you by [godstears]" in markdown, "Missing 'Followed you' activity"
+    assert "### Picked for you by [nytimes]" in markdown, "Missing 'Picked for you' activity"
+
+    # Verify item count (we should have at least 8 activity items based on the debug output)
+    activity_sections = markdown.split("\n\n\n")
+    assert len(activity_sections) >= 8, (
+        f"Expected at least 8 activity items, got {len(activity_sections)}"
+    )
+
+    # Verify disco_stevo item was excluded (as it had no unique content)
+    assert "disco_stevo" not in markdown, (
+        "disco_stevo item should be excluded due to lack of content"
+    )
 
     logger.info(
         f"Threads activity conversion test ran for {FIXTURE_NAME}. "
         f"{'Output printed above.' if debug else 'Run with DEBUG=True to see output.'}"
     )
-
-
-# You can run this specific test with:
-# uv run pytest cli/src/brocc_li/tests/parsers/test_threads_activity.py -k test_parse_threads_activity

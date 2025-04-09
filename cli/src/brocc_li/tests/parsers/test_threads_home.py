@@ -1,10 +1,12 @@
+import re
+
 import pytest
 
 from brocc_li.parsers.threads_home import threads_home_html_to_md
 from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-DEBUG = True
+DEBUG = False
 FIXTURE_NAME = "_threads-home.html"
 
 
@@ -23,15 +25,40 @@ def test_parse(debug: bool = DEBUG):
         print(markdown)
         print("--- END THREADS HOME MARKDOWN OUTPUT ---\n")
 
-    # Basic assertions (very minimal for now)
+    # Basic assertions
     assert markdown is not None, "Conversion returned None"
     assert isinstance(markdown, str), "Conversion did not return a string"
     assert "Error processing" not in markdown, f"Conversion failed: {markdown}"
     assert (
         "<!-- unstructured parsing completed, but resulted in empty output -->" not in markdown
     ), "Parser reported empty output."
-    # We can't assert much about content yet, need to see the output first
-    # assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
+    assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
+
+    # User/Post assertions
+    assert "### Post by [romainhuet]" in markdown, "Missing romainhuet's post"
+    assert "https://threads.net/@romainhuet" in markdown, "Missing profile URL for romainhuet"
+
+    # Image assertions
+    assert "![Announcing the OpenAI Pioneers Program]" in markdown, "Missing OpenAI image"
+    assert re.search(r"!\[.*?\]\(.*?external\.fsig5-1\.fna\.fbcdn\.net.*?\)", markdown), (
+        "Missing image URL"
+    )
+
+    # Content assertions
+    assert "Announcing the OpenAI Pioneers Program" in markdown, "Missing post title"
+    assert "partnerships" in markdown or "partner" in markdown, (
+        "Missing post content about partnerships"
+    )
+    assert "openai.com" in markdown, "Missing openai.com URL"
+
+    # Post content assertions
+    assert "### Post by [nymetroweather]" in markdown, "Missing nymetroweather's post"
+    assert "Weather Rating:" in markdown, "Missing weather rating content"
+
+    # Location metadata
+    assert "Brooklyn, New York" in markdown or "New York, New York" in markdown, (
+        "Missing location information"
+    )
 
     logger.info(
         f"✅ Threads home conversion test ran for {FIXTURE_NAME}. "
