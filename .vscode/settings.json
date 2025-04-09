@@ -30,5 +30,8 @@
   "python.terminal.activateEnvironment": true,
   "python.analysis.extraPaths": [
     "${workspaceFolder}/.venv/lib/python3.12/site-packages"
-  ]
+  ],
+  "python.testing.pytestArgs": ["cli"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }

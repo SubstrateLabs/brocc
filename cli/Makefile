@@ -55,7 +55,10 @@ test-twitter-thread:
 test-twitter-likes:
 	uv run pytest src/brocc_li/tests/parsers/test_twitter_likes.py -v -s
 
-test-twitter: test-twitter-home test-twitter-thread test-twitter-likes
+test-twitter: \
+	test-twitter-home \
+	test-twitter-thread \
+	test-twitter-likes
 
 test-linkedin-feed:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
@@ -72,7 +75,16 @@ test-linkedin-company-posts:
 test-linkedin-company-about:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company_about.py -v -s
 
-test-linkedin: test-linkedin-feed test-linkedin-company test-linkedin-profile test-linkedin-company-posts test-linkedin-company-about 
+test-linkedin-connections-me:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_connections_me.py -v -s
+
+test-linkedin: \
+	test-linkedin-feed \
+	test-linkedin-company \
+	test-linkedin-profile \
+	test-linkedin-company-posts \
+	test-linkedin-company-about \
+	test-linkedin-connections-me
 
 
 
