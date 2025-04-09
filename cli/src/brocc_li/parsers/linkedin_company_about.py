@@ -1,9 +1,13 @@
 from typing import List, Optional
 
-from unstructured.documents.elements import Element, NarrativeText, Text, Title
+from unstructured.documents.elements import Element, NarrativeText, Text
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
+from brocc_li.parsers.linkedin_utils import (
+    extract_company_metadata,
+    extract_section_by_title,
+    is_element_noisy,
+)
 from brocc_li.utils.logger import logger
 
 # LinkedIn company about page-specific noise patterns
@@ -30,6 +34,13 @@ ABOUT_NOISE_PATTERNS = [
 ]
 
 
+# Special condition to keep company size and founded info even if it would be filtered as noise
+def _keep_company_info(element: Element, element_text: str) -> bool:
+    return any(
+        keyword in element_text.lower() for keyword in ["employees", "founded", "headquarters"]
+    )
+
+
 def is_about_noise(text: str, debug: bool = False) -> bool:
     """Check if text is LinkedIn company about page-specific noise."""
     if not text:
@@ -53,37 +64,18 @@ def is_about_noise(text: str, debug: bool = False) -> bool:
     return False
 
 
-def _is_element_noise(element: Element, debug: bool = False) -> bool:
-    """Check if an element contains general or about page-specific noise."""
-    element_text = str(element)
-
-    # Special case: keep company size and year founded info
-    if any(keyword in element_text.lower() for keyword in ["employees", "founded", "headquarters"]):
-        return False
-
-    if is_noisy(element_text, debug=debug):
-        return True
-    if is_about_noise(element_text, debug=debug):
-        return True
-    return False
-
-
 def _extract_overview_section(elements: List[Element], debug: bool = False) -> Optional[str]:
     """Extract the Overview/About section text from elements."""
     overview_text = []
-    in_overview = False
 
-    # The About section typically starts near the top and contains longer narrative text
-    for i, element in enumerate(elements[:30]):
-        if isinstance(element, Title) and any(
-            word in str(element).lower() for word in ["about", "overview"]
-        ):
-            in_overview = True
-            if debug:
-                logger.debug(f"Found overview section title: {str(element)}")
-            continue
+    # Try to find an "About" or "Overview" section
+    about_elements, _ = extract_section_by_title(elements, "about", debug=debug)
+    if not about_elements:
+        about_elements, _ = extract_section_by_title(elements, "overview", debug=debug)
 
-        if in_overview and isinstance(element, (Text, NarrativeText)) and len(str(element)) > 30:
+    # Process elements from the section if found
+    for element in about_elements:
+        if isinstance(element, (Text, NarrativeText)) and len(str(element)) > 30:
             text = str(element).strip()
 
             # Skip map images, directions, and other noise in overview
@@ -95,15 +87,11 @@ def _extract_overview_section(elements: List[Element], debug: bool = False) -> O
                     logger.debug(f"Skipped noise in overview: {text[:50]}...")
                 continue
 
-            # Stop if we encounter another section
-            if isinstance(element, Title) and i > 5:
-                break
-
             overview_text.append(text)
             if debug:
                 logger.debug(f"Added Overview content: {text[:50]}...")
 
-    # If we didn't find a section title, look for long narrative text that could be a description
+    # If we didn't find a section title or content, look for long narrative text that could be a description
     if not overview_text:
         for element in elements[:20]:
             if isinstance(element, NarrativeText) and len(str(element)) > 100:
@@ -150,35 +138,25 @@ def _extract_overview_section(elements: List[Element], debug: bool = False) -> O
 def _extract_locations(elements: List[Element], debug: bool = False) -> List[str]:
     """Extract locations where the company has offices."""
     locations = []
-    in_locations_section = False
 
-    for i, element in enumerate(elements):
+    location_elements, _ = extract_section_by_title(elements, "location", debug=debug)
+    if not location_elements:
+        # Try alternate title
+        location_elements, _ = extract_section_by_title(elements, "office", debug=debug)
+
+    for element in location_elements:
         text = str(element).strip()
 
-        if isinstance(element, Title) and any(
-            word in text.lower() for word in ["location", "office"]
-        ):
-            in_locations_section = True
-            if debug:
-                logger.debug(f"Found locations section at element {i}: {text}")
-            continue
-
-        if in_locations_section:
-            # Stop if we encounter another section title
-            if isinstance(element, Title) and i > 5:
-                in_locations_section = False
-                break
-
-            if isinstance(element, Text) and len(text) > 3 and "," in text:
-                # Skip map references which aren't actual locations
-                if "map" in text.lower() or "get directions" in text.lower():
-                    if debug:
-                        logger.debug(f"Skipped map reference: {text}")
-                    continue
-
-                locations.append(text)
+        if isinstance(element, Text) and len(text) > 3 and "," in text:
+            # Skip map references which aren't actual locations
+            if "map" in text.lower() or "get directions" in text.lower():
                 if debug:
-                    logger.debug(f"Added location: {text}")
+                    logger.debug(f"Skipped map reference: {text}")
+                continue
+
+            locations.append(text)
+            if debug:
+                logger.debug(f"Added location: {text}")
 
     return locations
 
@@ -186,36 +164,25 @@ def _extract_locations(elements: List[Element], debug: bool = False) -> List[str
 def _extract_specialties(elements: List[Element], debug: bool = False) -> List[str]:
     """Extract company specialties if listed separately from metadata."""
     specialties = []
-    in_specialties_section = False
 
-    for i, element in enumerate(elements):
+    specialty_elements, _ = extract_section_by_title(elements, "specialt", debug=debug)
+
+    for element in specialty_elements:
         text = str(element).strip()
 
-        if isinstance(element, Title) and "specialt" in text.lower():
-            in_specialties_section = True
-            if debug:
-                logger.debug(f"Found specialties section at element {i}: {text}")
-            continue
-
-        if in_specialties_section:
-            # Stop if we encounter another section title
-            if isinstance(element, Title) and i > 5:
-                in_specialties_section = False
-                break
-
-            if isinstance(element, Text) and len(text) > 3:
-                # Split by commas if multiple specialties in one element
-                if "," in text:
-                    for specialty in text.split(","):
-                        cleaned = specialty.strip()
-                        if cleaned:
-                            specialties.append(cleaned)
-                            if debug:
-                                logger.debug(f"Added specialty: {cleaned}")
-                else:
-                    specialties.append(text)
-                    if debug:
-                        logger.debug(f"Added specialty: {text}")
+        if isinstance(element, Text) and len(text) > 3:
+            # Split by commas if multiple specialties in one element
+            if "," in text:
+                for specialty in text.split(","):
+                    cleaned = specialty.strip()
+                    if cleaned:
+                        specialties.append(cleaned)
+                        if debug:
+                            logger.debug(f"Added specialty: {cleaned}")
+            else:
+                specialties.append(text)
+                if debug:
+                    logger.debug(f"Added specialty: {text}")
 
     return specialties
 
@@ -240,7 +207,9 @@ def linkedin_company_about_html_to_md(html: str, debug: bool = False) -> Optiona
         # --- Filter Noise --- #
         filtered_elements: List[Element] = []
         for element in elements:
-            if _is_element_noise(element, debug=debug):
+            if is_element_noisy(
+                element, ABOUT_NOISE_PATTERNS, debug=debug, special_conditions=_keep_company_info
+            ):
                 continue
             filtered_elements.append(element)
 

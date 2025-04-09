@@ -1,3 +1,4 @@
+- linkedin_utils -> unstructured_utils
 - gmail
 - instagram
 - delegate to parsers based on url

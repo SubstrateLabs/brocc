@@ -1,9 +1,13 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from unstructured.documents.elements import Element, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
+from brocc_li.parsers.linkedin_utils import (
+    extract_company_metadata,
+    extract_section_by_title,
+    is_element_noisy,
+)
 from brocc_li.utils.logger import logger
 
 # LinkedIn company-specific noise patterns
@@ -23,6 +27,19 @@ COMPANY_NOISE_PATTERNS = [
     "Get the app",
     "Join now",
 ]
+
+
+# Special condition to keep important company metadata
+def _keep_company_metadata(element: Element, element_text: str) -> bool:
+    # Keep follower and employee count for company metadata
+    if ("followers" in element_text or "employees" in element_text) and len(element_text) < 30:
+        return True
+
+    # Keep funding stats even if short
+    if any(keyword in element_text.lower() for keyword in ["series", "total investors"]):
+        return True
+
+    return False
 
 
 def is_company_noise(text: str, debug: bool = False) -> bool:
@@ -48,66 +65,9 @@ def is_company_noise(text: str, debug: bool = False) -> bool:
     return False
 
 
-def _is_element_noise(element: Element, debug: bool = False) -> bool:
-    """Check if an element contains general or company-specific noise."""
-    element_text = str(element)
-
-    # Special case: keep follower and employee count for company metadata
-    if ("followers" in element_text or "employees" in element_text) and len(element_text) < 30:
-        return False
-
-    # Keep funding stats even if short
-    if any(keyword in element_text.lower() for keyword in ["series", "total investors"]):
-        return False
-
-    if is_noisy(element_text, debug=debug):
-        return True
-    if is_company_noise(element_text, debug=debug):
-        return True
-    return False
-
-
-def _extract_section_by_title(
-    elements: List[Element], title_text: str, start_idx: int = 0, debug: bool = False
-) -> Tuple[List[Element], int]:
-    """
-    Extract section elements based on section title.
-    Returns the section elements and the index where the section ends.
-    """
-    section_elements = []
-    in_section = False
-    end_idx = len(elements)
-
-    for i, element in enumerate(elements[start_idx:], start=start_idx):
-        element_text = str(element).strip()
-
-        # Look for section title
-        if isinstance(element, Title) and title_text.lower() in element_text.lower():
-            in_section = True
-            if debug:
-                logger.debug(f"Found section '{title_text}' at element {i}: {element_text}")
-            continue
-
-        # Add elements while in section
-        if in_section:
-            # Stop if we find another section title
-            if isinstance(element, Title) and len(element_text) < 30 and i > start_idx + 1:
-                end_idx = i
-                if debug:
-                    logger.debug(f"End of section '{title_text}' at element {i}: {element_text}")
-                break
-
-            section_elements.append(element)
-
-    if debug and section_elements:
-        logger.debug(f"Extracted {len(section_elements)} elements for section '{title_text}'")
-
-    return section_elements, end_idx
-
-
 def _extract_overview_section(elements: List[Element], debug: bool = False) -> Optional[str]:
     """Extract the Overview section text from elements."""
-    overview_elements, _ = _extract_section_by_title(elements, "Overview", debug=debug)
+    overview_elements, _ = extract_section_by_title(elements, "Overview", debug=debug)
 
     overview_text = []
     for element in overview_elements:
@@ -131,7 +91,7 @@ def _extract_contact_info(elements: List[Element], debug: bool = False) -> Dict[
         "address": None,
     }
 
-    contact_elements, _ = _extract_section_by_title(elements, "Contact info", debug=debug)
+    contact_elements, _ = extract_section_by_title(elements, "Contact info", debug=debug)
 
     for element in contact_elements:
         text = str(element).strip()
@@ -185,7 +145,7 @@ def _extract_funding_info(elements: List[Element], debug: bool = False) -> Dict[
         "investors": None,
     }
 
-    funding_elements, _ = _extract_section_by_title(elements, "Funding", debug=debug)
+    funding_elements, _ = extract_section_by_title(elements, "Funding", debug=debug)
 
     for element in funding_elements:
         text = str(element).strip()
@@ -227,7 +187,7 @@ def _extract_people_highlights(elements: List[Element], debug: bool = False) -> 
         "location_highlights": None,
     }
 
-    people_elements, _ = _extract_section_by_title(elements, "People highlights", debug=debug)
+    people_elements, _ = extract_section_by_title(elements, "People highlights", debug=debug)
 
     # Look for location-based groupings
     for _i, element in enumerate(people_elements):
@@ -275,7 +235,12 @@ def linkedin_company_html_to_md(html: str, debug: bool = False) -> Optional[str]
         # --- Filter Noise --- #
         filtered_elements: List[Element] = []
         for element in elements:
-            if _is_element_noise(element, debug=debug):
+            if is_element_noisy(
+                element,
+                COMPANY_NOISE_PATTERNS,
+                debug=debug,
+                special_conditions=_keep_company_metadata,
+            ):
                 continue
             filtered_elements.append(element)
 

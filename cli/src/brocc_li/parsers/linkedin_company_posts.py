@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from unstructured.documents.elements import Element, Image, NarrativeText, Text, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_noisy
+from brocc_li.parsers.linkedin_utils import extract_company_metadata, is_element_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn company post-specific noise patterns (start empty, add as needed)
@@ -27,6 +27,11 @@ COMPANY_POSTS_NOISE_PATTERNS = [
 ]
 
 
+# Special condition to keep follower and employee count for company metadata
+def _keep_company_metadata(element: Element, element_text: str) -> bool:
+    return ("followers" in element_text or "employees" in element_text) and len(element_text) < 30
+
+
 def is_company_post_noise(text: str, debug: bool = False) -> bool:
     """Check if text is LinkedIn company post-specific noise."""
     if not text:
@@ -47,21 +52,6 @@ def is_company_post_noise(text: str, debug: bool = False) -> bool:
             logger.debug(f"Company post noise: short text with digit '{text}'")
         return True
 
-    return False
-
-
-def _is_element_noise(element: Element, debug: bool = False) -> bool:
-    """Check if an element contains general or company post-specific noise."""
-    element_text = str(element)
-
-    # Special case: keep follower and employee count for company metadata
-    if ("followers" in element_text or "employees" in element_text) and len(element_text) < 30:
-        return False
-
-    if is_noisy(element_text, debug=debug):
-        return True
-    if is_company_post_noise(element_text, debug=debug):
-        return True
     return False
 
 
@@ -162,7 +152,12 @@ def linkedin_company_posts_html_to_md(html: str, debug: bool = False) -> Optiona
         # --- Filter Noise --- #
         filtered_elements: List[Element] = []
         for element in elements:
-            if _is_element_noise(element, debug=debug):
+            if is_element_noisy(
+                element,
+                COMPANY_POSTS_NOISE_PATTERNS,
+                debug=debug,
+                special_conditions=_keep_company_metadata,
+            ):
                 continue
             filtered_elements.append(element)
 

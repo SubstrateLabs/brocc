@@ -3,7 +3,7 @@ from typing import List, Optional
 from unstructured.documents.elements import Element, Image, NarrativeText, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import is_noisy
+from brocc_li.parsers.linkedin_utils import is_element_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn profile-specific noise patterns
@@ -41,12 +41,6 @@ def is_profile_noise(text: str, debug: bool = False) -> bool:
             return True
 
     return False
-
-
-def _is_element_noise(element: Element, debug: bool = False) -> bool:
-    """Check if an element contains general or profile-specific noise."""
-    element_text = str(element)
-    return is_noisy(element_text, debug=debug) or is_profile_noise(element_text, debug=debug)
 
 
 def _extract_profile_header(
@@ -96,7 +90,7 @@ def linkedin_profile_html_to_md(html: str, debug: bool = False) -> Optional[str]
         filtered_elements: List[Element] = []
         for _i, element in enumerate(elements):
             # Skip if general noise or profile-specific noise
-            if _is_element_noise(element, debug=debug):
+            if is_element_noisy(element, PROFILE_NOISE_PATTERNS, debug=debug):
                 continue
 
             filtered_elements.append(element)
