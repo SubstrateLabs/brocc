@@ -4,20 +4,15 @@
 
 ## backlog
 
-- gmail inbox
-- gmail inbox variants in test
-- instagram feed
-- instagram profile (me)
-- instagram profile (other)
-- substack inbox
-- substack feed
-- substack activity
+- youtube feed
+- youtube history
 
 ## testing
 
 - twitter followers + following example
 - two gmail inbox examples (one with open message)
 - two linkedin feed examples
+- instagram profile me + other
 
 ## prompts
 

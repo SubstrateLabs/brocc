@@ -139,9 +139,13 @@ test-substack-inbox:
 test-substack-feed:
 	uv run pytest src/brocc_li/tests/parsers/test_substack_feed.py -v -s
 
+test-substack-activity:
+	uv run pytest src/brocc_li/tests/parsers/test_substack_activity.py -v -s
+
 test-substack: \
 	test-substack-inbox \
-	test-substack-feed
+	test-substack-feed \
+	test-substack-activity
 
 test-substack-activity:
 	uv run pytest src/brocc_li/tests/parsers/test_substack_activity.py -v -s
