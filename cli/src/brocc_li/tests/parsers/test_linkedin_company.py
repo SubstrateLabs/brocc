@@ -1,32 +1,18 @@
-from pathlib import Path
-
 import pytest
 
 from brocc_li.parsers.linkedin_company import linkedin_company_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-
-@pytest.fixture
-def fixtures_dir() -> Path:
-    """Get the path to the fixtures directory."""
-    # Adjust path relative to this test file
-    return Path(__file__).parent.parent / "html_fixtures"
+DEBUG = False
+FIXTURE_NAME = "_linkedin-company.html"
 
 
-DEBUG = False  # Enable debug output by default
-
-
-def test_parse_company_profile(fixtures_dir: Path, debug: bool = DEBUG):
-    fixture_name = "_linkedin-company.html"
-    fixture_path = fixtures_dir / fixture_name
-
-    if not fixture_path.exists():
-        logger.warning(f"Fixture {fixture_name} not found at {fixture_path}, skipping test")
-        pytest.skip(f"Fixture {fixture_name} not found")
-        return
-
-    with open(fixture_path, encoding="utf-8") as f:
-        html = f.read()
+def test_parse(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
     # Convert using the company profile parser
     markdown = linkedin_company_html_to_md(html, debug=debug)
@@ -84,4 +70,7 @@ def test_parse_company_profile(fixtures_dir: Path, debug: bool = DEBUG):
     # We know from the test output that at least Overview and Funding are present
     assert section_count >= 2, "Expected at least 2 sections (Overview and Funding)"
 
-    logger.info(f"✅ LinkedIn company profile conversion test ran for {fixture_name}.")
+    logger.info(
+        f"✅ LinkedIn company profile conversion test ran for {FIXTURE_NAME}. "
+        f"{'Output printed above.' if debug else ''}"
+    )

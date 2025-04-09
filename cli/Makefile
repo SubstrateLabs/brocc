@@ -14,7 +14,7 @@ type-check:
 
 # Run tests
 test:
-	pytest --log-cli-level=DEBUG
+	pytest -n auto --log-cli-level=DEBUG
 
 # Build frontend assets and copy to static directory
 build:

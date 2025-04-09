@@ -2,27 +2,27 @@
 
 import pytest
 
+from brocc_li.parsers.twitter_likes import twitter_likes_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
+from brocc_li.utils.logger import logger
+
 DEBUG = False
+FIXTURE_NAME = "_x-likes.html"
 
 
-@pytest.fixture
-def x_likes_html() -> str:
-    """Load the sample X likes HTML fixture."""
-    # Corrected path based on previous error message
-    fixture_path = "src/brocc_li/tests/html_fixtures/_x-likes.html"
-    # Ensure the file exists or handle FileNotFoundError appropriately
+def test_parse(debug: bool = DEBUG):
     try:
-        with open(fixture_path, "r", encoding="utf-8") as f:
-            return f.read()
+        html = get_fixture(FIXTURE_NAME)
     except FileNotFoundError:
-        pytest.fail(f"Fixture file not found at {fixture_path}")
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
+    markdown = twitter_likes_html_to_md(html, debug=debug)
 
-def test_twitter_likes_html_to_md(x_likes_html: str):
-    """Basic test for parsing Twitter likes HTML to Markdown."""
-    from brocc_li.parsers.twitter_likes import twitter_likes_html_to_md
-
-    markdown = twitter_likes_html_to_md(x_likes_html, debug=DEBUG)
+    # Print the output for inspection if debug is enabled
+    if debug:
+        print("\n--- START TWITTER LIKES MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END TWITTER LIKES MARKDOWN OUTPUT ---\n")
 
     # Basic assertion for now
     assert markdown is not None
@@ -32,3 +32,9 @@ def test_twitter_likes_html_to_md(x_likes_html: str):
     assert "###" in markdown, "Missing H3 headers for tweets"
     assert "@drishanarora" in markdown, "Missing expected handle @drishanarora"
     assert "@_xjdr" in markdown, "Missing expected handle @_xjdr"
+
+    # Add standardized log message
+    logger.info(
+        f"✅ Twitter likes conversion test passed for {FIXTURE_NAME}. "
+        f"Markdown length: {len(markdown)}. {'Output printed above.' if debug else ''}"
+    )

@@ -1,30 +1,18 @@
-from pathlib import Path
-
 import pytest
 
 from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-
-@pytest.fixture
-def fixtures_dir() -> Path:
-    """Get the path to the fixtures directory."""
-    return Path(__file__).parent.parent / "html_fixtures"
+DEBUG = False
+FIXTURE_NAME = "_linkedin-profile.html"
 
 
-DEBUG = False  # Enable debug output by default
-
-
-def test_parse_profile(fixtures_dir: Path, debug: bool = DEBUG):
-    fixture_name = "_linkedin-profile.html"
-    fixture_path = fixtures_dir / fixture_name
-
-    if not fixture_path.exists():
-        logger.warning(f"Fixture {fixture_name} not found at {fixture_path}, skipping test")
-        return
-
-    with open(fixture_path, encoding="utf-8") as f:
-        html = f.read()
+def test_parse(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
     # Convert using unstructured-based parser, pass debug parameter
     markdown = linkedin_profile_html_to_md(html, debug=debug)
@@ -58,4 +46,7 @@ def test_parse_profile(fixtures_dir: Path, debug: bool = DEBUG):
     assert "_Rob Cheung reposted this_" in markdown, "Repost indicator not found in Activity"
     # --- End Specific Content Assertions ---
 
-    logger.info(f"✅ LinkedIn profile conversion test ran for {fixture_name}.")
+    logger.info(
+        f"✅ LinkedIn profile conversion test ran for {FIXTURE_NAME}. "
+        f"{'Output printed above.' if debug else ''}"
+    )

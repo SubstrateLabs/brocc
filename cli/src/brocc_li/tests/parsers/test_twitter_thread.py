@@ -1,34 +1,26 @@
-from pathlib import Path
-
 import pytest
 
 from brocc_li.parsers.twitter_thread import twitter_thread_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-
-@pytest.fixture
-def fixtures_dir() -> Path:
-    """Get the path to the fixtures directory."""
-    # Assumes the tests directory is structured like the existing test_html_to_md.py
-    return Path(__file__).parent.parent / "html_fixtures"
+DEBUG = False
+FIXTURE_NAME = "_x-thread.html"
 
 
-def test_parse(fixtures_dir: Path):
-    # Use the twitter thread fixture
-    fixture_name = "_x-thread.html"
-    fixture_path = fixtures_dir / fixture_name
-    assert fixture_path.exists(), f"Fixture {fixture_name} not found at {fixture_path}"
+def test_parse(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
-    logger.info(f"Loading fixture: {fixture_path}")
-    with open(fixture_path, encoding="utf-8") as f:
-        html = f.read()
-    logger.info(f"Loaded {len(html)} bytes of HTML")
+    markdown = twitter_thread_html_to_md(html, debug=debug)
 
-    # Convert using our parser
-    logger.info("Converting HTML to markdown using twitter_thread_html_to_md")
-    markdown = twitter_thread_html_to_md(html)
+    if debug:
+        print("\n--- START TWITTER THREAD MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END TWITTER THREAD MARKDOWN OUTPUT ---\n")
 
-    # Basic assertions
     assert markdown is not None, "Conversion returned None"
     assert isinstance(markdown, str), "Conversion did not return a string"
     assert "Error converting" not in markdown, f"Conversion failed: {markdown}"
@@ -63,5 +55,6 @@ def test_parse(fixtures_dir: Path):
     assert "### " in markdown, "Missing H3 headers for tweets"
 
     logger.info(
-        f"✅ Twitter thread conversion test passed for {fixture_name}. Markdown length: {len(markdown)}"
+        f"✅ Twitter thread conversion test passed for {FIXTURE_NAME}. "
+        f"Markdown length: {len(markdown)}. {'Output printed above.' if debug else ''}"
     )

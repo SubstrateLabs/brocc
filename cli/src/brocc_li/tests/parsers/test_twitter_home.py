@@ -1,27 +1,28 @@
-from pathlib import Path
-
 import pytest
 
 from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-
-@pytest.fixture
-def fixtures_dir() -> Path:
-    """Get the path to the fixtures directory."""
-    # Assumes the tests directory is structured like the existing test_html_to_md.py
-    return Path(__file__).parent.parent / "html_fixtures"
+DEBUG = False
+FIXTURE_NAME = "_x-home.html"
 
 
-def test_parse(fixtures_dir: Path):
-    fixture_name = "_x-home.html"
-    fixture_path = fixtures_dir / fixture_name
-    assert fixture_path.exists(), f"Fixture {fixture_name} not found at {fixture_path}"
-    with open(fixture_path, encoding="utf-8") as f:
-        html = f.read()
+# Added debug parameter
+def test_parse(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
     # Convert using BeautifulSoup-based parser
     markdown = twitter_feed_html_to_md(html)
+
+    # Print the output for inspection if debug is enabled
+    if debug:
+        print("\n--- START TWITTER HOME MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END TWITTER HOME MARKDOWN OUTPUT ---\n")
 
     # Basic assertions
     assert markdown is not None, "Conversion returned None"
@@ -57,5 +58,6 @@ def test_parse(fixtures_dir: Path):
     assert "### " in markdown, "Missing H3 headers for tweets"
 
     logger.info(
-        f"✅ Twitter feed conversion test passed for {fixture_name}. Markdown length: {len(markdown)}"
+        f"✅ Twitter feed conversion test passed for {FIXTURE_NAME}. "
+        f"Markdown length: {len(markdown)}. {'Output printed above.' if debug else ''}"
     )

@@ -230,7 +230,7 @@ def _extract_people_highlights(elements: List[Element], debug: bool = False) -> 
     people_elements, _ = _extract_section_by_title(elements, "People highlights", debug=debug)
 
     # Look for location-based groupings
-    for i, element in enumerate(people_elements):
+    for _i, element in enumerate(people_elements):
         if isinstance(element, Title) and "employees work in" in str(element).lower():
             people_highlights["location_highlights"] = str(element).strip()
             if debug:

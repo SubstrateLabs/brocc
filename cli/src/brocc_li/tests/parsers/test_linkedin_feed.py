@@ -1,35 +1,27 @@
-from pathlib import Path
-
 import pytest
 
 from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
+from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-
-@pytest.fixture
-def fixtures_dir() -> Path:
-    """Get the path to the fixtures directory."""
-    return Path(__file__).parent.parent / "html_fixtures"
-
-
 DEBUG = False
+FIXTURE_NAME = "_linkedin-feed.html"
 
 
-def test_parse(fixtures_dir: Path, debug: bool = DEBUG):
-    fixture_name = "_linkedin-feed.html"
-    fixture_path = fixtures_dir / fixture_name
-    assert fixture_path.exists(), f"Fixture {fixture_name} not found at {fixture_path}"
-    with open(fixture_path, encoding="utf-8") as f:
-        html = f.read()
+def test_parse(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME} not found")
 
     # Convert using unstructured-based parser, pass debug parameter
     markdown = linkedin_feed_html_to_md(html, debug=debug)
 
     # Print the output for inspection if debug is enabled
     if debug:
-        print("\n--- START LINKEDIN MARKDOWN OUTPUT ---")
+        print("\n--- START LINKEDIN FEED MARKDOWN OUTPUT ---")
         print(markdown)
-        print("--- END LINKEDIN MARKDOWN OUTPUT ---\n")
+        print("--- END LINKEDIN FEED MARKDOWN OUTPUT ---\n")
 
     # Basic assertions (keep minimal checks)
     assert markdown is not None, "Conversion returned None"
@@ -59,5 +51,6 @@ def test_parse(fixtures_dir: Path, debug: bool = DEBUG):
     assert "Media player modal window" not in markdown, "Media player modal text detected"
 
     logger.info(
-        f"✅ LinkedIn feed conversion test ran for {fixture_name}. {'Output printed above.' if debug else ''}"
+        f"✅ LinkedIn feed conversion test ran for {FIXTURE_NAME}. "
+        f"{'Output printed above.' if debug else ''}"
     )
