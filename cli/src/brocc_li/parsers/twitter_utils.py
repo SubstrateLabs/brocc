@@ -1,7 +1,7 @@
 import re
-from typing import Dict, List, Optional, Set, TypedDict
+from typing import Callable, Dict, List, Optional, Set, Tuple, TypedDict
 
-from bs4 import Tag
+from bs4 import BeautifulSoup, Tag
 
 from brocc_li.utils.logger import logger
 
@@ -698,3 +698,232 @@ def extract_metrics(tweet_element: Tag, debug: bool = False) -> Dict[str, str]:
         logger.debug(f"Final metrics: {metrics}")
 
     return metrics
+
+
+def extract_text_based_user_info(
+    text: str, debug: bool = False
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract name and handle from text content. Used by both followers and inbox parsers.
+
+    Args:
+        text: Raw text to extract from
+        debug: Enable debug logging
+
+    Returns:
+        Tuple of (name, handle)
+    """
+    if not text:
+        return None, None
+
+    if debug:
+        logger.debug(f"Extracting from text: '{text[:100]}{'...' if len(text) > 100 else ''}'")
+
+    # Try different pattern matching approaches for Twitter followers list
+
+    # Pattern 1: "Name@handle" without spaces
+    match = re.search(r"^([^@]+)@([^\s·]+)", text)
+    if match:
+        name = match.group(1).strip()
+        handle = match.group(2).split("Follow")[0].strip()
+
+        # Clean up handle (remove any trailing characters)
+        handle = re.sub(r"[^a-zA-Z0-9_].*$", "", handle)
+
+        if debug:
+            logger.debug(f"Extracted using pattern 1: name='{name}', handle='{handle}'")
+        return name, handle
+
+    # Pattern 2: Another common name@handle pattern
+    match = re.search(r"^([^@]+)@([a-zA-Z0-9_]+)", text)
+    if match:
+        name = match.group(1).strip()
+        handle = match.group(2)
+        if debug:
+            logger.debug(f"Extracted using pattern 2: name='{name}', handle='{handle}'")
+        return name, handle
+
+    # Pattern 3: Try to find any handle with @ symbol
+    handle_match = re.search(r"@([a-zA-Z0-9_]+)", text)
+    handle = handle_match.group(1) if handle_match else None
+
+    name = None
+
+    # Try to find name if handle was found
+    if handle:
+        # Look for name before handle
+        name_match = re.search(r"^([^@]+)@", text)
+        if name_match:
+            name = name_match.group(1).strip()
+            if debug:
+                logger.debug(f"Found name before handle: '{name}'")
+
+        # Pattern 4: Look for name in portions of text before the handle
+        # For cases with format "Name \n @handle" or "Name • @handle"
+        if not name:
+            # Split text by common separators and find name-like text before the handle
+            for sep in ["\n", "•", "·", "|", "-"]:
+                if sep in text:
+                    parts = text.split(sep)
+                    for i, part in enumerate(parts):
+                        if f"@{handle}" in parts[i + 1] if i + 1 < len(parts) else False:
+                            potential_name = part.strip()
+                            if potential_name and len(potential_name) < 30:
+                                name = potential_name
+                                if debug:
+                                    logger.debug(f"Found name before separator '{sep}': '{name}'")
+                                break
+                    if name:
+                        break
+
+    # If still no name, try looking for reasonable name-like text
+    if not name:
+        # Pattern 5: Look for text that appears to be a name (not too long, no special chars)
+        # Exclude common Twitter UI text
+        ui_texts = ["follow", "following", "follows you", "click to follow", "to follow"]
+
+        # First try to find name patterns near the beginning of the text
+        first_part = text[: min(100, len(text))]
+        potential_names = re.findall(r"([A-Za-z][A-Za-z\s'\-\.]{2,25})", first_part)
+
+        for potential_name in potential_names:
+            if potential_name.lower() not in ui_texts and not any(
+                ui.lower() in potential_name.lower() for ui in ui_texts
+            ):
+                name = potential_name.strip()
+                if debug:
+                    logger.debug(f"Found potential name near beginning: '{name}'")
+                break
+
+    if debug:
+        logger.debug(f"Final extraction: name='{name}', handle='{handle}'")
+
+    return name, handle
+
+
+def format_user_markdown_header(
+    name: Optional[str],
+    handle: Optional[str],
+    additional_info: Optional[str] = None,
+    handle_url: Optional[str] = None,
+) -> str:
+    """
+    Format user information into a markdown header.
+
+    Args:
+        name: User's display name
+        handle: User's handle (with or without @)
+        additional_info: Additional info to append (like timestamp)
+        handle_url: URL for the user's profile (can be relative)
+
+    Returns:
+        Formatted markdown header
+    """
+    header = "### "
+
+    # Clean handle if provided (ensure no @ prefix for URL construction)
+    clean_handle = handle.lstrip("@") if handle else None
+
+    # Format based on available info
+    if name and handle:
+        # Use format_user_link if handle_url is provided, otherwise direct format
+        if handle_url or clean_handle:
+            url = handle_url or f"/{clean_handle}"
+            user_link = format_user_link(name, handle, url)
+            header += user_link
+        else:
+            header += f"{name} ({handle})"
+    elif name:
+        header += name
+    elif handle:
+        if clean_handle:
+            url = handle_url or f"/{clean_handle}"
+            header += f"[{handle}](https://x.com{url if url.startswith('/') else url})"
+        else:
+            header += handle
+    else:
+        header += "Unknown User"
+
+    # Add additional info if provided
+    if additional_info:
+        header += f" · {additional_info}"
+
+    return header
+
+
+def process_html_with_parser(
+    html: str,
+    element_selector: str,
+    processor_function: Callable,
+    join_str: str = "\n\n",
+    requirement_checker: Optional[Callable] = None,
+    debug: bool = False,
+) -> Optional[str]:
+    """
+    Generic function to process HTML with BeautifulSoup and convert to markdown.
+
+    Args:
+        html: Raw HTML to parse
+        element_selector: CSS selector to find elements
+        processor_function: Function to process each element
+        join_str: String to join markdown blocks
+        requirement_checker: Function to check if an element meets requirements
+        debug: Enable debug logging
+
+    Returns:
+        Markdown string or None if parsing failed
+    """
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+
+        if debug:
+            logger.debug(f"HTML length: {len(html)} characters")
+            title = soup.title.get_text() if soup.title else "No title found"
+            logger.debug(f"Page title: {title}")
+
+        # Find all elements using the selector
+        elements = soup.select(element_selector)
+
+        if not elements:
+            logger.warning(f"No elements found using selector: {element_selector}")
+            return None
+
+        logger.info(f"Found {len(elements)} potential elements")
+
+        # Process each element
+        markdown_blocks = []
+        valid_elements = 0
+
+        for i, element in enumerate(elements):
+            if debug:
+                logger.debug(f"Processing element {i + 1}/{len(elements)}")
+
+            # Skip if element doesn't meet requirements
+            if requirement_checker and not requirement_checker(element):
+                if debug:
+                    logger.debug(f"Skipping element {i + 1} - doesn't meet requirements")
+                continue
+
+            # Process the element
+            markdown = processor_function(element, debug=debug)
+            if markdown:
+                markdown_blocks.append(markdown)
+                valid_elements += 1
+
+        logger.info(f"Successfully processed {valid_elements} valid elements")
+
+        # Join blocks
+        markdown = join_str.join(markdown_blocks)
+
+        if not markdown:
+            logger.warning("Processing resulted in empty markdown")
+            return None
+
+        return markdown.strip()
+
+    except Exception as e:
+        logger.error(
+            f"Error processing HTML with BeautifulSoup: {e}",
+            exc_info=True,
+        )
+        return f"Error processing HTML with BeautifulSoup: {e}"

@@ -1,8 +1,3 @@
-- instagram feed
-- instagram profile (me)
-- instagram profile (other)
-- gmail v2
-- instagram
 - delegate to parsers based on url
 - handle scrolling + rescrape
 - schema design:

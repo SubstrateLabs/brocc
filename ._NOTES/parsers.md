@@ -2,6 +2,23 @@
 - beautifulsoup selectors + structural logging is more robust but can be hairy
 - ideal is using playwright and evaluating selectors on live page (but that's slow)
 
+## backlog
+
+- gmail inbox
+- gmail inbox variants in test
+- instagram feed
+- instagram profile (me)
+- instagram profile (other)
+- substack inbox
+- substack feed
+- substack activity
+
+## testing
+
+- twitter followers + following example
+- two gmail inbox examples (one with open message)
+- two linkedin feed examples
+
 ## prompts
 
 implement twitter profile and the test, following same pattern as the examples provided but none of the bespoke logic way simpler, basically the same deal using selectors and bs4, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.) remember unstructured doesnt do markdown you have to do it yourself. implement the basic thing and ask me to run the test.
