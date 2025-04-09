@@ -1,3 +1,4 @@
+import concurrent.futures
 import re
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
@@ -44,6 +45,9 @@ from brocc_li.utils.logger import logger
 
 # Debug flag - set to match the test debug setting
 DEBUG = False  # This gets imported by the test
+
+# Default timeout for parsers in seconds
+PARSER_TIMEOUT = 3
 
 # Parser Registry: Maps URL regex patterns to specific parser functions
 # More specific patterns should come first
@@ -453,8 +457,31 @@ def direct_tag_extraction(soup: BeautifulSoup) -> str:
     return ""
 
 
+def run_with_timeout(
+    func: Callable, *args, timeout: float = PARSER_TIMEOUT, **kwargs
+) -> Optional[Any]:
+    """
+    Run a function with a timeout.
+
+    Args:
+        func: The function to run
+        timeout: The timeout in seconds
+        *args, **kwargs: Arguments to pass to the function
+
+    Returns:
+        The result of the function or None if timeout occurs
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.error(f"Function {func.__name__} timed out after {timeout} seconds")
+            return None
+
+
 def convert_html_to_markdown(
-    html: str, url: Optional[str] = None, debug: bool = False
+    html: str, url: Optional[str] = None, debug: bool = False, timeout: float = PARSER_TIMEOUT
 ) -> Optional[str]:
     """
     Convert HTML to Markdown with enhanced cleaning and processing.
@@ -464,6 +491,7 @@ def convert_html_to_markdown(
         html: The HTML content to convert
         url: Optional URL to match against specific parsers.
         debug: Optional flag to enable debug logging for this conversion.
+        timeout: Timeout in seconds for specific parsers (default: PARSER_TIMEOUT)
 
     Returns:
         Cleaned markdown text or None if conversion fails or yields empty result.
@@ -485,7 +513,12 @@ def convert_html_to_markdown(
                     # Pass the effective debug flag to the specific parser
                     # Explicitly cast to appease linter
                     specific_parser = cast(Callable[[str, bool], Optional[str]], parser_func)
-                    result = specific_parser(html, debug=use_debug)  # type: ignore
+
+                    # Use the timeout mechanism
+                    result = run_with_timeout(
+                        specific_parser, html, timeout=timeout, debug=use_debug
+                    )
+
                     if result is not None:
                         # Assuming specific parsers return cleaned markdown or None
                         if use_debug:

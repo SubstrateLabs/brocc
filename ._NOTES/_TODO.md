@@ -1,8 +1,3 @@
-- new parsers for ig, threads
-- delegate to parsers based on url
-- test twitter following + followers
-- test linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
-- robust running of parsers
 - handle scrolling + rescrape
 - improve db update logic, if superset replace
 - schema design:
@@ -11,7 +6,6 @@
   - field for parent doc id
     - capture parent doc for threads, comments
     - is this the same as "parent url" for browser nav?
-- rework prototype extract code
 - simple update cli flow using pypi version
 - wrap parser code in execution timeout
 - CI tests

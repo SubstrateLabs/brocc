@@ -8,12 +8,13 @@ Running `make chrome` saves new fixtures from open Chrome tabs.
 """
 
 import re
+import time
 from pathlib import Path
 
 import pytest
 
 import brocc_li.html_to_md
-from brocc_li.html_to_md import convert_html_to_markdown
+from brocc_li.html_to_md import convert_html_to_markdown, run_with_timeout
 from brocc_li.playwright_fallback import BANNER_TEXT
 from brocc_li.utils.logger import logger
 
@@ -195,3 +196,48 @@ def test_fixture_conversion(fixtures_dir: Path, fixture_name: str):
         logger.info(f"  Markdown size: {len(markdown)} bytes")
 
     assert_valid_markdown(markdown, fixture_name)
+
+
+def test_parser_timeout():
+    """Test that parser timeout works correctly."""
+
+    # Create a mock parser function that sleeps longer than the timeout
+    def slow_parser(html: str, debug: bool = False) -> str:
+        time.sleep(0.3)  # Sleep for just 0.3 seconds
+        return "Parsed content"
+
+    # Run with a very short timeout (0.1 second)
+    result = run_with_timeout(slow_parser, "<html></html>", timeout=0.1, debug=False)
+
+    # Should return None due to timeout
+    assert result is None
+
+    # Test with a longer timeout - should succeed
+    result = run_with_timeout(slow_parser, "<html></html>", timeout=0.5, debug=False)
+
+    # Should return the expected result
+    assert result == "Parsed content"
+
+    # Test directly with convert_html_to_markdown function
+    # Register a test pattern temporarily
+    original_registry = brocc_li.html_to_md.PARSER_REGISTRY.copy()
+
+    # Create minimal HTML that the generic parser can handle
+    minimal_html = """<html><body><h1>Test</h1><p>Content</p></body></html>"""
+
+    try:
+        # Add our slow parser to the registry with a real regex pattern
+        brocc_li.html_to_md.PARSER_REGISTRY[r"https://test-timeout-url\.com"] = slow_parser
+
+        # Call with short timeout using a matching URL
+        result = convert_html_to_markdown(
+            minimal_html, url="https://test-timeout-url.com", timeout=0.1
+        )
+
+        # Should fall back to generic parser and produce a result from the html
+        assert result is not None
+        assert "Test" in result
+        assert "Parsed content" not in result  # Our slow parser's output shouldn't be there
+    finally:
+        # Restore original registry
+        brocc_li.html_to_md.PARSER_REGISTRY = original_registry
