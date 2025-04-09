@@ -1,12 +1,13 @@
-import pytest
 import re
+
+import pytest
 
 from brocc_li.parsers.bsky_feed import bsky_feed_html_to_md
 from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-DEBUG = False  # Enable debug logging and printing by default
-FIXTURE_NAME = "_bsky-feed.html"  # TODO: Create this fixture file
+DEBUG = False
+FIXTURE_NAME = "_bsky-feed.html"
 
 
 def test_parse_bsky_feed():

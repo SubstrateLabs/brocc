@@ -1,11 +1,8 @@
-import re
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import Tag
 
 from brocc_li.utils.logger import logger
-
-# --- Post Extraction Functions (Adapted from bsky_profile.py) ---
 
 
 def extract_user_info_from_post(post_el: Tag, debug: bool = False) -> Dict[str, Any]:

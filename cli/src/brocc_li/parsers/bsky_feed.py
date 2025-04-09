@@ -4,54 +4,16 @@ from bs4 import BeautifulSoup
 
 from brocc_li.utils.logger import logger
 
-# Import the new utils
 from .bsky_utils import (
     extract_media,
     extract_metrics,
-    extract_post_content_and_links,  # Renamed for clarity
-    extract_user_info_from_post,  # Renamed for clarity
+    extract_post_content_and_links,
+    extract_user_info_from_post,
     format_post_markdown,
 )
 
-# TODO: Implement Bluesky specific extraction functions
-# from .bsky_utils import (
-#     extract_media,
-#     extract_metrics,
-#     extract_post_content,
-#     extract_user_info,
-#     format_post_markdown,
-# )
-
-
-# Placeholder functions until bsky_utils is implemented
-# def extract_user_info(post, debug=False):
-#     logger.debug("[Placeholder] Extracting user info")
-#     return {"name": "Placeholder User", "handle": "@placeholder.bsky.social"}
-#
-# def extract_post_content(post, debug=False):
-#     logger.debug("[Placeholder] Extracting post content")
-#     return "This is placeholder post content."
-#
-# def extract_media(post, debug=False):
-#     logger.debug("[Placeholder] Extracting media")
-#     return []
-#
-# def extract_metrics(post, debug=False):
-#     logger.debug("[Placeholder] Extracting metrics")
-#     return {"replies": 0, "reposts": 0, "likes": 0}
-#
-# def format_post_markdown(user_info, content, media_strings, metrics):
-#     logger.debug("[Placeholder] Formatting post markdown")
-#     # Basic formatting for now
-#     header = f"### {user_info['name']} ({user_info['handle']})"
-#     body = content
-#     media = "\n".join(media_strings)
-#     footer = f"💬 {metrics['replies']}   🔄 {metrics['reposts']}   ❤️ {metrics['likes']}"  # Note: Using different repost emoji
-#     return "\n\n".join(filter(None, [header, body, media, footer]))
-
 
 def bsky_feed_html_to_md(html: str, debug: bool = False) -> Optional[str]:
-    logger.info("Starting Bluesky feed HTML to Markdown conversion")
     if debug:
         logger.debug("--- Input HTML Snippet (first 500 chars) ---")
         # Log raw snippet, skipping replace for now due to type issues

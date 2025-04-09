@@ -1,323 +1,264 @@
-import re
-from typing import Optional, Tuple
+from typing import Dict, List, Optional
 
-from bs4 import Tag
+from unstructured.documents.elements import Element, Image
+from unstructured.partition.html import partition_html
 
 from brocc_li.utils.logger import logger
 
-# TODO: Refactor utils if they stabilize
+# Noise patterns specific to Bluesky followers pages
+BSKY_NOISE_PATTERNS = [
+    "Sign in",
+    "Create account",
+    "Home",
+    "My Network",
+    "Go back",
+    "Privacy",
+    "Terms",
+    "Help",
+    "Search",
+    "Trending",
+    "Join the conversation",
+]
 
 
-def extract_text_based_user_info(
-    text: str, debug: bool = False
-) -> Tuple[Optional[str], Optional[str]]:
-    """Finds the first '@' symbol and assumes the word before it is the name
-    and the word after it (including '@') is the handle.
-    Needs adaptation for Bluesky structure.
+def _debug_element_details(element: Element, prefix: str = "") -> None:
+    """Helper to debug print element details"""
+    metadata = getattr(element, "metadata", None)
+    logger.debug(f"{prefix}  Type: {type(element).__name__}")
+    if metadata:
+        # Print link-related metadata if present
+        link_texts = getattr(metadata, "link_texts", [])
+        link_urls = getattr(metadata, "link_urls", [])
+        if link_texts or link_urls:
+            logger.debug(f"{prefix}  Links:")
+            for i, (text, url) in enumerate(zip(link_texts or [], link_urls or [], strict=False)):
+                logger.debug(f"{prefix}    {i + 1}. Text: {text}")
+                logger.debug(f"{prefix}       URL: {url}")
+
+        # Print other potentially useful metadata like tag
+        tag = getattr(metadata, "tag", None)
+        if tag:
+            logger.debug(f"{prefix}  Tag: {tag}")
+
+
+def is_element_noisy(element: Element, noise_patterns: List[str], debug: bool = False) -> bool:
+    """Check if element should be filtered out as noise."""
+    element_text = str(element).strip()
+
+    # Apply initial filtering based on text content
+    for pattern in noise_patterns:
+        if pattern.lower() in element_text.lower():
+            if debug:
+                logger.debug(
+                    f"Filtering noisy element: '{element_text[:50]}...' (matched pattern: '{pattern}')"
+                )
+            return True
+
+    # Filter out very short elements with no useful content
+    if len(element_text) < 3 and not extract_profile_url(element):
+        if debug:
+            logger.debug(f"Filtering short element: '{element_text}'")
+        return True
+
+    return False
+
+
+def extract_profile_url(element: Element) -> Optional[str]:
     """
-    logger.debug(f"Attempting to extract user info from text: '{text[:100]}...'" if debug else None)
-    handle_match = re.search(r"(@[a-zA-Z0-9.-]+\.[a-zA-Z]+)", text)
-    if handle_match:
-        handle = handle_match.group(1)
-        # Find the position of the handle
-        handle_pos = handle_match.start()
-        # Assume name is the text immediately before the handle, clean it
-        name = text[:handle_pos].replace("\u202a", "").replace("\u202c", "").strip()
-        # Clean up potential artifacts if name is just handle repeated
-        if name.endswith(handle):
-            name = name[: -len(handle)].strip()
-        # If name is empty after stripping handle, maybe it was just the handle
-        if not name:
-            name = None  # Or maybe set name = handle? Needs review.
+    Extract a profile URL from an element if present.
+    Returns None if no URL is found or if it's not a profile URL.
+    """
+    # Check if the element has link metadata
+    metadata = getattr(element, "metadata", None)
+    if not metadata:
+        return None
 
-        logger.debug(f"Extracted handle: {handle}, name: {name}" if debug else None)
-        return name, handle
-    else:
-        # Fallback: maybe only name is present?
-        # Or maybe the structure is different. This is a basic fallback.
-        logger.warning(
-            f"Could not find handle pattern in text: '{text[:50]}...'" if debug else None
-        )
-        # Attempt to extract name based on common patterns or just return text as name?
-        # For now, assume the first significant part is name if no handle.
-        lines = text.split("\n")
-        first_significant_line = next((line.strip() for line in lines if line.strip()), None)
-        if first_significant_line:
-            logger.debug(
-                f"No handle found, using first line as name: {first_significant_line}"
-                if debug
-                else None
+    # Check if there are link URLs in the metadata
+    link_urls = getattr(metadata, "link_urls", [])
+    if not link_urls:
+        return None
+
+    # For Bluesky, profile URLs start with /profile/
+    for url in link_urls:
+        if url and "/profile/" in url:
+            # Full URL format: https://bsky.app/profile/username.bsky.social
+            # We only need the path part
+            return url
+
+    return None
+
+
+def extract_profiles_from_elements(elements: List[Element], debug: bool = False) -> List[Dict]:
+    """
+    Extract profile information from the list of filtered elements.
+    Looks for patterns of name, handle, bio in sequence.
+    Returns a list of dictionaries with name, handle, bio, and URL.
+    """
+    profiles = []
+    i = 0
+
+    if debug:
+        logger.debug(f"Starting profile extraction from {len(elements)} filtered elements")
+
+    # Group elements by threes (name, handle, bio) where possible
+    while i < len(elements) - 1:  # Need at least name + handle
+        # Get current element as potential name
+        name_element = elements[i]
+        name_text = str(name_element).strip()
+
+        # Check if next element looks like a handle (starts with @ or contains @)
+        if i + 1 < len(elements):
+            handle_element = elements[i + 1]
+            handle_text = str(handle_element).strip()
+
+            # Check if it looks like a handle
+            is_handle = (
+                "‪@" in handle_text
+                or "@" in handle_text
+                or handle_text.endswith(".bsky.social")
+                or handle_text.endswith(".com")
             )
-            return first_significant_line, None
 
-    logger.debug("Could not extract name/handle reliably." if debug else None)
-    return None, None
+            if is_handle:
+                # Found a name+handle pair
+                if debug:
+                    logger.debug(f"Found name+handle pair: '{name_text}' + '{handle_text}'")
+
+                # Extract profile URL from name element if available
+                profile_url = extract_profile_url(name_element)
+
+                # If name element doesn't have URL, try handle element
+                if not profile_url:
+                    profile_url = extract_profile_url(handle_element)
+
+                # Prepare handle: strip unicode directional marks, ensure it starts with @
+                clean_handle = (
+                    handle_text.replace("\u202a", "")
+                    .replace("\u202c", "")
+                    .replace("‪", "")
+                    .replace("‬", "")
+                    .strip()
+                )
+                if not clean_handle.startswith("@") and "." in clean_handle:
+                    clean_handle = f"@{clean_handle}"
+
+                # Create profile with name and handle
+                profile = {
+                    "name": name_text,
+                    "handle": clean_handle,
+                    "bio": None,
+                    "url": profile_url,
+                }
+
+                # Check for bio (element after handle)
+                if i + 2 < len(elements):
+                    bio_element = elements[i + 2]
+                    bio_text = str(bio_element).strip()
+
+                    # If next element isn't another name+handle pair, it's probably a bio
+                    next_pair = False
+                    if i + 3 < len(elements):
+                        potential_handle = str(elements[i + 3]).strip()
+                        if "‪@" in potential_handle or "@" in potential_handle:
+                            next_pair = True
+
+                    # Check if it looks like a bio (longer text, not a handle)
+                    if (
+                        len(bio_text) > 10
+                        and not bio_text.startswith("@")
+                        and "‪@" not in bio_text
+                        and not next_pair
+                    ):
+                        profile["bio"] = bio_text
+                        if debug:
+                            logger.debug(f"Found bio for {name_text}: '{bio_text[:50]}...'")
+                        i += 3  # Skip name, handle, and bio
+                    else:
+                        if debug:
+                            logger.debug(f"No bio found for {name_text}")
+                        i += 2  # Skip just name and handle
+                else:
+                    i += 2  # Skip just name and handle
+
+                profiles.append(profile)
+            else:
+                # Not a handle, move to next element
+                i += 1
+        else:
+            # End of list
+            i += 1
+
+    if debug:
+        logger.debug(f"Extracted {len(profiles)} profiles using pattern matching")
+
+    # Add profile URLs where missing but handle exists
+    for profile in profiles:
+        if not profile["url"] and profile["handle"]:
+            # Extract handle without @ for URL
+            handle_for_url = profile["handle"].lstrip("@")
+            profile["url"] = f"/profile/{handle_for_url}"
+            if debug:
+                logger.debug(f"Added constructed URL for {profile['name']}: {profile['url']}")
+
+    return profiles
 
 
 def format_user_markdown_header(
     name: Optional[str],
     handle: Optional[str],
-    handle_url: Optional[str] = None,
-    platform: str = "Bluesky",
+    profile_url: Optional[str] = None,
     debug: bool = False,
 ) -> str:
-    """Formats the user name and handle into a markdown header.
-    Uses handle for the link if URL is provided.
+    """
+    Format user name and handle into a markdown header with link if URL is provided.
     """
     if debug:
-        logger.debug(f"Formatting header for Name: {name}, Handle: {handle}, URL: {handle_url}")
+        logger.debug(f"Formatting header for Name: {name}, Handle: {handle}, URL: {profile_url}")
+
     parts = []
     display_name = name if name else handle
     if not display_name:
         return "### [Unknown User]"
 
-    # Clean display name for link text (take first line, strip whitespace)
+    # Clean display name for link text (take first line, strip whitespace and Unicode control chars)
     link_text = display_name.split("\n")[0].strip()
+    link_text = (
+        link_text.replace("\u202a", "")
+        .replace("\u202c", "")
+        .replace("‪", "")
+        .replace("‬", "")
+        .strip()
+    )
 
     if not link_text:
-        return "### [Invalid User Profile Link]"  # Avoid empty links
+        return "### [Invalid User Profile]"
 
-    if handle_url:
-        parts.append(f"### [{link_text}](https://bsky.app{handle_url})")
+    if profile_url:
+        # Full URL is constructed using the relative profile URL
+        full_url = f"https://bsky.app{profile_url}" if profile_url.startswith("/") else profile_url
+        parts.append(f"### [{link_text}]({full_url})")
     else:
-        parts.append(f"### {link_text}")  # No link if no URL
+        parts.append(f"### {link_text}")
 
     if handle:
-        parts.append(f"({handle})")
-
-    header = " ".join(parts)
-    if debug:
-        logger.debug(f"Formatted header: {header}")
-    return header
-
-
-def process_html_with_parser(
-    html: str,
-    element_selector: str,
-    processor_function,  # Takes (element: Tag, debug: bool) -> Optional[str]
-    join_str: str = "\n\n",
-    debug: bool = False,
-) -> Optional[str]:
-    """Generic HTML processor using BeautifulSoup.
-    Selects elements, processes each with processor_function, joins results.
-    """
-    from bs4 import BeautifulSoup  # Local import
-
-    if debug:
-        logger.debug(f"Processing HTML (length: {len(html)}) with selector '{element_selector}'")
-
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        if debug:
-            logger.debug(
-                f"HTML parsed successfully. Searching for elements with selector '{element_selector}'..."
-            )
-
-        elements = soup.select(element_selector)
-        if debug:
-            logger.debug(f"Found {len(elements)} elements matching selector '{element_selector}'.")
-            if not elements:
-                logger.warning(
-                    f"No elements found for selector '{element_selector}'. Check selector and HTML structure."
-                )
-                # Log a snippet of the HTML for context
-                html_snippet = html[:500] + ("..." if len(html) > 500 else "")
-                logger.debug(f"HTML start: {html_snippet}")
-
-        if not elements:
-            return None  # Or maybe an empty string? None indicates potential failure.
-
-        markdown_parts = []
-        for i, element in enumerate(elements):
-            if debug:
-                element_html_snippet = str(element)[:200] + (
-                    "..." if len(str(element)) > 200 else ""
-                )
-                logger.debug(f"--- Processing element {i + 1}/{len(elements)} ---")
-                logger.debug(f"Element HTML: {element_html_snippet}")
-
-            processed_element = processor_function(element, debug=debug)
-            if processed_element:
-                markdown_parts.append(processed_element)
-                if debug:
-                    logger.debug(f"Element {i + 1} processed successfully.")
-            elif debug:
-                logger.debug(f"Element {i + 1} skipped (processor returned None).")
-
-        if debug:
-            logger.debug(f"Finished processing elements. Joining {len(markdown_parts)} parts.")
-
-        return join_str.join(markdown_parts)
-
-    except Exception as e:
-        logger.error(f"Error processing HTML: {e}", exc_info=True)
-        return f"Error converting HTML: {e}"
-
-
-# End copied utils
-
-
-def extract_bsky_follower_info(
-    element: Tag, debug: bool = False
-) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Extracts name and handle from a Bluesky follower element (<a> tag).
-    Assumes specific nested div structure.
-    """
-    name = None
-    handle = None
-
-    if debug:
-        logger.debug(f"Extracting Bsky info from element: {str(element)[:150]}...")
-
-    # Structural approach: Find direct div children of the <a> tag
-    direct_divs = element.select(":scope > div")
-    info_container = None
-
-    if len(direct_divs) >= 2:
-        # Assume the second direct div contains name/handle
-        info_container = direct_divs[1]
-        if debug:
-            logger.debug("Found potential info container structurally (second direct div).")
-    elif debug:
-        logger.warning(
-            f"Expected at least 2 direct divs for info container, found {len(direct_divs)}. Will rely on fallback."
+        # Clean handle and ensure it starts with @
+        cleaned_handle = (
+            handle.replace("\u202a", "")
+            .replace("\u202c", "")
+            .replace("‪", "")
+            .replace("‬", "")
+            .strip()
         )
+        if not cleaned_handle.startswith("@") and "." in cleaned_handle:
+            cleaned_handle = f"@{cleaned_handle}"
+        parts.append(f"({cleaned_handle})")
 
-    if isinstance(info_container, Tag):  # Check it's a Tag before using select_one
-        if debug:
-            logger.debug(f"Processing info container: {str(info_container)[:100]}...")
-
-        # Name is the first div inside the container
-        name_element = info_container.select_one("div:nth-of-type(1)")
-        if name_element:
-            name = name_element.get_text(strip=True)
-            # Clean unicode marks
-            name = name.replace("\u202a", "").replace("\u202c", "").strip()
-            if debug:
-                logger.debug(f"Extracted name: '{name}'")
-        elif debug:
-            logger.warning("Could not find name element within info container.")
-
-        # Handle is the second div inside the container
-        handle_element = info_container.select_one("div:nth-of-type(2)")
-        if handle_element:
-            handle = handle_element.get_text(strip=True)
-            # Clean the '\u202a' LTR mark sometimes present
-            handle = handle.replace("\u202a", "").replace("\u202c", "").strip()
-            if debug:
-                logger.debug(f"Extracted handle: '{handle}'")
-        elif debug:
-            logger.warning("Could not find handle element within info container.")
-    elif info_container:  # It exists but is not a Tag
-        if debug:
-            logger.warning(
-                f"Info container found via sibling logic was not a Tag: {type(info_container)}"
-            )
-    else:  # It is None
-        if debug:
-            logger.warning("Did not find a suitable info container structurally.")
-
-    # Fallback using the text-based extraction if structure parsing fails
-    if not name and not handle:
-        if debug:
-            logger.debug("Structural parsing failed, falling back to text-based extraction.")
-        element_text = element.get_text(strip=True, separator="\n")
-        name, handle = extract_text_based_user_info(element_text, debug)
-
-    return name, handle
-
-
-def extract_bsky_follower_bio(element: Tag, debug: bool = False) -> str:
-    """
-    Extracts the bio from a Bluesky follower element (<a> tag).
-    Assumes it's in the last relevant div.
-    """
-    bio = ""
-    if debug:
-        logger.debug("Extracting Bsky bio...")
-
-    # Structural approach: Find direct div children
-    direct_divs = element.select(":scope > div")
-    bio_element = None
-
-    if len(direct_divs) >= 3:
-        # Assume the third direct div contains the bio
-        bio_element = direct_divs[2]
-        if debug:
-            logger.debug("Found potential bio container structurally (third direct div).")
-    elif debug:
-        logger.debug(
-            f"Expected at least 3 direct divs for bio container, found {len(direct_divs)}. Assuming no bio."
-        )
-
-    if bio_element:
-        bio = bio_element.get_text(strip=True)
-        if debug:
-            logger.debug(f"Extracted potential bio structurally: '{bio[:100]}...'")
-    elif debug:
-        pass  # Already logged lack of element above
-
-    if not bio and debug:
-        logger.debug("Could not find bio via structural analysis.")
-        # Could add a text-based fallback here if needed
-
-    return bio
-
-
-def format_bsky_follower_markdown(
-    name: Optional[str], handle: Optional[str], bio: str, debug: bool = False
-) -> str:
-    """Format Bluesky follower information into markdown.
-    Uses the generic header formatter.
-    """
-    markdown_parts = []
-    # Extract just the handle part like 'handle.bsky.social' from '@handle.bsky.social'
-    # Ensure handle is cleaned before stripping @
-    cleaned_handle = handle.replace("\u202a", "").replace("\u202c", "").strip() if handle else None
-    plain_handle = cleaned_handle.lstrip("@") if cleaned_handle else None
-    handle_url = f"/profile/{plain_handle}" if plain_handle else None
-
-    # Pass debug flag down
-    header = format_user_markdown_header(
-        name, cleaned_handle, handle_url=handle_url, platform="Bluesky", debug=debug
-    )
-    markdown_parts.append(header)
-
-    if bio:
-        markdown_parts.append(bio)
-
-    result = "\n\n".join(markdown_parts)
-    if debug:
-        logger.debug(f"Formatted Markdown:\n---START---\n{result}\n---END---")
-    return result
-
-
-def process_bsky_follower_element(element: Tag, debug: bool = False) -> Optional[str]:
-    """
-    Processes a single Bluesky follower element (an <a> tag) and converts it to markdown.
-    Used as the processor function for process_html_with_parser.
-    """
-    if debug:
-        logger.debug(f"Processing Bluesky follower element: {str(element)[:150]}...")
-
-    name, handle = extract_bsky_follower_info(element, debug=debug)
-
-    if not name and not handle:
-        if debug:
-            logger.warning("Skipping element: Could not extract name or handle.")
-        return None
-
-    bio = extract_bsky_follower_bio(element, debug=debug)
-
-    # Format to markdown
-    markdown = format_bsky_follower_markdown(name, handle, bio, debug=debug)
-    return markdown
+    return " ".join(parts)
 
 
 def bsky_followers_html_to_md(html: str, debug: bool = False) -> Optional[str]:
     """
-    Convert Bluesky followers HTML to markdown.
+    Convert Bluesky followers HTML to markdown using unstructured.
 
     Args:
         html: Raw HTML of Bluesky followers page
@@ -326,28 +267,108 @@ def bsky_followers_html_to_md(html: str, debug: bool = False) -> Optional[str]:
     Returns:
         Markdown string or None if parsing failed
     """
-    if debug:
-        logger.debug("--- Starting Bluesky HTML to Markdown Conversion ---")
+    try:
+        if debug:
+            logger.debug("--- Starting Bluesky HTML to Markdown Conversion with unstructured ---")
 
-    # The selector needs to target the container for each follower.
-    # Based on the provided HTML, this seems to be the <a> tag wrapping each user entry.
-    # Let's refine selector: Direct children 'a' tags of the list container seems appropriate.
-    # The list container seems to be the FOURTH div inside the main screen div.
-    # Selector: Target <a> tags starting with /profile/ that are children of the FOURTH nested div
-    selector = 'div[data-testid="profileFollowersScreen"] > div > div > div > a[href^="/profile/"]'
+        # Partition the HTML using unstructured
+        elements: List[Element] = partition_html(text=html)
 
-    if debug:
-        logger.debug(f"Using element selector: {selector}")
+        if debug:
+            logger.debug(f"unstructured found {len(elements)} raw elements")
+            # Log sample of raw elements
+            for i, element in enumerate(elements[:20]):  # Show first 20 for debugging
+                element_text = str(element).strip()
+                logger.debug(
+                    f"Raw Element {i + 1}: {element_text[:70]}{'...' if len(element_text) > 70 else ''}"
+                )
+                _debug_element_details(element, prefix="  ")
 
-    markdown_output = process_html_with_parser(
-        html=html,
-        element_selector=selector,
-        processor_function=process_bsky_follower_element,
-        join_str="\n\n",
-        debug=debug,
-    )
+            if len(elements) > 20:
+                logger.debug(f"... and {len(elements) - 20} more raw elements")
 
-    if debug:
-        logger.debug("--- Finished Bluesky HTML to Markdown Conversion ---")
+        if not elements:
+            logger.warning("unstructured.partition_html returned no elements")
+            return "<!-- unstructured found no elements -->"
 
-    return markdown_output
+        # --- Filter out noise --- #
+        filtered_elements = []
+        seen_texts = set()  # For basic duplicate detection
+
+        for element in elements:
+            element_text = str(element).strip()
+            if not element_text:
+                continue
+
+            # Skip duplicates
+            if element_text in seen_texts:
+                if debug:
+                    logger.debug(f"Skipping duplicate: {element_text[:30]}...")
+                continue
+
+            # Skip images
+            if isinstance(element, Image):
+                if debug:
+                    img_alt = getattr(element.metadata, "alt_text", "No alt text")
+                    logger.debug(f"Skipping image element. Alt text: {img_alt}")
+                continue
+
+            # Filter out noise
+            if is_element_noisy(element, BSKY_NOISE_PATTERNS, debug=debug):
+                continue
+
+            filtered_elements.append(element)
+            seen_texts.add(element_text)
+
+        if debug:
+            logger.debug(f"After filtering, {len(filtered_elements)} elements remain")
+            # Log sample of filtered elements
+            for i, element in enumerate(filtered_elements[:20]):
+                element_text = str(element).strip()
+                logger.debug(
+                    f"Filtered Element {i + 1}: {element_text[:70]}{'...' if len(element_text) > 70 else ''}"
+                )
+                _debug_element_details(element, prefix="  ")
+
+        if not filtered_elements:
+            logger.warning("No elements remaining after filtering noise")
+            return "<!-- No elements remaining after filtering noise -->"
+
+        # --- Extract profiles --- #
+        profiles = extract_profiles_from_elements(filtered_elements, debug=debug)
+
+        if not profiles:
+            logger.warning("No profiles found in the filtered elements")
+            return "<!-- No profiles found in filtered elements -->"
+
+        # --- Build markdown --- #
+        markdown_parts = []
+
+        for profile in profiles:
+            # Format the profile header with link
+            header = format_user_markdown_header(
+                name=profile["name"],
+                handle=profile["handle"],
+                profile_url=profile["url"],
+                debug=debug,
+            )
+            markdown_parts.append(header)
+
+            # Add bio if available
+            if profile["bio"]:
+                markdown_parts.append(profile["bio"])
+
+            # Add empty line between profiles
+            markdown_parts.append("")
+
+        result = "\n\n".join(markdown_parts).strip()
+
+        if debug:
+            logger.debug(f"Generated markdown with {len(profiles)} profiles, {len(result)} chars")
+            logger.debug("--- Finished Bluesky HTML to Markdown Conversion ---")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error processing Bluesky Followers HTML: {str(e)}", exc_info=True)
+        return f"Error processing Bluesky Followers HTML: {str(e)}"

@@ -55,7 +55,3 @@ def test_parse_bsky_profile(debug: bool = DEBUG):
         f"Markdown length: {len(markdown) if markdown else 0}. Output printed above."
     )
     logger.info(f"--- Finished test_parse_bsky_profile for {FIXTURE_NAME} ---")
-
-
-# You can run this test specifically using:
-# cd cli && uv run pytest src/brocc_li/tests/parsers/test_bsky_profile.py
