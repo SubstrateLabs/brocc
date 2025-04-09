@@ -1,4 +1,5 @@
 - linkedin_utils -> unstructured_utils
+- parallelize test_html_to_md
 - gmail
 - instagram
 - delegate to parsers based on url

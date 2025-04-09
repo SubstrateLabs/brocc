@@ -3,7 +3,7 @@ from typing import List, Optional
 from unstructured.documents.elements import Element, Image, NarrativeText, Title
 from unstructured.partition.html import partition_html
 
-from brocc_li.parsers.linkedin_utils import is_element_noisy
+from brocc_li.parsers.unstructured_utils import is_element_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn profile-specific noise patterns

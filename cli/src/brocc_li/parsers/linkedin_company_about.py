@@ -5,9 +5,8 @@ from unstructured.partition.html import partition_html
 
 from brocc_li.parsers.linkedin_utils import (
     extract_company_metadata,
-    extract_section_by_title,
-    is_element_noisy,
 )
+from brocc_li.parsers.unstructured_utils import extract_section_by_title, is_element_noisy
 from brocc_li.utils.logger import logger
 
 # LinkedIn company about page-specific noise patterns

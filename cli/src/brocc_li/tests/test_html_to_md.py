@@ -151,57 +151,39 @@ def get_test_fixtures(fixtures_dir: Path):
     return list(fixtures_dir.glob("_*.html"))
 
 
-def test_all_underscore_fixtures(fixtures_dir: Path):
-    """Test conversion of all underscore-prefixed HTML fixtures."""
+def get_fixture_params(fixtures_dir: Path):
+    """Get parameters for pytest parametrization from fixtures."""
     fixtures = get_test_fixtures(fixtures_dir)
-    assert fixtures, "No underscore-prefixed fixtures found"
+    return [fixture.name for fixture in fixtures]
+
+
+@pytest.mark.parametrize(
+    "fixture_name", get_fixture_params(Path(__file__).parent.parent / "tests" / "html_fixtures")
+)
+def test_fixture_conversion(fixtures_dir: Path, fixture_name: str):
+    """Test conversion of a single HTML fixture."""
+    fixture_path = fixtures_dir / fixture_name
+    slug = fixture_name.removeprefix("_").removesuffix(".html")
 
     if DEBUG:
-        logger.info(f"Found {len(fixtures)} test fixtures to process")
+        logger.info(f"Testing fixture: {fixture_name}")
 
-    passed = []
-    failed = []
+    with open(fixture_path, encoding="utf-8") as f:
+        html = f.read()
 
-    for fixture_path in fixtures:
-        fixture_name = fixture_path.name
-        slug = fixture_name.removeprefix("_").removesuffix(".html")
+    if DEBUG:
+        logger.info(f"  HTML size: {len(html)} bytes")
 
+    # Convert and validate
+    markdown = convert_html_to_markdown(html, url=slug)
+
+    # Check if conversion returned None (e.g., for PDF pages)
+    if markdown is None:
         if DEBUG:
-            logger.info(f"Testing fixture: {fixture_name}")
-
-        try:
-            with open(fixture_path, encoding="utf-8") as f:
-                html = f.read()
-
-            if DEBUG:
-                logger.info(f"  HTML size: {len(html)} bytes")
-
-            # Convert and validate
-            markdown = convert_html_to_markdown(html, url=slug)
-
-            # Check if conversion returned None (e.g., for PDF pages)
-            if markdown is None:
-                if DEBUG:
-                    logger.info(
-                        f"✅ {fixture_name}: Successfully returned None (expected for this type)"
-                    )
-                passed.append(slug)
-                continue  # Skip validation for None results
-
-            if DEBUG:
-                logger.info(f"  Markdown size: {len(markdown)} bytes")
-
-            assert_valid_markdown(markdown, fixture_name)
-            passed.append(slug)
-        except Exception as e:
-            failed.append((slug, str(e)))
-            if DEBUG:
-                logger.error(f"❌ {fixture_name}: Failed with error: {e}")
-            raise  # Re-raise to keep pytest's normal behavior
+            logger.info(f"✅ {fixture_name}: Successfully returned None (expected for this type)")
+        return  # Skip validation for None results
 
     if DEBUG:
-        logger.info(f"Tests completed: {len(passed)} passed, {len(failed)} failed")
-        if passed:
-            logger.info(f"Passed: {', '.join(passed)}")
-        if failed:
-            logger.error(f"Failed: {', '.join(name for name, _ in failed)}")
+        logger.info(f"  Markdown size: {len(markdown)} bytes")
+
+    assert_valid_markdown(markdown, fixture_name)
