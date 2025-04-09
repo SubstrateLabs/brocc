@@ -6,6 +6,7 @@
 
 ## backlog
 
+- linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
 - robust running of parsers
 - twitter followers + following example
 - two gmail inbox examples (one with open message)

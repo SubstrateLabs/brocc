@@ -1,4 +1,5 @@
 - delegate to parsers based on url
+- linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
 - handle scrolling + rescrape
 - improve db update logic, if superset replace
 - schema design:

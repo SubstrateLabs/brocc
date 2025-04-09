@@ -1,14 +1,82 @@
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import Comment
 from markdownify import markdownify as md
 
+# Import specific parsers directly
+from brocc_li.parsers.gmail_inbox import gmail_inbox_html_to_md
+from brocc_li.parsers.instagram_home import instagram_home_html_to_md
+from brocc_li.parsers.instagram_inbox import instagram_inbox_html_to_md
+from brocc_li.parsers.instagram_profile import instagram_profile_html_to_md
+from brocc_li.parsers.linkedin_company import linkedin_company_html_to_md
+from brocc_li.parsers.linkedin_company_about import linkedin_company_about_html_to_md
+from brocc_li.parsers.linkedin_company_people import linkedin_company_people_html_to_md
+from brocc_li.parsers.linkedin_company_posts import linkedin_company_posts_html_to_md
+from brocc_li.parsers.linkedin_connections_me import linkedin_connections_me_html_to_md
+from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
+from brocc_li.parsers.linkedin_followers import linkedin_followers_html_to_md
+from brocc_li.parsers.linkedin_messages import linkedin_messages_html_to_md
+from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
+from brocc_li.parsers.linkedin_search_connections import linkedin_search_connections_html_to_md
+from brocc_li.parsers.substack_activity import substack_activity_html_to_md
+from brocc_li.parsers.substack_feed import substack_feed_html_to_md
+from brocc_li.parsers.substack_inbox import substack_inbox_html_to_md
+from brocc_li.parsers.twitter_bookmarks import twitter_bookmarks_html_to_md
+from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
+from brocc_li.parsers.twitter_inbox import twitter_inbox_html_to_md
+from brocc_li.parsers.twitter_likes import twitter_likes_html_to_md
+from brocc_li.parsers.twitter_profile import twitter_profile_html_to_md
+from brocc_li.parsers.twitter_profile_followers import twitter_followers_html_to_md
+from brocc_li.parsers.twitter_thread import twitter_thread_html_to_md
+from brocc_li.parsers.youtube_history import youtube_history_html_to_md
+from brocc_li.parsers.youtube_home import youtube_home_html_to_md
 from brocc_li.utils.logger import logger
 
 # Debug flag - set to match the test debug setting
 DEBUG = False  # This gets imported by the test
+
+# Parser Registry: Maps URL regex patterns to specific parser functions
+# More specific patterns should come first
+# Reverted to specific Callable hint
+PARSER_REGISTRY: Dict[str, Callable[[str, bool], Optional[str]]] = {
+    # Gmail
+    r"https://mail\.google\.com/mail/u/\d+/\#inbox": gmail_inbox_html_to_md,
+    # Instagram
+    r"https://www\.instagram\.com/?$": instagram_home_html_to_md,
+    r"https://www\.instagram\.com/direct/inbox/?$": instagram_inbox_html_to_md,
+    r"https://www\.instagram\.com/([^/]+)/?$": instagram_profile_html_to_md,  # Profile (needs to be after inbox)
+    # LinkedIn - Company
+    r"https://www\.linkedin\.com/company/([^/]+)/about/?$": linkedin_company_about_html_to_md,
+    r"https://www\.linkedin\.com/company/([^/]+)/people/?$": linkedin_company_people_html_to_md,
+    r"https://www\.linkedin\.com/company/([^/]+)/posts/?": linkedin_company_posts_html_to_md,  # Needs to be before generic company
+    r"https://www\.linkedin\.com/company/([^/]+)/?$": linkedin_company_html_to_md,
+    # LinkedIn - User specific
+    r"https://www\.linkedin\.com/feed/?$": linkedin_feed_html_to_md,
+    r"https://www\.linkedin\.com/messaging/": linkedin_messages_html_to_md,  # Catches all message views
+    r"https://www\.linkedin\.com/in/([^/]+)/": linkedin_profile_html_to_md,
+    r"https://www\.linkedin\.com/mynetwork/invite-connect/connections/?$": linkedin_connections_me_html_to_md,  # Updated My Connections URL
+    r"https://www\.linkedin\.com/mynetwork/network-manager/people-follow/followers/.*": linkedin_followers_html_to_md,  # LinkedIn followers page
+    r"https://www\.linkedin\.com/mynetwork/network-manager/people-follow/following/.*": linkedin_followers_html_to_md,  # LinkedIn following page
+    r"https://www\.linkedin\.com/search/results/people/.*": linkedin_search_connections_html_to_md,  # General People Search results
+    r"https://www\.linkedin\.com/feed/followers/.*": linkedin_followers_html_to_md,  # LinkedIn followers page
+    # Substack
+    r"https://substack\.com/activity$": substack_activity_html_to_md,
+    r"https://substack\.com/feed$": substack_feed_html_to_md,
+    r"https://substack\.com/inbox": substack_inbox_html_to_md,  # Assuming base inbox URL
+    # Twitter / X
+    r"https://(x|twitter)\.com/home$": twitter_feed_html_to_md,
+    r"https://(x|twitter)\.com/messages": twitter_inbox_html_to_md,
+    r"https://(x|twitter)\.com/i/bookmarks$": twitter_bookmarks_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/likes$": twitter_likes_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/followers$": twitter_followers_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/status/(\d+)$": twitter_thread_html_to_md,  # Specific tweet/thread
+    r"https://(x|twitter)\.com/([^/]+)/?$": twitter_profile_html_to_md,  # Profile needs to be after specific sub-pages like /likes, /followers
+    # YouTube
+    r"https://www\.youtube\.com/feed/history$": youtube_history_html_to_md,
+    r"https://www\.youtube\.com/?$": youtube_home_html_to_md,
+}
 
 # JS framework detection patterns
 JS_FRAMEWORK_PATTERNS = [
@@ -367,32 +435,80 @@ def direct_tag_extraction(soup: BeautifulSoup) -> str:
 
 
 def convert_html_to_markdown(
-    html: str, url: Optional[str] = None, title: Optional[str] = None
+    html: str, url: Optional[str] = None, debug: bool = False
 ) -> Optional[str]:
     """
     Convert HTML to Markdown with enhanced cleaning and processing.
+    Checks for specific URL patterns to use specialized parsers.
 
     Args:
         html: The HTML content to convert
-        url: Optional URL for reference
-        title: Optional title for reference
+        url: Optional URL to match against specific parsers.
+        debug: Optional flag to enable debug logging for this conversion.
 
     Returns:
-        Cleaned markdown text
+        Cleaned markdown text or None if conversion fails or yields empty result.
     """
-    try:
-        if DEBUG:
-            logger.info("Converting HTML to markdown" + (f" for URL: {url}" if url else ""))
+    # Use local debug flag if provided, otherwise global DEBUG
+    use_debug = debug or DEBUG
+    if use_debug and debug != DEBUG:
+        logger.info(f"Local debug flag ({debug}) overrides global DEBUG ({DEBUG}) for this run.")
 
+    # --- Check for Specific Parser ---
+    if url:
+        for pattern, parser_func in PARSER_REGISTRY.items():
+            if re.match(pattern, url):
+                if use_debug:
+                    logger.info(
+                        f"URL '{url}' matches pattern '{pattern}', using specific parser: {parser_func.__name__}"
+                    )
+                try:
+                    # Pass the effective debug flag to the specific parser
+                    # Explicitly cast to appease linter
+                    specific_parser = cast(Callable[[str, bool], Optional[str]], parser_func)
+                    result = specific_parser(html, debug=use_debug)  # type: ignore
+                    if result is not None:
+                        # Assuming specific parsers return cleaned markdown or None
+                        if use_debug:
+                            logger.info(f"Specific parser {parser_func.__name__} completed.")
+                        return result
+                    elif use_debug:
+                        logger.warning(
+                            f"Specific parser {parser_func.__name__} returned None for URL: {url}. Falling back to generic parser."
+                        )
+                    # If parser returned None, fall through to generic parsing
+                    break  # Stop checking patterns, proceed to generic
+                except Exception as e:
+                    # Log the exception with traceback only if debugging is enabled for this specific run
+                    msg = f"Specific parser {parser_func.__name__} failed for URL {url}: {e}. Falling back to generic parser."
+                    logger.error(msg, exc_info=use_debug)
+                    # Fall through to generic parsing on error
+                    break  # Stop checking patterns, proceed to generic
+        else:  # This else clause executes if the loop completed without a break (i.e., no pattern matched)
+            if use_debug:
+                logger.info(
+                    f"No specific parser pattern matched URL '{url}', using generic conversion."
+                )
+    elif use_debug:
+        logger.info("No URL provided, using generic conversion.")
+
+    # --- Generic HTML to Markdown Conversion ---
+    if use_debug:
+        logger.info(
+            "Starting generic HTML to markdown conversion" + (f" for URL: {url}" if url else "")
+        )
+
+    try:
         # Clean and extract meaningful content
-        soup = clean_html(html)
-        content = extract_content(soup, html)
-        strip_list = get_strip_list(content)
+        soup = clean_html(
+            html
+        )  # Already uses DEBUG internally, consider passing use_debug? No, clean_html has its own logic based on global DEBUG for now.
+        content = extract_content(soup, html)  # Likewise uses global DEBUG
+        strip_list = get_strip_list(content)  # Likewise uses global DEBUG
 
         # Convert to markdown
-        if DEBUG:
+        if use_debug:
             logger.info("Converting HTML to markdown with markdownify")
-            # Check if content has find_all method before using it
             if hasattr(content, "find_all") and callable(content.find_all):
                 element_count = len(content.find_all())
                 logger.info(f"Converting content with {element_count} elements")
@@ -407,16 +523,19 @@ def convert_html_to_markdown(
             heading_style="ATX",
         )
 
-        if DEBUG:
+        if use_debug:
             logger.info(f"Markdownify produced {len(markdown)} characters")
 
         # If markdown is empty or very small, try the body as fallback
-        if len(markdown.strip()) < 100 and content != soup.body and soup.body:
-            if DEBUG:
+        if (
+            len(markdown.strip()) < 100 and soup.body and content is not soup.body
+        ):  # Check content is not already body
+            if use_debug:
                 logger.warning(
                     f"Initial markdown conversion produced limited output ({len(markdown)} chars), falling back to body"
                 )
-            content = soup.body
+            content = soup.body  # Use the body tag directly
+            strip_list = get_strip_list(content)  # Re-evaluate strip list for body
             markdown = md(
                 str(content),
                 strip=strip_list,
@@ -424,53 +543,58 @@ def convert_html_to_markdown(
                 escape_misc=True,
                 heading_style="ATX",
             )
-            if DEBUG:
+            if use_debug:
                 logger.info(f"Fallback body conversion produced {len(markdown)} characters")
 
         # Clean up the resulting markdown
-        cleaned_markdown = post_process_markdown(markdown)
+        cleaned_markdown = post_process_markdown(markdown)  # Uses global DEBUG
 
         # If still not enough content, try direct tag extraction
         if len(cleaned_markdown.strip()) < 100:
-            if DEBUG:
+            if use_debug:
                 logger.warning(
                     f"Markdown still limited after processing ({len(cleaned_markdown)} chars), trying direct tag extraction"
                 )
 
-            direct_content = direct_tag_extraction(soup)
+            direct_content = direct_tag_extraction(soup)  # Uses global DEBUG
             if direct_content:
+                # Need a strip list for direct content too, maybe reuse the one for `soup.body` or generate for `soup`?
+                # Let's generate a simple one for soup itself
+                direct_strip_list = get_strip_list(soup)
                 direct_markdown = md(
                     direct_content,
-                    strip=strip_list,
+                    strip=direct_strip_list,  # Use a strip list appropriate for the extracted tags context
                     beautiful_soup_parser="html5lib",
                     escape_misc=True,
                     heading_style="ATX",
                 )
-                direct_cleaned = post_process_markdown(direct_markdown)
+                direct_cleaned = post_process_markdown(direct_markdown)  # Uses global DEBUG
 
                 # Use direct extraction if it produced more content
                 if len(direct_cleaned) > len(cleaned_markdown):
-                    if DEBUG:
+                    if use_debug:
                         logger.info(
                             f"Using direct tag extraction result: {len(direct_cleaned)} vs {len(cleaned_markdown)} chars"
                         )
                     cleaned_markdown = direct_cleaned
 
-        if DEBUG:
-            logger.info(f"Final markdown length: {len(cleaned_markdown)} characters")
+        if use_debug:
+            logger.info(f"Final generic markdown length: {len(cleaned_markdown)} characters")
 
         # Return None if the final markdown is empty or whitespace only
         if not cleaned_markdown.strip():
-            if DEBUG:
+            if use_debug:
                 logger.info("Final markdown is empty, returning None")
             return None
 
         return cleaned_markdown
 
     except Exception as e:
-        error_msg = f"Error converting HTML to markdown: {e}"
+        error_msg = f"Error during generic HTML to markdown conversion: {e}"
         if url:
             error_msg += f" for URL: {url}"
-        if DEBUG:
-            logger.error(error_msg)
-        return error_msg
+        if use_debug:  # Log error only if debugging is enabled for this run
+            logger.error(error_msg, exc_info=True)  # Include traceback if debugging
+        # Return the error message itself, maybe? Or None? Let's return None on error.
+        logger.error(f"Generic conversion failed for URL {url or 'unknown'}. Returning None.")
+        return None

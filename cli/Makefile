@@ -104,6 +104,9 @@ test-linkedin-messages:
 test-linkedin-search-connections:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_search_connections.py -v -s
 
+test-linkedin-followers:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_followers.py -v -s
+
 test-linkedin: \
 	test-linkedin-feed \
 	test-linkedin-company \
@@ -113,7 +116,8 @@ test-linkedin: \
 	test-linkedin-connections-me \
 	test-linkedin-messages \
 	test-linkedin-company-people \
-	test-linkedin-search-connections
+	test-linkedin-search-connections \
+	test-linkedin-followers
 
 test-gmail:
 	uv run pytest src/brocc_li/tests/parsers/test_gmail_inbox.py -v -s
