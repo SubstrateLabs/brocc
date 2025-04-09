@@ -22,8 +22,8 @@ Indexing personal data is a big responsibility. We believe this kind of software
 #### Overview
 
 1. Brocc locally ingests documents from (1) your browser, (2) OAuth-authenticated APIs, and (3) your local filesystem.
-2. Documents are converted to Markdown, chunked, and stored locally in [DuckDB](https://duckdb.org).
-3. Document chunks are embedded (remotely via our API proxy to [Voyage AI](https://www.voyageai.com)) and stored locally in [LanceDB](https://github.com/lancedb/lancedb).
+2. Everything is converted to [Markdown](https://commonmark.org/help) (straightforward for many webpages, but the long tail of content requires bespoke parsing: dynamic feeds, PDFs, APIs, etc). We split long content into chunks (sized to approximately 1-page of single-spaced text), and store everything locally in [DuckDB](https://duckdb.org).
+3. Content is embedded (remotely via our API proxy to [Voyage AI](https://www.voyageai.com)) using a multi-modal embedding [model](https://blog.voyageai.com/2024/11/12/voyage-multimodal-3), and stored locally in [LanceDB](https://github.com/lancedb/lancedb), enabling semantic search across text-and-image content.
 4. LLM API requests are always made locally from your computer, using the [OpenRouter](https://openrouter.ai/docs) API key we provision for your account.
 5. Logging in is required to provision access to OpenRouter and our API proxy. Minimal data is stored in [Neon Postgres](https://neon.tech/docs), [WorkOS](https://workos.com), and [Upstash Redis](https://upstash.com/docs/redis).
 

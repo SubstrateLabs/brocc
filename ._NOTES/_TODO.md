@@ -1,5 +1,5 @@
 - handle scrolling + rescrape
-- improve db update logic, if superset replace
+- db update logic: if content superset replace
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>
