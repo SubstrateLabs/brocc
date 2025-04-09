@@ -67,7 +67,6 @@ test-twitter-bookmarks:
 test-twitter-profile-followers:
 	uv run pytest src/brocc_li/tests/parsers/test_twitter_profile_followers.py -v -s
 
-
 test-twitter: \
 	test-twitter-home \
 	test-twitter-thread \
@@ -76,6 +75,16 @@ test-twitter: \
 	test-twitter-profile \
 	test-twitter-bookmarks \
 	test-twitter-profile-followers
+
+test-threads-home:
+	uv run pytest src/brocc_li/tests/parsers/test_threads_home.py -v -s
+
+test-threads-activity:
+	uv run pytest src/brocc_li/tests/parsers/test_threads_activity.py -v -s
+
+test-threads: \
+	test-threads-home \
+	test-threads-activity
 
 test-linkedin-feed:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
@@ -131,11 +140,23 @@ test-instagram-profile:
 test-instagram-inbox:
 	uv run pytest src/brocc_li/tests/parsers/test_instagram_inbox.py -v -s
 
+test-instagram-explore:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_explore.py -v -s
+
+test-instagram-explore-search:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_explore_search.py -v -s
+
+
+test-instagram-saved-collection:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_saved_collection.py -v -s
 
 test-instagram: \
 	test-instagram-home \
 	test-instagram-profile \
-	test-instagram-inbox
+	test-instagram-inbox \
+	test-instagram-explore \
+	test-instagram-explore-search \
+	test-instagram-saved-collection
 
 test-substack-inbox:
 	uv run pytest src/brocc_li/tests/parsers/test_substack_inbox.py -v -s

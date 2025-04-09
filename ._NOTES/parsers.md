@@ -6,8 +6,7 @@
 
 ## backlog
 
-- linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
-- robust running of parsers
+- instagram saved root doesnt work (but collection does)
 - twitter followers + following example
 - two gmail inbox examples (one with open message)
 - two linkedin feed examples
@@ -17,7 +16,7 @@
 
 implement twitter profile and the test, following same pattern as the examples provided but none of the bespoke logic way simpler, basically the same deal using selectors and bs4, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.) remember unstructured doesnt do markdown you have to do it yourself. implement the basic thing and ask me to run the test.
 
-implement linkedin company people and the test, following same pattern as the examples provided but none of the bespoke logic way simpler, basically the same deal but none of the logic just straight converting unstructured to markdown, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.) remember unstructured doesnt do markdown you have to do it yourself. don't add too much noise filtering initially as you need to see the debug logs first to know what to filter. implement the basic thing and ask me to run the test.
+implement instagram explore and the test, following same pattern as the examples provided but none of the bespoke logic way simpler, basically the same deal and similar logic converting unstructured to markdown, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.) remember unstructured doesnt do markdown you have to do it yourself. don't add too much noise filtering initially as you need to see the debug logs first to know what to filter. implement the basic thing and ask me to run the test.
 
 ---
 

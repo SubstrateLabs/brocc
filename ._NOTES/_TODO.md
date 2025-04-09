@@ -1,5 +1,7 @@
 - delegate to parsers based on url
-- linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
+- test twitter following + followers
+- test linkedin followers/following: https://www.linkedin.com/mynetwork/network-manager/people-follow/followers
+- robust running of parsers
 - handle scrolling + rescrape
 - improve db update logic, if superset replace
 - schema design:
