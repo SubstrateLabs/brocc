@@ -6,6 +6,9 @@ from bs4.element import Comment
 from markdownify import markdownify as md
 
 # Import specific parsers directly
+from brocc_li.parsers.bsky_feed import bsky_feed_html_to_md
+from brocc_li.parsers.bsky_followers import bsky_followers_html_to_md
+from brocc_li.parsers.bsky_profile import bsky_profile_html_to_md
 from brocc_li.parsers.gmail_inbox import gmail_inbox_html_to_md
 from brocc_li.parsers.instagram_explore import instagram_explore_html_to_md
 from brocc_li.parsers.instagram_explore_search import instagram_explore_search_html_to_md
@@ -58,6 +61,11 @@ PARSER_REGISTRY: Dict[str, Callable[[str, bool], Optional[str]]] = {
     # Threads
     r"https://www\.threads\.net/activity/?$": threads_activity_html_to_md,  # Threads activity
     r"https://www\.threads\.net/?$": threads_home_html_to_md,  # Threads home
+    # Bluesky
+    r"https://bsky\.app/?$": bsky_feed_html_to_md,  # Bluesky feed/home
+    r"https://bsky\.app/profile/([^/]+)/follows": bsky_followers_html_to_md,  # Bluesky following
+    r"https://bsky\.app/profile/([^/]+)/followers": bsky_followers_html_to_md,  # Bluesky followers
+    r"https://bsky\.app/profile/([^/]+)/?$": bsky_profile_html_to_md,  # Bluesky profile
     # LinkedIn - Company
     r"https://www\.linkedin\.com/company/([^/]+)/about/?$": linkedin_company_about_html_to_md,
     r"https://www\.linkedin\.com/company/([^/]+)/people/?$": linkedin_company_people_html_to_md,

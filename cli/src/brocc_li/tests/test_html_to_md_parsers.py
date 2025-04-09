@@ -10,6 +10,9 @@ from brocc_li.html_to_md import (  # Import the registry itself
 )
 
 # Import all the specific parser functions referenced in the registry
+from brocc_li.parsers.bsky_feed import bsky_feed_html_to_md
+from brocc_li.parsers.bsky_followers import bsky_followers_html_to_md
+from brocc_li.parsers.bsky_profile import bsky_profile_html_to_md
 from brocc_li.parsers.gmail_inbox import gmail_inbox_html_to_md
 from brocc_li.parsers.instagram_explore import instagram_explore_html_to_md
 from brocc_li.parsers.instagram_explore_search import instagram_explore_search_html_to_md
@@ -80,6 +83,21 @@ TEST_CASES: list[Tuple[str, Optional[Callable]]] = [
         "https://www.threads.net/activity/",
         threads_activity_html_to_md,
     ),  # Threads activity with trailing slash
+    # Bluesky
+    ("https://bsky.app/", bsky_feed_html_to_md),  # Bluesky home feed
+    ("https://bsky.app/profile/alice.bsky.social", bsky_profile_html_to_md),  # Bluesky profile
+    (
+        "https://bsky.app/profile/bob.bsky.social/",
+        bsky_profile_html_to_md,
+    ),  # Profile with trailing slash
+    (
+        "https://bsky.app/profile/alice.bsky.social/follows",
+        bsky_followers_html_to_md,
+    ),  # Bluesky following
+    (
+        "https://bsky.app/profile/bob.bsky.social/followers",
+        bsky_followers_html_to_md,
+    ),  # Bluesky followers
     # LinkedIn - Company Specificity
     ("https://www.linkedin.com/company/google/about/", linkedin_company_about_html_to_md),
     ("https://www.linkedin.com/company/microsoft/people/", linkedin_company_people_html_to_md),

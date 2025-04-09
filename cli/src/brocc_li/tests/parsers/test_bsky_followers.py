@@ -7,6 +7,7 @@ from brocc_li.utils.logger import logger
 # Enable debug logging FOR THE TEST to see parser logs
 DEBUG = False
 FIXTURE_NAME = "_bsky-followers.html"
+FIXTURE_NAME_FOLLOWING = "_bsky-follows.html"
 
 
 def test_parse_bsky_followers(debug: bool = DEBUG):
@@ -93,4 +94,91 @@ def test_parse_bsky_followers(debug: bool = DEBUG):
 
     logger.info(
         f"✅ Bluesky followers conversion test executed for {FIXTURE_NAME}. All assertions passed."
+    )
+
+
+def test_parse_bsky_following(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME_FOLLOWING)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME_FOLLOWING} not found")
+    except Exception as e:
+        pytest.fail(f"Error loading fixture {FIXTURE_NAME_FOLLOWING}: {e}")
+
+    markdown = bsky_followers_html_to_md(html, debug=debug)
+    if debug:
+        print("\n\n--- START BLUESKY FOLLOWING MARKDOWN OUTPUT ---")
+        if markdown is not None:
+            print(markdown)
+            logger.info(f"Following markdown generated. Length: {len(markdown)}")
+        else:
+            print("!!! MARKDOWN CONVERSION RETURNED NONE !!!")
+            logger.warning("Following markdown conversion returned None.")
+        print("--- END BLUESKY FOLLOWING MARKDOWN OUTPUT ---\n")
+
+    # Basic assertion to ensure conversion works
+    assert markdown is not None, "Parser returned None instead of markdown"
+
+    # Check total number of profiles by counting headers
+    profile_count = markdown.count("### [")
+    assert profile_count == 57, f"Expected 57 profiles, found {profile_count}"
+
+    # Check specific profiles exist in the output
+    expected_profiles = [
+        "Alexandria Ocasio-Cortez",
+        "katy",
+        "WitchHazel",
+        "PAR | Rose the Grappler",
+        "あきまん",
+        "SonicFox",
+    ]
+
+    for profile in expected_profiles:
+        assert profile in markdown, f"Expected profile '{profile}' not found in output"
+
+    # Check that handles are properly extracted and formatted
+    expected_handles = [
+        "(@aoc.bsky.social)",
+        "(@razzo.bsky.social)",
+        "(@dff123.bsky.social)",
+        "(@harada-tekken.bsky.social)",
+    ]
+
+    for handle in expected_handles:
+        assert handle in markdown, f"Expected handle '{handle}' not found in output"
+
+    # Check that links are properly formed
+    expected_links = [
+        "https://bsky.app/profile/aoc.bsky.social",
+        "https://bsky.app/profile/streetfighter.com",
+        "https://bsky.app/profile/sonicfox.bsky.social",
+    ]
+
+    for link in expected_links:
+        assert link in markdown, f"Expected link '{link}' not found in output"
+
+    # Check that bios are correctly extracted
+    expected_bio_snippets = [
+        "Waitress turned Congresswoman for the Bronx and Queens",
+        "#1 fighting catgirl @FlyQuest.gg",
+        "I play fighting games and I have a cute daughter",
+    ]
+
+    for bio in expected_bio_snippets:
+        assert bio in markdown, f"Expected bio snippet '{bio}' not found in output"
+
+    # Check special cases are handled correctly
+    # Unicode profile name renders correctly
+    assert "あきまん" in markdown, "Unicode in profile name not preserved"
+
+    # Profile with emoji renders correctly
+    assert "datcravat クラバット🍷" in markdown, "Emoji in profile name not preserved"
+
+    # Profile with no bio still renders correctly
+    assert "### [SonicFox](https://bsky.app/profile/sonicfox.bsky.social)" in markdown, (
+        "Profile with no bio not rendered correctly"
+    )
+
+    logger.info(
+        f"✅ Bluesky following conversion test executed for {FIXTURE_NAME_FOLLOWING}. All assertions passed."
     )
