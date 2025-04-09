@@ -1,5 +1,6 @@
 - delegate to parsers based on url
 - handle scrolling + rescrape
+- improve db update logic, if superset replace
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>
@@ -13,6 +14,7 @@
 ## backlog
 
 - AI: pydanticai + openrouter
+- get youtube transcripts
 - pdf extraction (docling + grobid)
 - cli oauth flow
 - speed up launch process

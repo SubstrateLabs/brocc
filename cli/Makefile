@@ -147,8 +147,13 @@ test-substack: \
 	test-substack-feed \
 	test-substack-activity
 
-test-substack-activity:
-	uv run pytest src/brocc_li/tests/parsers/test_substack_activity.py -v -s
+test-youtube-home:
+	uv run pytest src/brocc_li/tests/parsers/test_youtube_home.py -v -s
 
+test-youtube-history:
+	uv run pytest src/brocc_li/tests/parsers/test_youtube_history.py -v -s
 
+test-youtube: \
+	test-youtube-home \
+	test-youtube-history
 

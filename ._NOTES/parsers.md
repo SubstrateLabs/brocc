@@ -1,14 +1,12 @@
+## overview
+
 - unstructured is a nice easy way to cleanup markdown that's almost there, good default
-- beautifulsoup selectors + structural logging is more robust but can be hairy
-- ideal is using playwright and evaluating selectors on live page (but that's slow)
+- beautifulsoup selectors + structural logging is more robust but can be hairy (see twitter, gmail, youtube)
+- ideal is using playwright and evaluating selectors on live page (but that's slow so we never do that rn)
 
 ## backlog
 
-- youtube feed
-- youtube history
-
-## testing
-
+- robust running of parsers
 - twitter followers + following example
 - two gmail inbox examples (one with open message)
 - two linkedin feed examples
