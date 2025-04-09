@@ -258,9 +258,6 @@ def _extract_people_highlights(elements: List[Element], debug: bool = False) -> 
 
 
 def linkedin_company_html_to_md(html: str, debug: bool = False) -> Optional[str]:
-    """
-    Parses the HTML content of a LinkedIn company profile page and extracts info into Markdown.
-    """
     try:
         elements: List[Element] = partition_html(text=html)
         logger.info(f"unstructured found {len(elements)} raw elements for company profile.")

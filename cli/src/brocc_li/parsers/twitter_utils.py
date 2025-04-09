@@ -5,9 +5,6 @@ from bs4 import Tag
 
 from brocc_li.utils.logger import logger
 
-# Set this to True to enable debug logging
-DEBUG = False
-
 
 class UserInfo(TypedDict, total=False):
     """Structure to hold extracted user information."""

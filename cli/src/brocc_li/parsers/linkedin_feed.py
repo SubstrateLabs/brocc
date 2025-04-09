@@ -8,18 +8,6 @@ from brocc_li.utils.logger import logger
 
 
 def linkedin_feed_html_to_md(html: str, debug: bool = False) -> Optional[str]:
-    """
-    Parses LinkedIn feed HTML using unstructured, filters noise, groups by post markers,
-    extracts profile links for headers, marks reposts/comments, attempts to dedupe text,
-    and converts it to Markdown.
-
-    Args:
-        html: The HTML content of the LinkedIn feed page.
-        debug: Enable verbose logging for debugging unstructured elements.
-
-    Returns:
-        A string containing the formatted Markdown, or None if parsing fails.
-    """
     try:
         logger.info("Starting LinkedIn HTML parsing with unstructured...")
         elements: List[Element] = partition_html(text=html)

@@ -20,8 +20,6 @@ NOISE_PATTERNS = [
     "Loaded:",
     "Stream Type LIVE",
     "Remaining time",
-    # "Follow", # Removed - check handled more specifically in is_noisy
-    # Add more patterns as needed
 ]
 
 # Regex for playback speeds like 0.5x, 1x, 1.25x etc.

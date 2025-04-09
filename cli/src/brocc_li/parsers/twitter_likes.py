@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 
 from brocc_li.utils.logger import logger
 
-# Import necessary helpers from twitter_utils
 from .twitter_utils import (
     extract_media,
     extract_metrics,
@@ -92,23 +91,3 @@ def twitter_likes_html_to_md(html: str, debug: bool = False) -> Optional[str]:
         logger.error(f"Error parsing Twitter likes HTML: {e}", exc_info=True)
         # Return error message in the output for easier debugging via test output
         return f"Error converting Twitter likes HTML to Markdown: {e}"
-
-
-def parse_twitter_likes(html_content: str) -> list | None:
-    """
-    Parses the HTML content of a Twitter/X likes page.
-
-    Args:
-        html_content: The raw HTML string.
-
-    Returns:
-        A list of dictionaries, each representing a liked tweet,
-        or None if parsing fails.
-        (Currently returns None as a placeholder - focus is on twitter_likes_html_to_md).
-    """
-    # TODO: Implement actual parsing logic to return structured data if needed.
-    # For now, this function remains a placeholder as the main goal was Markdown conversion.
-    logger.warning(
-        "parse_twitter_likes function is not fully implemented. Use twitter_likes_html_to_md for Markdown output."
-    )
-    return None

@@ -221,9 +221,6 @@ def _extract_specialties(elements: List[Element], debug: bool = False) -> List[s
 
 
 def linkedin_company_about_html_to_md(html: str, debug: bool = False) -> Optional[str]:
-    """
-    Parses the HTML content of a LinkedIn company about page and extracts info into Markdown.
-    """
     try:
         elements: List[Element] = partition_html(text=html)
         logger.info(f"unstructured found {len(elements)} raw elements for company about page.")
