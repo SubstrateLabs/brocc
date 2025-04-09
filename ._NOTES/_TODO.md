@@ -1,7 +1,3 @@
-- linkedin search
-- linkedin connections me
-- linkedin search connections
-- linkedin company people
 - instagram feed
 - instagram profile (me)
 - instagram profile (other)

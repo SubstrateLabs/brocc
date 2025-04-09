@@ -55,10 +55,23 @@ test-twitter-thread:
 test-twitter-likes:
 	uv run pytest src/brocc_li/tests/parsers/test_twitter_likes.py -v -s
 
+test-twitter-inbox:
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_inbox.py -v -s
+
+test-twitter-profile:
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_profile.py -v -s
+
+test-twitter-profile-followers:
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_profile_followers.py -v -s
+
+
 test-twitter: \
 	test-twitter-home \
 	test-twitter-thread \
-	test-twitter-likes
+	test-twitter-likes \
+	test-twitter-inbox \
+	test-twitter-profile \
+	test-twitter-profile-followers
 
 test-linkedin-feed:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
@@ -75,11 +88,17 @@ test-linkedin-company-posts:
 test-linkedin-company-about:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company_about.py -v -s
 
+test-linkedin-company-people:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company_people.py -v -s
+
 test-linkedin-connections-me:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_connections_me.py -v -s
 
 test-linkedin-messages:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_messages.py -v -s
+
+test-linkedin-search-connections:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_search_connections.py -v -s
 
 test-linkedin: \
 	test-linkedin-feed \
@@ -88,7 +107,9 @@ test-linkedin: \
 	test-linkedin-company-posts \
 	test-linkedin-company-about \
 	test-linkedin-connections-me \
-	test-linkedin-messages
+	test-linkedin-messages \
+	test-linkedin-company-people \
+	test-linkedin-search-connections
 
 
 
