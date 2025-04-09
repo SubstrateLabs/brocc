@@ -330,35 +330,35 @@ async def main() -> None:
 
     logger.info("Using markdownify to extract content from tabs")
 
-    # Track processed URLs to avoid duplicates
-    processed_urls = set()
-    # Track saved HTML fixtures to avoid overwriting
-    saved_fixtures = set()
-
-    # Load existing fixture filenames to avoid overwriting
-    if SAVE_FIXTURES and fixtures_dir.exists():
-        saved_fixtures = {f.stem for f in fixtures_dir.glob("*.html")}
-        if saved_fixtures:
-            logger.info(f"Found {len(saved_fixtures)} existing HTML fixtures")
-
     # Save markdown to file
     def save_markdown_for_url(url, html, title=""):
         """Save markdown extracted from HTML to a file."""
-        if not url or url in processed_urls:
+        if not url:  # Only check if URL exists, no longer track processed
             return
 
         # Generate a slugified filename - creates URL-safe filesystem names
-        slug = slugify(url)
-        md_file = debug_dir / f"{slug}.md"
+        original_slug = slugify(url)
+        slug = original_slug
+        counter = 1
 
-        # Save the original HTML if fixtures are enabled and not already saved
-        if SAVE_FIXTURES and html and slug not in saved_fixtures:
+        # Check if files with this slug already exist and append counter if necessary
+        md_file = debug_dir / f"{slug}.md"
+        html_file = fixtures_dir / f"{slug}.html"
+
+        while md_file.exists() or (SAVE_FIXTURES and html_file.exists()):
+            slug = f"{original_slug}_{counter}"
+            md_file = debug_dir / f"{slug}.md"
             html_file = fixtures_dir / f"{slug}.html"
+            counter += 1
+
+        # Now md_file and html_file use the unique slug
+
+        # Save the original HTML if fixtures are enabled
+        if SAVE_FIXTURES and html:  # No longer check if slug exists in saved_fixtures
             try:
                 with open(html_file, "w", encoding="utf-8") as f:
                     f.write(html)
                 logger.debug(f"Saved HTML fixture for {url} to {html_file}")
-                saved_fixtures.add(slug)  # Mark this fixture as saved
             except Exception as e:
                 logger.error(f"Error saving HTML fixture: {e}")
 
@@ -371,7 +371,6 @@ async def main() -> None:
                 f.write(markdown)
 
             logger.info(f"Saved markdown for {url} to {md_file}")
-            processed_urls.add(url)  # Mark this URL as processed to avoid duplicates
         else:
             logger.warning(f"Markdown conversion failed for {url}, skipping file save.")
 
@@ -528,8 +527,11 @@ async def main() -> None:
         await tabs_monitor.stop_monitoring()
 
         # Log summary of markdown files saved
-        if "processed_urls" in locals():
-            logger.success(f"Saved markdown for {len(processed_urls)} unique URLs to {debug_dir}")
+        # No longer reference processed_urls
+        markdown_files_count = len(list(debug_dir.glob("*.md"))) if debug_dir.exists() else 0
+        logger.success(
+            f"Saved/updated markdown for {markdown_files_count} unique URLs to {debug_dir}"
+        )
 
         # Clean up Playwright resources if we used them
         try:
