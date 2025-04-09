@@ -76,6 +76,21 @@ test-twitter: \
 	test-twitter-bookmarks \
 	test-twitter-profile-followers
 
+test-bsky-profile:
+	uv run pytest src/brocc_li/tests/parsers/test_bsky_profile.py -v -s
+
+test-bsky-followers:
+	uv run pytest src/brocc_li/tests/parsers/test_bsky_followers.py -v -s
+
+test-bsky-feed:
+	uv run pytest src/brocc_li/tests/parsers/test_bsky_feed.py -v -s
+
+test-bsky: \
+	test-bsky-profile \
+	test-bsky-followers \
+	test-bsky-feed
+
+
 test-threads-home:
 	uv run pytest src/brocc_li/tests/parsers/test_threads_home.py -v -s
 

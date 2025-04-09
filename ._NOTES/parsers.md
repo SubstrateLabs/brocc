@@ -6,6 +6,7 @@
 
 ## backlog
 
+- bluesky
 - instagram saved root page doesnt work (but collection works)
 
 ## prompts
