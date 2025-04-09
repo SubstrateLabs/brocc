@@ -23,6 +23,9 @@ NOISE_PATTERNS = [
     "Loaded:",
     "Stream Type LIVE",
     "Remaining time",
+    "Current time",
+    "Duration",
+    "Activate to view larger image",
 ]
 
 # Regex for playback speeds like 0.5x, 1x, 1.25x etc.

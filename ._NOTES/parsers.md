@@ -6,11 +6,7 @@
 
 ## backlog
 
-- instagram saved root doesnt work (but collection does)
-- twitter followers + following example
-- two gmail inbox examples (one with open message)
-- two linkedin feed examples
-- instagram profile me + other
+- instagram saved root page doesnt work (but collection works)
 
 ## prompts
 

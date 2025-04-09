@@ -6,6 +6,7 @@ from brocc_li.utils.logger import logger
 
 DEBUG = False
 FIXTURE_NAME = "_linkedin-feed.html"
+FIXTURE_NAME_2 = "_linkedin-feed-2.html"
 
 
 def test_parse(debug: bool = DEBUG):
@@ -54,3 +55,35 @@ def test_parse(debug: bool = DEBUG):
         f"✅ LinkedIn feed conversion test ran for {FIXTURE_NAME}. "
         f"{'Output printed above.' if debug else ''}"
     )
+
+
+def test_parse_feed2():
+    try:
+        html = get_fixture(FIXTURE_NAME_2)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME_2} not found")
+
+    # Convert using unstructured-based parser with debug controlled by global DEBUG flag
+    markdown = linkedin_feed_html_to_md(html, debug=DEBUG)
+
+    # Print the output for inspection only when debug is enabled
+    if DEBUG:
+        print("\n--- START LINKEDIN FEED 2 MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END LINKEDIN FEED 2 MARKDOWN OUTPUT ---\n")
+
+    # Basic assertions
+    assert markdown is not None, "Conversion returned None"
+    assert isinstance(markdown, str), "Conversion did not return a string"
+    assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
+
+    # Check for specific noise patterns that should be filtered out
+    assert "Current time" not in markdown, "Video player 'Current time' element not filtered out"
+    assert "Duration" not in markdown, "Video player 'Duration' element not filtered out"
+    assert "Activate to view larger image" not in markdown, "Image UI element not filtered out"
+
+    # Expected content check
+    assert "Josh Wymer" in markdown, "Missing expected user name: Josh Wymer"
+    assert "Central (YC)" in markdown, "Missing expected content from Josh's post"
+    # This company block is empty and gets filtered out
+    # assert "ChatAE" in markdown, "Missing expected company: ChatAE"

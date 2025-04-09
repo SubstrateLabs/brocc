@@ -7,9 +7,12 @@ from markdownify import markdownify as md
 
 # Import specific parsers directly
 from brocc_li.parsers.gmail_inbox import gmail_inbox_html_to_md
+from brocc_li.parsers.instagram_explore import instagram_explore_html_to_md
+from brocc_li.parsers.instagram_explore_search import instagram_explore_search_html_to_md
 from brocc_li.parsers.instagram_home import instagram_home_html_to_md
 from brocc_li.parsers.instagram_inbox import instagram_inbox_html_to_md
 from brocc_li.parsers.instagram_profile import instagram_profile_html_to_md
+from brocc_li.parsers.instagram_saved_collection import instagram_saved_collection_html_to_md
 from brocc_li.parsers.linkedin_company import linkedin_company_html_to_md
 from brocc_li.parsers.linkedin_company_about import linkedin_company_about_html_to_md
 from brocc_li.parsers.linkedin_company_people import linkedin_company_people_html_to_md
@@ -23,6 +26,8 @@ from brocc_li.parsers.linkedin_search_connections import linkedin_search_connect
 from brocc_li.parsers.substack_activity import substack_activity_html_to_md
 from brocc_li.parsers.substack_feed import substack_feed_html_to_md
 from brocc_li.parsers.substack_inbox import substack_inbox_html_to_md
+from brocc_li.parsers.threads_activity import threads_activity_html_to_md
+from brocc_li.parsers.threads_home import threads_home_html_to_md
 from brocc_li.parsers.twitter_bookmarks import twitter_bookmarks_html_to_md
 from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
 from brocc_li.parsers.twitter_inbox import twitter_inbox_html_to_md
@@ -46,7 +51,13 @@ PARSER_REGISTRY: Dict[str, Callable[[str, bool], Optional[str]]] = {
     # Instagram
     r"https://www\.instagram\.com/?$": instagram_home_html_to_md,
     r"https://www\.instagram\.com/direct/inbox/?$": instagram_inbox_html_to_md,
+    r"https://www\.instagram\.com/explore/search/.*": instagram_explore_search_html_to_md,  # Instagram search
+    r"https://www\.instagram\.com/explore/.*": instagram_explore_html_to_md,  # Instagram explore
+    r"https://www\.instagram\.com/([^/]+)/saved/.*": instagram_saved_collection_html_to_md,  # Instagram saved collection
     r"https://www\.instagram\.com/([^/]+)/?$": instagram_profile_html_to_md,  # Profile (needs to be after inbox)
+    # Threads
+    r"https://www\.threads\.net/activity/?$": threads_activity_html_to_md,  # Threads activity
+    r"https://www\.threads\.net/?$": threads_home_html_to_md,  # Threads home
     # LinkedIn - Company
     r"https://www\.linkedin\.com/company/([^/]+)/about/?$": linkedin_company_about_html_to_md,
     r"https://www\.linkedin\.com/company/([^/]+)/people/?$": linkedin_company_people_html_to_md,

@@ -6,6 +6,7 @@ from brocc_li.utils.logger import logger
 
 DEBUG = False
 FIXTURE_NAME = "_gmail-inbox.html"
+FIXTURE_NAME_THREAD = "_gmail-inbox-thread.html"
 
 
 def test_parse(debug: bool = DEBUG):
@@ -89,3 +90,54 @@ def test_parse(debug: bool = DEBUG):
         f"✅ Gmail inbox conversion test ran for {FIXTURE_NAME}. "
         f"{'Output printed above.' if debug else 'Debug output disabled.'}"
     )
+
+
+def test_parse_thread(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME_THREAD)
+    except FileNotFoundError:
+        pytest.fail(
+            f"Fixture {FIXTURE_NAME_THREAD} not found. Please create it in the fixtures directory."
+        )
+    except Exception as e:
+        pytest.fail(f"Failed to load fixture {FIXTURE_NAME_THREAD}: {e}")
+
+    markdown = gmail_inbox_html_to_md(html, debug=debug)
+
+    if debug:
+        print(markdown)
+
+    # Basic assertions
+    assert markdown is not None, "Conversion returned None"
+    assert isinstance(markdown, str), "Conversion did not return a string"
+    assert "Error processing" not in markdown, "Parser reported an error during processing"
+
+    # Content structure assertions
+    assert markdown.startswith("# Gmail Inbox"), "Output should start with inbox header"
+    assert "## " in markdown, "Output should contain email headers"
+    assert "**From:**" in markdown, "Output should contain sender info"
+    assert ">" in markdown, "Output should contain preview text in blockquotes"
+
+    # Thread-specific content assertions
+    lines = markdown.split("\n")
+
+    # Check for thread-specific emails
+    assert any("Vanta Call // New AM!" in line for line in lines), "Should contain Vanta Call email"
+    assert any("PagerDuty Subscription" in line for line in lines), "Should contain PagerDuty email"
+    assert any("ff wire" in line for line in lines), "Should contain ff wire email"
+
+    # Check for specific dates in the thread
+    assert any("May 09, 2025" in line for line in lines), "Should contain May 09, 2025 date format"
+
+    # Check for specific content in preview text
+    preview_lines = [line for line in lines if line.startswith(">")]
+    assert any("Hi Ben, Hope you're well" in line for line in preview_lines), (
+        "Should contain preview text from Vanta email"
+    )
+
+    # Check for duplicate headers
+    headers = [line for line in lines if line.startswith("##")]
+    header_texts = [h.strip("# ") for h in headers]
+    assert len(header_texts) == len(set(header_texts)), "Should not have duplicate headers"
+
+    logger.info(f"✅ Gmail inbox thread conversion test ran for {FIXTURE_NAME_THREAD}.")

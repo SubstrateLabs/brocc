@@ -6,6 +6,7 @@ from brocc_li.utils.logger import logger
 
 DEBUG = False
 FIXTURE_NAME = "_x-profile-followers.html"
+FIXTURE_NAME_FOLLOWING = "_x-profile-following.html"
 
 
 def test_parse(debug: bool = DEBUG):
@@ -73,5 +74,77 @@ def test_parse(debug: bool = DEBUG):
 
     logger.info(
         f"✅ Twitter followers conversion test passed for {FIXTURE_NAME}. "
+        f"Markdown length: {len(markdown)}. {'Output printed above.' if debug else ''}"
+    )
+
+
+def test_parse_following(debug: bool = DEBUG):
+    try:
+        html = get_fixture(FIXTURE_NAME_FOLLOWING)
+    except FileNotFoundError:
+        pytest.fail(f"Fixture {FIXTURE_NAME_FOLLOWING} not found")
+
+    markdown = twitter_followers_html_to_md(html, debug=debug)
+
+    if debug:
+        print("\n--- START TWITTER FOLLOWING MARKDOWN OUTPUT ---")
+        print(markdown)
+        print("--- END TWITTER FOLLOWING MARKDOWN OUTPUT ---\n")
+
+    # Basic assertions
+    assert markdown is not None, "Conversion returned None"
+    assert isinstance(markdown, str), "Conversion did not return a string"
+    assert "Error converting" not in markdown, f"Conversion failed: {markdown}"
+    assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
+
+    # Test specific user profiles are present
+    assert "[Bartosz Ciechanowski](https://x.com/BCiechanowski) (@BCiechanowski)" in markdown, (
+        "Missing Bartosz profile"
+    )
+    assert "[Hugh Zhang](https://x.com/hughbzhang) (@hughbzhang)" in markdown, (
+        "Missing Hugh profile"
+    )
+    assert "[Anthropic](https://x.com/AnthropicAI) (@AnthropicAI)" in markdown, (
+        "Missing Anthropic profile"
+    )
+
+    # Test bio extraction for users with known bios
+    assert "@scale_AI. co-created@gradientpub." in markdown, "Missing Hugh's bio"
+    assert "explain it to me like I'm 5 years old!" in markdown, "Missing Lyn's bio"
+    assert "We're an AI safety and research company" in markdown, "Missing Anthropic's bio"
+
+    # Test users without bios are formatted correctly
+    no_bio_users = [
+        ("Bartosz Ciechanowski", "BCiechanowski"),
+        ("Feifan Zhou", "FeifanZ"),
+        ("Ryo Lu", "ryolu_"),
+    ]
+
+    for name, handle in no_bio_users:
+        user_section = f"### [{name}](https://x.com/{handle}) (@{handle})"
+        # Find the user's section and verify no extra text follows until the next header
+        user_idx = markdown.find(user_section)
+        assert user_idx != -1, f"Missing user section for {name}"
+        next_header = markdown.find("###", user_idx + len(user_section))
+        if next_header == -1:
+            next_header = len(markdown)
+        section_text = markdown[user_idx + len(user_section) : next_header].strip()
+        assert section_text == "", f"Unexpected bio text for {name}: {section_text}"
+
+    # Test special character handling
+    assert "[Peter Zakin (in NY)]" in markdown, "Missing name with parentheses"
+    assert "[tosinaf.eth]" in markdown, "Missing .eth name"
+    assert "[jason liu - vacation mode]" in markdown, "Missing name with dash"
+
+    # Test link formatting
+    assert "](https://x.com/" in markdown, "Missing proper URL format"
+    assert "https://x.com/hughbzhang" in markdown, "Missing specific profile URL"
+
+    # Verify total number of profiles
+    header_count = markdown.count("### [")
+    assert header_count == 40, f"Expected 40 profiles, found {header_count}"
+
+    logger.info(
+        f"✅ Twitter following conversion test passed for {FIXTURE_NAME_FOLLOWING}. "
         f"Markdown length: {len(markdown)}. {'Output printed above.' if debug else ''}"
     )

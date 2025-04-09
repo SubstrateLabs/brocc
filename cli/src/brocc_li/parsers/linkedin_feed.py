@@ -109,25 +109,47 @@ def linkedin_feed_html_to_md(html: str, debug: bool = False) -> Optional[str]:
                         continue
 
                 if formatted_line:
-                    # De-duplication: Replace last line if current line is longer and starts with it
-                    if (
-                        is_text_element
-                        and block_content_lines
-                        and formatted_line.startswith(block_content_lines[-1])
-                        and len(formatted_line) > len(block_content_lines[-1])
-                    ):
-                        if debug:
-                            logger.debug(
-                                f"Replacing previous line with longer text: {formatted_line[:100]}..."
-                            )
-                        block_content_lines[-1] = formatted_line  # Replace last line
-                    elif block_content_lines and formatted_line == block_content_lines[-1]:
-                        if debug:
-                            logger.debug(
-                                f"Skipping exact duplicate line: {formatted_line[:100]}..."
-                            )
-                        continue  # Skip exact duplicates too
-                    else:
+                    # De-duplication: Check if this line is a progressive extension of ANY previous line
+                    # or if any previous line is a subset of this line
+                    duplicate_or_subset = False
+
+                    # Check against ALL previous lines, not just the last one
+                    for i, existing_line in enumerate(block_content_lines):
+                        # Case 1: Current line starts with an existing line (current line is longer)
+                        if formatted_line.startswith(existing_line) and len(formatted_line) > len(
+                            existing_line
+                        ):
+                            if debug:
+                                logger.debug(
+                                    f"Replacing shorter line with longer text: {formatted_line[:50]}..."
+                                )
+                            # Replace the shorter line with this more complete one
+                            block_content_lines[i] = formatted_line
+                            duplicate_or_subset = True
+                            break
+
+                        # Case 2: Existing line starts with current line (existing line is longer)
+                        elif existing_line.startswith(formatted_line) and len(existing_line) > len(
+                            formatted_line
+                        ):
+                            if debug:
+                                logger.debug(
+                                    f"Skipping shorter duplicate of existing line: {formatted_line[:50]}..."
+                                )
+                            duplicate_or_subset = True
+                            break
+
+                        # Case 3: Exact duplicate
+                        elif formatted_line == existing_line:
+                            if debug:
+                                logger.debug(
+                                    f"Skipping exact duplicate line: {formatted_line[:50]}..."
+                                )
+                            duplicate_or_subset = True
+                            break
+
+                    # Only add if it's not a duplicate or subset of any existing line
+                    if not duplicate_or_subset:
                         block_content_lines.append(formatted_line)
 
             if block_content_lines:
