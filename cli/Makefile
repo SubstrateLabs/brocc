@@ -69,6 +69,11 @@ test-linkedin-profile:
 test-linkedin-company-posts:
 	uv run pytest src/brocc_li/tests/test_linkedin_company_posts.py -v -s
 
+test-linkedin-company-about:
+	uv run pytest src/brocc_li/tests/test_linkedin_company_about.py -v -s
+
+test-linkedin: test-linkedin-feed test-linkedin-company test-linkedin-profile test-linkedin-company-posts test-linkedin-company-about 
+
 
 
 

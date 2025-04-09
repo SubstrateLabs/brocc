@@ -1,5 +1,5 @@
-- linkedin profile
-- linkedin company feed
+- linkedin company about
+- dedup linkedin company metadata
 - instagram
 - gmail
 - delegate to parsers based on url
@@ -29,6 +29,10 @@
 - twitter profile (no content in md)
 - twitter bookmarks (no content in md)
 - twitter messages
+- twitter followers
+- linkedin followers
+- linkedin messages
+- linkedin company people
 
 ## ideas
 

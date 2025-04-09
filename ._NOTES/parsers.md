@@ -4,7 +4,7 @@
 
 ## prompts
 
-implement linkedin_company.py and the test, following same pattern as company_posts, basically the same deal but none of the posts logic, and ample debug logging and the debug threading
+implement linkedin_company_about.py and the test, following same pattern as linkedin_company, basically the same deal but none of the posts logic, and ample debug logging and the same debug threading structure. test should just print the markdown for now (when debug enabled.)
 
 ## twitter
 
