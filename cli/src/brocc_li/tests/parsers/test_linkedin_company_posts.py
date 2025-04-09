@@ -10,7 +10,7 @@ from brocc_li.utils.logger import logger
 def fixtures_dir() -> Path:
     """Get the path to the fixtures directory."""
     # Adjust path relative to this test file
-    return Path(__file__).parent.parent / "tests" / "html_fixtures"
+    return Path(__file__).parent.parent / "html_fixtures"
 
 
 DEBUG = False  # Enable debug output by default

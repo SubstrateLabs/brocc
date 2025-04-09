@@ -2,6 +2,8 @@
 
 import pytest
 
+DEBUG = False
+
 
 @pytest.fixture
 def x_likes_html() -> str:
@@ -20,9 +22,7 @@ def test_twitter_likes_html_to_md(x_likes_html: str):
     """Basic test for parsing Twitter likes HTML to Markdown."""
     from brocc_li.parsers.twitter_likes import twitter_likes_html_to_md
 
-    debug_value_to_pass = False
-    print(f"\n>>> DEBUG VALUE BEING PASSED FROM TEST: {debug_value_to_pass} <<<\n")
-    markdown = twitter_likes_html_to_md(x_likes_html, debug=debug_value_to_pass)
+    markdown = twitter_likes_html_to_md(x_likes_html, debug=DEBUG)
 
     # Basic assertion for now
     assert markdown is not None

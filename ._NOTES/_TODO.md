@@ -1,9 +1,7 @@
-- linkedin company about
-- dedup linkedin company metadata
-- instagram
 - gmail
+- instagram
 - delegate to parsers based on url
-- handle scrolling
+- handle scrolling + rescrape
 - schema design:
   - source / location: needs another layer
     - chrome::<location name: twitter>::<location: url>

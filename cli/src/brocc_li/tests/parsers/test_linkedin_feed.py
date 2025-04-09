@@ -9,7 +9,7 @@ from brocc_li.utils.logger import logger
 @pytest.fixture
 def fixtures_dir() -> Path:
     """Get the path to the fixtures directory."""
-    return Path(__file__).parent.parent / "tests" / "html_fixtures"
+    return Path(__file__).parent.parent / "html_fixtures"
 
 
 DEBUG = False

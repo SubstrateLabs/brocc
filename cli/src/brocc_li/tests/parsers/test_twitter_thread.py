@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from brocc_li.parsers.twitter_home import twitter_feed_html_to_md
+from brocc_li.parsers.twitter_thread import twitter_thread_html_to_md
 from brocc_li.utils.logger import logger
 
 
@@ -10,18 +10,23 @@ from brocc_li.utils.logger import logger
 def fixtures_dir() -> Path:
     """Get the path to the fixtures directory."""
     # Assumes the tests directory is structured like the existing test_html_to_md.py
-    return Path(__file__).parent.parent / "tests" / "html_fixtures"
+    return Path(__file__).parent.parent / "html_fixtures"
 
 
 def test_parse(fixtures_dir: Path):
-    fixture_name = "_x-home.html"
+    # Use the twitter thread fixture
+    fixture_name = "_x-thread.html"
     fixture_path = fixtures_dir / fixture_name
     assert fixture_path.exists(), f"Fixture {fixture_name} not found at {fixture_path}"
+
+    logger.info(f"Loading fixture: {fixture_path}")
     with open(fixture_path, encoding="utf-8") as f:
         html = f.read()
+    logger.info(f"Loaded {len(html)} bytes of HTML")
 
-    # Convert using BeautifulSoup-based parser
-    markdown = twitter_feed_html_to_md(html)
+    # Convert using our parser
+    logger.info("Converting HTML to markdown using twitter_thread_html_to_md")
+    markdown = twitter_thread_html_to_md(html)
 
     # Basic assertions
     assert markdown is not None, "Conversion returned None"
@@ -29,33 +34,34 @@ def test_parse(fixtures_dir: Path):
     assert "Error converting" not in markdown, f"Conversion failed: {markdown}"
     assert len(markdown.strip()) > 0, "Conversion resulted in empty markdown"
 
+    # Print stats
+    if markdown:
+        line_count = len(markdown.split("\n"))
+        tweet_count = markdown.count("###")
+        logger.info(f"Stats: {len(markdown)} chars, {line_count} lines, {tweet_count} tweets")
+
     # --- Assertions for Tweet Content & Format ---
     # Check for specific usernames and handles
-    assert "@bytheophana" in markdown, "Missing @bytheophana handle"
-    assert "Danielle Fong" in markdown, "Missing Danielle Fong username"
-    assert "@DanielleFong" in markdown, "Missing @DanielleFong handle"
-    assert "Jai Malik" in markdown, "Missing Jai Malik username"
-    assert "@Jai__Malik" in markdown, "Missing @Jai__Malik handle"
+    assert "Eli Lifland" in markdown, "Missing Eli Lifland username"
+    assert "@eli_lifland" in markdown, "Missing @eli_lifland handle"
 
     # Check for tweet content snippets
-    assert "large announcement dropping tomorrow" in markdown, "Missing tiff's tweet content"
-    assert "ran a hot plasma experiment" in markdown, "Missing Danielle's tweet content"
-    assert "Advanced Manufacturing Company of America" in markdown, "Missing Jai's tweet content"
+    assert "AI 2027" in markdown, "Missing discussion of AI 2027"
+    assert "positive and negative" in markdown, "Missing expected content about positive/negative"
+    assert "doomer agenda" in markdown, "Missing expected content about doomer agenda"
 
     # Check for media attachments
-    assert "![Video Thumbnail](" in markdown or "![Embedded video](" in markdown, (
-        "Missing video attachment"
-    )
-    assert "![" in markdown, "Missing image attachment"
+    assert "![Image](" in markdown, "Missing image attachment"
 
     # Check for engagement metrics format
     assert "💬" in markdown, "Missing replies emoji in engagement metrics"
     assert "⟲" in markdown, "Missing retweets emoji in engagement metrics"
     assert "❤️" in markdown, "Missing likes emoji in engagement metrics"
+    assert "👁️" in markdown, "Missing views emoji in engagement metrics"
 
     # Check header formatting
     assert "### " in markdown, "Missing H3 headers for tweets"
 
     logger.info(
-        f"✅ Twitter feed conversion test passed for {fixture_name}. Markdown length: {len(markdown)}"
+        f"✅ Twitter thread conversion test passed for {fixture_name}. Markdown length: {len(markdown)}"
     )

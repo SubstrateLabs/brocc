@@ -47,30 +47,30 @@ test-md:
 	uv run pytest src/brocc_li/tests/test_html_to_md.py -v
 
 test-twitter-home:
-	uv run pytest src/brocc_li/tests/test_twitter_home.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_home.py -v -s
 
 test-twitter-thread:
-	uv run pytest src/brocc_li/tests/test_twitter_thread.py -v -s 
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_thread.py -v -s 
 
 test-twitter-likes:
-	uv run pytest src/brocc_li/tests/test_twitter_likes.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_likes.py -v -s
 
 test-twitter: test-twitter-home test-twitter-thread test-twitter-likes
 
 test-linkedin-feed:
-	uv run pytest src/brocc_li/tests/test_linkedin_feed.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
 
 test-linkedin-company:
-	uv run pytest src/brocc_li/tests/test_linkedin_company.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company.py -v -s
 
 test-linkedin-profile:
-	uv run pytest src/brocc_li/tests/test_linkedin_profile.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_profile.py -v -s
 
 test-linkedin-company-posts:
-	uv run pytest src/brocc_li/tests/test_linkedin_company_posts.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company_posts.py -v -s
 
 test-linkedin-company-about:
-	uv run pytest src/brocc_li/tests/test_linkedin_company_about.py -v -s
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company_about.py -v -s
 
 test-linkedin: test-linkedin-feed test-linkedin-company test-linkedin-profile test-linkedin-company-posts test-linkedin-company-about 
 
