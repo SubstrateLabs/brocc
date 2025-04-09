@@ -5,6 +5,8 @@ from unstructured.partition.html import partition_html
 
 from brocc_li.parsers.linkedin_utils import (
     extract_company_metadata,
+    extract_profile_url,
+    format_profile_header,
     is_connection_info,
     is_job_title,
     is_person_name,
@@ -41,6 +43,13 @@ def linkedin_company_people_html_to_md(html: str, debug: bool = False) -> Option
         # --- Extract Company Information using LinkedIn Utils --- #
         company_metadata = extract_company_metadata(elements[:15], debug=debug)
         company_name = company_metadata.get("name", "Unknown Company")
+        company_url = None
+
+        # Try to find company URL in the first few elements
+        for element in elements[:15]:
+            if company_url := extract_profile_url(element):
+                if "/company/" in company_url:
+                    break
 
         # Collect company info for markdown
         company_info = []
@@ -90,8 +99,12 @@ def linkedin_company_people_html_to_md(html: str, debug: bool = False) -> Option
             if is_person_name(elem_text):
                 if elem_text not in processed_names:
                     processed_names.add(elem_text)
+                    # Extract profile URL if available
+                    profile_url = extract_profile_url(element)
                     # Create entry in people_data
-                    people_data.append({"name": elem_text, "job": "", "connections": []})
+                    people_data.append(
+                        {"name": elem_text, "url": profile_url, "job": "", "connections": []}
+                    )
             elif is_job_title(elem_text):
                 # Store job title to associate with a person later
                 job_titles[i] = elem_text
@@ -172,8 +185,10 @@ def linkedin_company_people_html_to_md(html: str, debug: bool = False) -> Option
         # --- Generate Markdown --- #
         markdown_parts = []
 
-        # Add company header
-        markdown_parts.append(f"# LinkedIn Company People: {company_name}")
+        # Add company header with URL if available
+        markdown_parts.append(
+            format_profile_header(f"LinkedIn Company People: {company_name}", company_url, level=1)
+        )
 
         # Add company info section
         if company_info:
@@ -185,7 +200,8 @@ def linkedin_company_people_html_to_md(html: str, debug: bool = False) -> Option
 
         # Add each person
         for person in people_data:
-            markdown_parts.append(f"\n### {person['name']}")
+            markdown_parts.append("")  # Add blank line for better readability
+            markdown_parts.append(format_profile_header(person["name"], person["url"], level=3))
 
             # Add job title
             if person["job"]:

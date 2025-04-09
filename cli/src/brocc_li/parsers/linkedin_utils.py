@@ -1089,3 +1089,31 @@ def is_connection_info(text: str) -> bool:
         return True
 
     return False
+
+
+def extract_profile_url(element: Element) -> Optional[str]:
+    """Extract LinkedIn profile URL from element metadata."""
+    metadata = getattr(element, "metadata", None)
+    if metadata:
+        link_urls = getattr(metadata, "link_urls", [])
+        if link_urls and link_urls[0]:
+            # Clean up the URL by removing query parameters
+            return link_urls[0].split("?")[0]
+    return None
+
+
+def format_profile_header(name: str, url: Optional[str], level: int = 2) -> str:
+    """Format a markdown header with optional profile URL.
+
+    Args:
+        name: The name to display
+        url: Optional URL to link to
+        level: Markdown header level (default: 2)
+
+    Returns:
+        Formatted markdown header with appropriate number of #s and optional URL
+    """
+    hashes = "#" * level
+    if url:
+        return f"{hashes} [{name}]({url})"
+    return f"{hashes} {name}"

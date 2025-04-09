@@ -61,6 +61,9 @@ test-twitter-inbox:
 test-twitter-profile:
 	uv run pytest src/brocc_li/tests/parsers/test_twitter_profile.py -v -s
 
+test-twitter-bookmarks:
+	uv run pytest src/brocc_li/tests/parsers/test_twitter_bookmarks.py -v -s
+
 test-twitter-profile-followers:
 	uv run pytest src/brocc_li/tests/parsers/test_twitter_profile_followers.py -v -s
 
@@ -71,6 +74,7 @@ test-twitter: \
 	test-twitter-likes \
 	test-twitter-inbox \
 	test-twitter-profile \
+	test-twitter-bookmarks \
 	test-twitter-profile-followers
 
 test-linkedin-feed:

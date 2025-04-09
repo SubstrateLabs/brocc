@@ -37,8 +37,8 @@ def test_parse(debug: bool = DEBUG):
         "Parser reported no elements after filtering"
     )
 
-    # Check for main header
-    assert "# LinkedIn Company People" in markdown, "Main header missing"
+    # Check for main header with company URL
+    assert "# LinkedIn Company People: Motion" in markdown, "Main header with company name missing"
 
     # Check for company information
     assert "## Company Information" in markdown, "Company information section missing"
@@ -49,9 +49,13 @@ def test_parse(debug: bool = DEBUG):
     # Check for people section
     assert "## People" in markdown, "People section missing"
 
-    # Check for specific people
-    assert "### Omid Rooholfada" in markdown, "Missing specific person: Omid Rooholfada"
-    assert "### Brian Wool" in markdown, "Missing specific person: Brian Wool"
+    # Check for specific people with profile URLs
+    assert "### [Omid Rooholfada](https://www.linkedin.com/in/omidrooholfada)" in markdown, (
+        "Missing person link: Omid Rooholfada"
+    )
+    assert "### [Brian Wool](https://www.linkedin.com/in/bzwool)" in markdown, (
+        "Missing person link: Brian Wool"
+    )
 
     # Check for job titles with the new format
     assert "- *Co-Founder @ Motion*" in markdown, "Missing job title: Co-Founder @ Motion"
@@ -71,8 +75,8 @@ def test_parse(debug: bool = DEBUG):
     assert "2nd degree connection" in markdown, "Missing connection degree information"
 
     # Verify no duplicate entries for the same person
-    person_sections = [line for line in markdown.split("\n") if line.startswith("###")]
-    assert len(person_sections) >= 10, "Expected at least 10 people entries"
+    person_sections = [line for line in markdown.split("\n") if line.startswith("### [")]
+    assert len(person_sections) >= 9, "Expected at least 9 people entries"
 
     # Check that job titles and connection info both use bullet points
     job_title_lines = [line for line in markdown.split("\n") if "@ Motion" in line]

@@ -4,7 +4,7 @@ from brocc_li.parsers.linkedin_search_connections import linkedin_search_connect
 from brocc_li.tests.parsers.get_fixture import get_fixture
 from brocc_li.utils.logger import logger
 
-DEBUG = True
+DEBUG = False
 FIXTURE_NAME = "_linkedin-search-connections.html"
 
 
@@ -40,10 +40,16 @@ def test_parse(debug: bool = DEBUG):
     # Check for main header
     assert "# LinkedIn Search Connections" in markdown, "Main header missing"
 
-    # Check for specific people we expect to find
-    assert "## Si Kai Lee" in markdown, "Si Kai Lee missing or wrong format"
-    assert "## Jake Nyquist" in markdown, "Jake Nyquist missing or wrong format"
-    assert "## Sidharth Shanker" in markdown, "Sidharth Shanker missing or wrong format"
+    # Check for specific people we expect to find with markdown links
+    assert "## [Si Kai Lee](https://www.linkedin.com/in/sikailee)" in markdown, (
+        "Si Kai Lee link missing or wrong format"
+    )
+    assert "## [Jake Nyquist](https://www.linkedin.com/in/jake-nyquist)" in markdown, (
+        "Jake Nyquist link missing or wrong format"
+    )
+    assert "## [Sidharth Shanker](https://www.linkedin.com/in/sidharthshanker)" in markdown, (
+        "Sidharth Shanker link missing or wrong format"
+    )
 
     # Check for specific details
     assert "Data Scientist @ Gaimin" in markdown, "Expected job title not found"
@@ -64,7 +70,7 @@ def test_parse(debug: bool = DEBUG):
     assert len(bullet_points) > 5, "Expected more profile details as bullet points"
 
     # Check that profiles are properly separated
-    profile_headers = [line for line in markdown.split("\n") if line.startswith("## ")]
+    profile_headers = [line for line in markdown.split("\n") if line.startswith("## [")]
     assert len(profile_headers) >= 5, "Expected at least 5 profile headers"
 
     logger.info(
