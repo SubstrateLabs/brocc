@@ -115,10 +115,31 @@ test-linkedin: \
 	test-linkedin-company-people \
 	test-linkedin-search-connections
 
+test-gmail:
+	uv run pytest src/brocc_li/tests/parsers/test_gmail_inbox.py -v -s
 
+test-instagram-home:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_home.py -v -s
 
+test-instagram-profile:
+	uv run pytest src/brocc_li/tests/parsers/test_instagram_profile.py -v -s
 
+test-instagram: \
+	test-instagram-home \
+	test-instagram-profile
 
+test-substack-inbox:
+	uv run pytest src/brocc_li/tests/parsers/test_substack_inbox.py -v -s
+
+test-substack-feed:
+	uv run pytest src/brocc_li/tests/parsers/test_substack_feed.py -v -s
+
+test-substack: \
+	test-substack-inbox \
+	test-substack-feed
+
+test-substack-activity:
+	uv run pytest src/brocc_li/tests/parsers/test_substack_activity.py -v -s
 
 
 
