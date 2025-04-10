@@ -11,6 +11,7 @@ from rich.markup import escape
 from brocc_li.chrome_cdp import ChromeTab, get_chrome_info, get_tabs, monitor_user_interactions
 from brocc_li.chrome_manager import ChromeManager, TabReference
 from brocc_li.html_to_md import html_to_md
+from brocc_li.merge_md import MergeResultType, merge_md
 from brocc_li.utils.logger import logger
 from brocc_li.utils.slugify import slugify
 
@@ -131,11 +132,13 @@ class ChromeTabs:
                 f"Converting initial HTML to Markdown for {len(initial_tabs_with_html)} tabs..."
             )
             self.previous_tab_refs = set()
-            for tab, html in initial_tabs_with_html:
-                tab_id = tab.get("id")
-                tab_url = tab.get("url")
+            for tab_dict, html, fetched_url in initial_tabs_with_html:
+                tab_id = tab_dict.get("id")
+                # Use the URL returned by the fetch, fallback to dict URL if needed
+                tab_url = fetched_url or tab_dict.get("url")
                 if tab_id and tab_url:
                     if html:
+                        # Pass the fetched URL to html_to_md
                         markdown = html_to_md(html, tab_url)
                         if markdown is None:  # Handle conversion failure
                             logger.warning(
@@ -285,62 +288,119 @@ class ChromeTabs:
     async def _fetch_and_update_tab_content(self, tab_id: str):
         """Fetches HTML for a specific tab, converts to MD, updates internal state, and logs."""
         try:
-            logger.debug(f"Fetching latest HTML for tab {tab_id} due to interaction...")
-            # Fetch HTML for the specific tab
-            html_content = await self.chrome_manager.get_tab_html(tab_id)
+            logger.debug(f"Fetching latest HTML and URL for tab {tab_id} due to interaction...")
+            # Fetch HTML and the *current* URL for the specific tab
+            html_content, current_url = await self.chrome_manager.get_tab_html(tab_id)
 
-            if not html_content:
-                logger.warning(f"Failed to fetch HTML for tab {tab_id} after interaction.")
-                markdown_content = ""  # Store empty MD if fetch fails
-            else:
-                # Convert fetched HTML to Markdown
-                logger.debug(f"Converting HTML to Markdown for interacted tab {tab_id}...")
-                markdown_content = html_to_md(
-                    html_content, ""
-                )  # URL isn't strictly needed here if stored already
-                if markdown_content is None:
-                    logger.warning(
-                        f"Markdown conversion failed for interacted tab {tab_id}, storing empty."
-                    )
-                    markdown_content = ""
-
-            # Find the existing reference for this tab
-            current_ref = next((ref for ref in self.previous_tab_refs if ref.id == tab_id), None)
-
-            if current_ref:
-                # Compare markdown content now
-                if current_ref.markdown != markdown_content:
-                    logger.success(
-                        f"Interaction detected content change in tab {tab_id} ({current_ref.url}). Updating stored Markdown."
-                    )
-                    new_ref = TabReference(
-                        id=current_ref.id, url=current_ref.url, markdown=markdown_content
-                    )
-                    # Update the set: remove old, add new
-                    self.previous_tab_refs.remove(current_ref)
-                    self.previous_tab_refs.add(new_ref)
-
-                    # Trigger the interaction update callback if provided
-                    if self._on_interaction_update_callback:
-                        logger.debug(f"Calling interaction update callback for tab {tab_id}")
-                        try:
-                            if asyncio.iscoroutinefunction(self._on_interaction_update_callback):
-                                await self._on_interaction_update_callback(new_ref)
-                            else:
-                                self._on_interaction_update_callback(new_ref)
-                        except Exception as cb_err:
-                            logger.error(
-                                f"Error in interaction update callback for tab {tab_id}: {cb_err}",
-                                exc_info=True,
-                            )
-
-                else:
-                    logger.debug(
-                        f"Interaction detected in tab {tab_id}, but Markdown content hasn't changed."
-                    )
-            else:
+            if not current_url:
                 logger.warning(
-                    f"Tab {tab_id} not found in previous_tab_refs during interaction update. State might be inconsistent."
+                    f"Could not determine URL for tab {tab_id} during fetch. Aborting update."
+                )
+                return
+
+            new_markdown = None
+            if not html_content:
+                logger.warning(
+                    f"Failed to fetch HTML for tab {tab_id} ({current_url}) after interaction."
+                )
+                # If HTML fetch failed, but we got a URL, maybe still proceed with merge logic?
+                # Let's assume failure means we treat new_markdown as None
+            else:
+                # Convert fetched HTML to Markdown using the FETCHED URL
+                logger.debug(
+                    f"Converting HTML to Markdown for interacted tab {tab_id} ({current_url})..."
+                )
+                new_markdown = html_to_md(html_content, current_url)  # Use FETCHED URL
+                # html_to_md returns None on error or empty content
+
+            # Find the existing reference for this tab (still needed for old_markdown)
+            current_ref = next((ref for ref in self.previous_tab_refs if ref.id == tab_id), None)
+            old_markdown = current_ref.markdown if current_ref else None
+
+            # Use merge_md to combine old and new markdown
+            merge_result = merge_md(old_markdown, new_markdown)
+            merged_content = merge_result.content
+
+            # Check if the merged content is different from the previously stored markdown
+            content_changed = merged_content != old_markdown
+
+            # Determine the URL to use for the *new* reference. Always use the freshly fetched URL.
+            url_for_new_ref = current_url
+            display_url = (
+                url_for_new_ref[:80] + "..." if len(url_for_new_ref) > 80 else url_for_new_ref
+            )
+
+            if current_ref and content_changed:
+                # Log based on merge type, using the NEW url
+                if merge_result.type == MergeResultType.MERGED:
+                    logger.success(
+                        f"Interaction MERGED content update for tab {tab_id} ({display_url}). Updating stored Markdown."
+                    )
+                elif merge_result.type == MergeResultType.KEPT_NEW:
+                    logger.success(
+                        f"Interaction detected significant change (KEPT_NEW) for tab {tab_id} ({display_url}). Updating stored Markdown."
+                    )
+                else:  # KEPT_EMPTY
+                    logger.success(
+                        f"Interaction resulted in empty content (KEPT_EMPTY) for tab {tab_id} ({display_url}). Updating stored Markdown."
+                    )
+
+                # Create the new reference using the FETCHED URL
+                new_ref = TabReference(
+                    id=tab_id, url=url_for_new_ref, markdown=merged_content or ""
+                )
+                # Update the set: remove old, add new
+                # Use discard() for safety, in case the ref was already removed by polling
+                self.previous_tab_refs.discard(current_ref)
+                self.previous_tab_refs.add(new_ref)
+
+                # Trigger the interaction update callback if provided
+                if self._on_interaction_update_callback:
+                    logger.debug(
+                        f"Calling interaction update callback for tab {tab_id} with URL {display_url}"
+                    )
+                    try:
+                        if asyncio.iscoroutinefunction(self._on_interaction_update_callback):
+                            await self._on_interaction_update_callback(new_ref)
+                        else:
+                            self._on_interaction_update_callback(new_ref)
+                    except Exception as cb_err:
+                        logger.error(
+                            f"Error in interaction update callback for tab {tab_id}: {cb_err}",
+                            exc_info=True,
+                        )
+            elif not current_ref:
+                # Should not happen ideally if interaction is monitored, but handle it.
+                logger.warning(
+                    f"Tab {tab_id} not found in previous_tab_refs during interaction update. Storing fetched content for URL {display_url}."
+                )
+                # Store the newly fetched content (or merged) using the FETCHED URL
+                new_ref = TabReference(
+                    id=tab_id, url=url_for_new_ref, markdown=merged_content or ""
+                )
+                self.previous_tab_refs.add(new_ref)
+                # Optionally trigger callback here too?
+                # Let's trigger it if we just added it and there's a callback.
+                if self._on_interaction_update_callback:
+                    logger.debug(
+                        f"Calling interaction update callback for newly tracked tab {tab_id} with URL {display_url}"
+                    )
+                    try:
+                        if asyncio.iscoroutinefunction(self._on_interaction_update_callback):
+                            await self._on_interaction_update_callback(new_ref)
+                        else:
+                            self._on_interaction_update_callback(new_ref)
+                    except Exception as cb_err:
+                        logger.error(
+                            f"Error in interaction update callback for tab {tab_id}: {cb_err}",
+                            exc_info=True,
+                        )
+            else:  # current_ref exists but content_changed is False
+                # Handle interaction race condition during navigation)
+                # In that case, the url_for_new_ref might differ from current_ref.url.
+                # Always use url_for_new_ref for logging and saving.
+                logger.debug(
+                    f"Interaction detected in tab {tab_id} ({display_url}), but merged Markdown content hasn't changed from previous state."
                 )
 
         except Exception as e:
@@ -530,14 +590,32 @@ class ChromeTabs:
                 nav_tab_info["old_url"] = previous_ref.url  # Add old URL for event context
                 navigated_tabs_detected_by_poll.append(nav_tab_info)
 
-                # Stop the old interaction monitor (if running) and start a new one for the new URL/context
-                # Need the WebSocket URL from the *current* tab object
+                # 1. Stop any ongoing interaction work for the old URL context IMMEDIATELY.
+                # This cancels pending timers/fetches associated with the previous URL.
                 self._stop_interaction_monitor(tab_id)
+
+                # 2. Update the internal state *now* with the new URL but empty markdown.
+                # This ensures any interaction update that might still slip through
+                # before the polling HTML fetch completes uses the *correct* URL for saving.
+                # The actual markdown will be filled in later by the polling fetch results.
+                logger.debug(
+                    f"Navigation detected for {tab_id}: updating internal ref URL immediately to {current_tab.url}"
+                )
+                self.previous_tab_refs.discard(previous_ref)  # Remove old ref
+                # Add placeholder with new URL, empty markdown
+                self.previous_tab_refs.add(
+                    TabReference(id=tab_id, url=current_tab.url, markdown="")
+                )
+
+                # 3. Start the interaction monitor for the *new* URL context.
+                # Add a small delay to allow the target page's WS endpoint to potentially stabilize
+                await asyncio.sleep(1.0)  # Wait 1 second
+
                 if current_tab.webSocketDebuggerUrl:
                     self._start_interaction_monitor(tab_id, current_tab.webSocketDebuggerUrl)
                 else:
                     logger.warning(
-                        f"Navigated tab {tab.id} missing WebSocket URL, cannot monitor interactions."
+                        f"Navigated tab {tab_id} missing WebSocket URL, cannot monitor interactions."
                     )
 
             else:
@@ -568,20 +646,23 @@ class ChromeTabs:
         updated_tab_refs = set(tabs_to_keep_refs)
 
         # Add/update refs for tabs where polling fetched new HTML
-        for tab_dict, html in newly_fetched_tabs_with_html:
+        # The result now contains (tab_dict, html, url)
+        for tab_dict, html, fetched_url in newly_fetched_tabs_with_html:
             tab_id = tab_dict.get("id")
-            tab_url = tab_dict.get("url")
+            # Use the URL returned by the fetch operation, fallback to tab_dict URL if None
+            tab_url = fetched_url or tab_dict.get("url")
+
             if tab_id and tab_url:
-                # Convert HTML to Markdown
+                # Convert HTML to Markdown using the fetched/confirmed URL
                 markdown = html_to_md(html, tab_url) if html else ""
                 if markdown is None:
                     logger.warning(
                         f"Polling Markdown conversion failed for {tab_url}, storing empty."
                     )
                     markdown = ""
-                # Remove any outdated ref for this ID if it exists (e.g., from navigation)
+                # Remove any outdated ref for this ID if it exists (e.g., from navigation placeholder)
                 updated_tab_refs = {ref for ref in updated_tab_refs if ref.id != tab_id}
-                # Add the new reference with fresh HTML
+                # Add the new reference with the fetched/confirmed URL and fresh markdown
                 updated_tab_refs.add(TabReference(id=tab_id, url=tab_url, markdown=markdown))
 
         # Atomically update the main set of references

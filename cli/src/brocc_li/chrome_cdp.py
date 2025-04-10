@@ -1,7 +1,7 @@
 import asyncio
 import json
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import aiohttp
 import websockets
@@ -158,17 +158,17 @@ async def get_chrome_info():
     return result
 
 
-async def get_tab_html_content(ws_url: str) -> str:
-    """Get HTML with hard timeout using asyncio.wait_for"""
+async def get_tab_html_content(ws_url: str) -> Tuple[Optional[str], Optional[str]]:
+    """Get HTML and URL with hard timeout using asyncio.wait_for"""
     try:
         # Give up after 10 seconds total for entire CDP operation
         return await asyncio.wait_for(_get_html_using_dom(ws_url), timeout=10.0)
     except asyncio.TimeoutError:
         logger.error("CDP HTML retrieval timed out after 10 seconds")
-        return ""
+        return None, None
     except Exception as e:
         logger.error(f"CDP failed: {e}")
-        return ""
+        return None, None
 
 
 async def _send_cdp_command(ws, msg_id: int, method: str, params: Optional[dict] = None) -> dict:
@@ -195,9 +195,10 @@ async def _send_cdp_command(ws, msg_id: int, method: str, params: Optional[dict]
             logger.warning(f"Ignoring unexpected CDP message format: {response_raw}")
 
 
-async def _get_html_using_dom(ws_url: str) -> str:
-    """Get HTML content using DOM.getOuterHTML CDP method"""
+async def _get_html_using_dom(ws_url: str) -> Tuple[Optional[str], Optional[str]]:
+    """Get HTML content and final URL using DOM.getOuterHTML CDP method"""
     msg_counter = 1  # Use a counter for unique message IDs
+    current_url: Optional[str] = None  # Store the URL found
     try:
         logger.debug(f"Connecting to tab via WebSocket: {ws_url}")
         async with websockets.connect(
@@ -219,11 +220,13 @@ async def _get_html_using_dom(ws_url: str) -> str:
 
                 # Check if this is an about:blank or empty page
                 frame = resource_result.get("result", {}).get("frameTree", {}).get("frame", {})
-                url = frame.get("url", "")
-                logger.debug(f"Resource Tree frame check: url='{url}', frame_details={frame}")
-                if url in ["about:blank", ""]:
+                current_url = frame.get("url", None)  # Store the URL from frame
+                logger.debug(
+                    f"Resource Tree frame check: url='{current_url}', frame_details={frame}"
+                )
+                if current_url in ["about:blank", ""]:
                     logger.debug("Detected blank/empty page - returning empty HTML")
-                    return ""
+                    return None, current_url  # Return None HTML, but the URL
             except Exception as e:
                 # If this fails, just continue with normal DOM method
                 logger.debug(f"Resource check failed: {e}, continuing with DOM method")
@@ -237,11 +240,18 @@ async def _get_html_using_dom(ws_url: str) -> str:
             msg_counter += 1
             logger.debug(f"DOM.getDocument result: {doc_result}")
 
+            # Extract document URL if available (more reliable than frame URL sometimes)
+            root_data = doc_result.get("result", {}).get("root", {})
+            doc_url = root_data.get("documentURL")
+            if doc_url:
+                current_url = doc_url  # Prefer documentURL if found
+                logger.debug(f"Updated current URL from DOM.getDocument: {current_url}")
+
             # Extract root node ID from response
-            root_node_id = doc_result.get("result", {}).get("root", {}).get("nodeId")
+            root_node_id = root_data.get("nodeId")
             if not root_node_id:
                 logger.error("Failed to get root node ID")
-                return ""
+                return None, current_url  # Return None HTML, but potentially URL
 
             # Get outer HTML using the root node ID
             html_result = await _send_cdp_command(
@@ -260,14 +270,14 @@ async def _get_html_using_dom(ws_url: str) -> str:
                 logger.warning("DOM.getOuterHTML succeeded but returned empty HTML")
 
             if html_content:
-                return html_content
+                return html_content, current_url
             else:
-                return ""
+                return None, current_url  # Return None HTML, but the URL we found
 
     except asyncio.TimeoutError:
         # websockets uses asyncio.TimeoutError for connection timeouts?
         logger.warning("WebSocket connection timed out")
-        return ""
+        return None, None
     except websockets.ConnectionClosedError as e:
         if "403 Forbidden" in str(e):
             logger.error(
@@ -277,10 +287,10 @@ async def _get_html_using_dom(ws_url: str) -> str:
             )
         else:
             logger.error(f"WebSocket connection error: {e}")
-        return ""
+        return None, None
     except Exception as e:
         logger.error(f"Failed to connect to tab via WebSocket: {e}")
-        return ""
+        return None, None
 
 
 async def monitor_user_interactions(ws_url: str):
@@ -305,21 +315,28 @@ async def monitor_user_interactions(ws_url: str):
         )
         ws = connection
 
-        # Enable required domains
-        await _send_cdp_command(ws, msg_counter, "Page.enable")
-        msg_counter += 1
+        # === Step 1: Enable Runtime domain FIRST ===
         await _send_cdp_command(ws, msg_counter, "Runtime.enable")
         msg_counter += 1
+        logger.info(f"[{ws_url[-10:]}] Runtime domain enabled.")
 
-        # Enable console API events AFTER Runtime is enabled
-        await _send_cdp_command(
-            ws, msg_counter, "Log.enable"
-        )  # Alternative to Runtime.setConsoleLogEnabled
+        # === Step 2: Enable dependent domains (Page, Log) ===
+        await _send_cdp_command(ws, msg_counter, "Page.enable")
         msg_counter += 1
+        logger.info(f"[{ws_url[-10:]}] Page domain enabled.")
+
+        # === Step 3: Subscribe to consoleAPICalled event (Reverting from Log.entryAdded) ===
+        # Note: We are testing if consoleAPICalled is more reliable here than Log.entryAdded
+        # await _send_cdp_command(ws, msg_counter, "Log.enable") # Previous method
+        # msg_counter += 1
+        logger.info(
+            f"[{ws_url[-10:]}] Subscribing via Runtime.enable (for consoleAPICalled)...done."
+        )
 
         # Inject JS listeners
         js_code = """
         (function() {
+            console.log('BROCC_DEBUG: Injecting listeners...'); // Debug log
             // Use a closure to prevent polluting the global scope too much
             let lastScrollTimestamp = 0;
             let lastClickTimestamp = 0;
@@ -352,6 +369,7 @@ async def monitor_user_interactions(ws_url: str):
                  }
             }, { capture: true, passive: true }); // Use capture phase, non-blocking
 
+            console.log('BROCC_DEBUG: Listeners successfully installed.'); // Debug log
             return "Broccoli interaction listeners installed.";
         })();
         """
@@ -374,24 +392,59 @@ async def monitor_user_interactions(ws_url: str):
             response = json.loads(response_raw)
 
             # Check for Log.entryAdded events (instead of Runtime.consoleAPICalled)
-            if response.get("method") == "Log.entryAdded":
-                entry = response.get("params", {}).get("entry", {})
-                if entry.get("source") == "console-api" and entry.get("level") == "log":
-                    args = entry.get("args", [])
-                    if len(args) >= 2 and args[0].get("value") == "BROCC_CLICK_EVENT":
+            # === Reverted Logic: Check for Runtime.consoleAPICalled ===
+            if response.get("method") == "Runtime.consoleAPICalled":
+                call_type = response.get("params", {}).get("type")
+                args = response.get("params", {}).get("args", [])
+
+                # Check if it's a log message with our specific prefix
+                if call_type == "log" and len(args) >= 1:
+                    first_arg_value = args[0].get("value")
+
+                    # --- Handle BROCC_DEBUG messages ---
+                    if first_arg_value == "BROCC_DEBUG: Injecting listeners...":
+                        logger.info(f"[{ws_url[-10:]}] JS Injection: Starting setup.")
+                    elif first_arg_value == "BROCC_DEBUG: Listeners successfully installed.":
+                        logger.success(
+                            f"[{ws_url[-10:]}] JS Injection: Listeners confirmed installed."
+                        )
+                    # --- Handle BROCC_CLICK_EVENT ---
+                    elif first_arg_value == "BROCC_CLICK_EVENT" and len(args) >= 2:
                         try:
                             click_data = json.loads(args[1].get("value", "{}"))
-                            logger.debug(f"Detected click via CDP log: {click_data}")
+                            logger.debug(f"Detected click via CDP console: {click_data}")
                             yield {"type": "click", "data": click_data}
                         except json.JSONDecodeError:
-                            logger.warning("Failed to parse click event data from CDP log")
-                    elif len(args) >= 2 and args[0].get("value") == "BROCC_SCROLL_EVENT":
+                            logger.warning("Failed to parse click event data from CDP console")
+                    # --- Handle BROCC_SCROLL_EVENT ---
+                    elif first_arg_value == "BROCC_SCROLL_EVENT" and len(args) >= 2:
                         try:
                             scroll_data = json.loads(args[1].get("value", "{}"))
-                            logger.debug(f"Detected scroll via CDP log: {scroll_data}")
+                            logger.debug(f"Detected scroll via CDP console: {scroll_data}")
                             yield {"type": "scroll", "data": scroll_data}
                         except json.JSONDecodeError:
-                            logger.warning("Failed to parse scroll event data from CDP log")
+                            logger.warning("Failed to parse scroll event data from CDP console")
+            # === End of Reverted Logic ===
+
+            # Original Log.entryAdded logic (commented out for testing)
+            # if response.get("method") == "Log.entryAdded":
+            #     entry = response.get("params", {}).get("entry", {})
+            #     if entry.get("source") == "console-api" and entry.get("level") == "log":
+            #         args = entry.get("args", [])
+            #         if len(args) >= 2 and args[0].get("value") == "BROCC_CLICK_EVENT":
+            #             try:
+            #                 click_data = json.loads(args[1].get("value", "{}"))
+            #                 logger.debug(f"Detected click via CDP log: {click_data}")
+            #                 yield {"type": "click", "data": click_data}
+            #             except json.JSONDecodeError:
+            #                 logger.warning("Failed to parse click event data from CDP log")
+            #         elif len(args) >= 2 and args[0].get("value") == "BROCC_SCROLL_EVENT":
+            #             try:
+            #                 scroll_data = json.loads(args[1].get("value", "{}"))
+            #                 logger.debug(f"Detected scroll via CDP log: {scroll_data}")
+            #                 yield {"type": "scroll", "data": scroll_data}
+            #             except json.JSONDecodeError:
+            #                 logger.warning("Failed to parse scroll event data from CDP log")
 
             # Handle other methods or responses if necessary
             elif "id" in response:

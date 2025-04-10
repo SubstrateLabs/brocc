@@ -7,7 +7,7 @@ This module uses async Playwright API for better thread safety.
 import asyncio
 import time
 from collections import deque
-from typing import Deque, Tuple
+from typing import Deque, Optional, Tuple
 
 import aiohttp
 from playwright.async_api import Error as PlaywrightError
@@ -107,29 +107,28 @@ class PlaywrightFallback:
                     logger.error(f"Failed to connect to Chrome browser: {e}")
                     self._browser = None
 
-    async def get_html_from_url(self, url: str) -> str:
+    async def get_html_from_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """
-        Get HTML content from a URL using Playwright in a dedicated fallback context.
-
-        Opens a temporary *tab* in a shared fallback window (context),
-        gets the content, and immediately closes the tab.
+        Get HTML content and the final URL from a URL using Playwright.
+        Opens a temporary tab, gets the content, closes the tab.
 
         Args:
             url: The URL to get HTML from
 
         Returns:
-            HTML content as string, empty string if failed
+            Tuple containing (HTML content string | None, final URL string | None)
         """
         if not url or not url.startswith(("http://", "https://")):
             logger.error(f"Invalid URL for Playwright fallback: {url}")
-            return ""
+            return None, None
 
         await self._ensure_browser()
         if not self._browser:
-            return ""
+            return None, None
 
         page = None
-        html = ""
+        html: Optional[str] = None
+        final_url: Optional[str] = None
         start_time = time.time()  # Start timing
 
         try:
@@ -254,21 +253,34 @@ class PlaywrightFallback:
 
                 # Get the page content
                 html = await page.content()
+                # Get the final URL after potential redirects
+                final_url = page.url
+
                 if html and len(html) > 500:  # Ensure we have meaningful content
-                    logger.debug(f"Successfully retrieved HTML via Playwright ({len(html)} chars)")
+                    logger.debug(
+                        f"Successfully retrieved HTML via Playwright ({len(html)} chars) from {final_url}"
+                    )
                 else:
-                    logger.warning("Playwright returned insufficient HTML content")
+                    logger.warning(
+                        f"Playwright returned insufficient HTML content from {final_url}"
+                    )
+                    html = None  # Set html to None if insufficient
+
+                return html, final_url
+
             except Exception as e:
                 logger.warning(f"Error getting page content: {e}")
-
-            return html
+                return None, None
 
         except PlaywrightError as e:
             logger.error(f"Playwright error with {url}: {e}")
-            return ""
+            # Try to get the final URL even if content failed
+            final_url = page.url if page else None
+            return None, final_url
         except Exception as e:
             logger.error(f"Unexpected error with Playwright: {e}")
-            return ""
+            final_url = page.url if page else None
+            return None, final_url
         finally:
             # Calculate processing time and update the running average if content was retrieved
             end_time = time.time()
@@ -293,20 +305,18 @@ class PlaywrightFallback:
         self,
         tab_id: str,
         debug_port: int = REMOTE_DEBUG_PORT,
-    ) -> str:
+    ) -> Tuple[Optional[str], Optional[str]]:
         """
-        Get HTML content from an existing Chrome tab using Playwright.
-
-        This is a fallback method for when CDP methods fail.
-        It creates a temporary tab, gets the content, and immediately closes it.
+        Get HTML content and final URL from an existing Chrome tab using Playwright.
 
         Args:
             tab_id: The Chrome tab ID
             debug_port: Chrome debug port
 
         Returns:
-            HTML content as string, empty string if failed
+            Tuple containing (HTML content string | None, final URL string | None)
         """
+        tab_url: Optional[str] = None
         try:
             # Get the tab details to find its URL using aiohttp
             timeout = aiohttp.ClientTimeout(total=1.0)  # 1 second timeout
@@ -314,7 +324,7 @@ class PlaywrightFallback:
                 async with session.get(f"http://localhost:{debug_port}/json/list") as response:
                     if response.status != 200:
                         logger.error(f"Failed to get tab list: HTTP {response.status}")
-                        return ""
+                        return None, None
 
                     # Parse the JSON response
                     tabs = await response.json()
@@ -324,24 +334,25 @@ class PlaywrightFallback:
 
             if not tab:
                 logger.error(f"Tab with ID {tab_id} not found")
-                return ""
+                return None, None
 
             # Get the tab URL
-            url = tab.get("url", "")
+            tab_url = tab.get("url", None)  # Use None if not found
             title = tab.get("title", "Untitled")
 
-            if not url or url == "about:blank":
+            if not tab_url or tab_url == "about:blank":
                 logger.warning(f"Tab {tab_id} has blank or empty URL")
-                return ""
+                return None, None
 
-            logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {url}")
+            logger.debug(f"Using Playwright fallback for tab '{title}' ({tab_id}) at {tab_url}")
 
-            # Call get_html_from_url without progress info
-            return await self.get_html_from_url(url)
+            # Call get_html_from_url which now returns (html, final_url)
+            return await self.get_html_from_url(tab_url)
 
         except Exception as e:
             logger.error(f"Error getting tab info for Playwright fallback: {e}")
-            return ""
+            # Return None, but potentially the URL we found if the later stage failed
+            return None, tab_url
 
     async def cleanup(self):
         """Clean up browser context and connection."""
