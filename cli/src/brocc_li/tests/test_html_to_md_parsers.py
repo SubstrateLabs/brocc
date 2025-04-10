@@ -23,9 +23,7 @@ from brocc_li.parsers.instagram_saved_collection import instagram_saved_collecti
 from brocc_li.parsers.linkedin_company import linkedin_company_html_to_md
 from brocc_li.parsers.linkedin_company_about import linkedin_company_about_html_to_md
 from brocc_li.parsers.linkedin_company_people import linkedin_company_people_html_to_md
-from brocc_li.parsers.linkedin_company_posts import linkedin_company_posts_html_to_md
 from brocc_li.parsers.linkedin_connections_me import linkedin_connections_me_html_to_md
-from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
 from brocc_li.parsers.linkedin_feed_v2 import (
     linkedin_feed_html_to_md as linkedin_feed_v2_html_to_md,
 )
@@ -33,9 +31,6 @@ from brocc_li.parsers.linkedin_followers import linkedin_followers_html_to_md
 from brocc_li.parsers.linkedin_messages import linkedin_messages_html_to_md
 from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
 from brocc_li.parsers.linkedin_search_connections import linkedin_search_connections_html_to_md
-from brocc_li.parsers.substack_activity import substack_activity_html_to_md
-from brocc_li.parsers.substack_feed import substack_feed_html_to_md
-from brocc_li.parsers.substack_inbox import substack_inbox_html_to_md
 from brocc_li.parsers.threads_activity import threads_activity_html_to_md
 from brocc_li.parsers.threads_home import threads_home_html_to_md
 from brocc_li.parsers.twitter_bookmarks import twitter_bookmarks_html_to_md
@@ -140,14 +135,6 @@ TEST_CASES: list[Tuple[str, Optional[Callable]]] = [
         "https://www.linkedin.com/mynetwork/network-manager/people-follow/following/",
         linkedin_followers_html_to_md,
     ),
-    # Substack
-    ("https://substack.com/activity", substack_activity_html_to_md),
-    ("https://substack.com/feed", substack_feed_html_to_md),
-    ("https://substack.com/inbox", substack_inbox_html_to_md),
-    (
-        "https://someauthor.substack.com/p/some-post",
-        None,
-    ),  # Generic post, should not match specific parsers
     # Twitter / X - Specificity and domain handling
     ("https://twitter.com/home", twitter_feed_html_to_md),
     ("https://x.com/home", twitter_feed_html_to_md),

@@ -101,9 +101,6 @@ test-threads: \
 	test-threads-home \
 	test-threads-activity
 
-test-linkedin-feed:
-	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
-
 test-linkedin-feed-v2:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed_v2.py -v -s
 
@@ -135,7 +132,7 @@ test-linkedin-followers:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_followers.py -v -s
 
 test-linkedin: \
-	test-linkedin-feed \
+	test-linkedin-feed-v2 \
 	test-linkedin-company \
 	test-linkedin-profile \
 	test-linkedin-company-posts \

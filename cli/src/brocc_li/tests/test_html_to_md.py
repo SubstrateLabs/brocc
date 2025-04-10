@@ -239,3 +239,39 @@ def test_parser_timeout():
     finally:
         # Restore original registry
         brocc_li.html_to_md.PARSER_REGISTRY = original_registry
+
+
+def test_url_conversion():
+    """Test conversion of relative URLs to absolute."""
+    html = """
+    <html>
+    <body>
+        <a href="/relative/path">Relative Link</a>
+        <img src="relative/image.jpg" alt="Relative Image">
+        <a href="http://absolute.com/path">Absolute Link</a>
+        <img src="https://absolute.com/image.jpg" alt="Absolute Image">
+    </body>
+    </html>
+    """
+
+    # Test without base URL - relative URLs should remain relative or be removed
+    markdown_without_base = html_to_md(html)
+    assert markdown_without_base is not None
+    assert "(/relative/path)" in markdown_without_base or "/relative/path" in markdown_without_base
+    assert (
+        "(relative/image.jpg)" in markdown_without_base
+        or "relative/image.jpg" in markdown_without_base
+    )
+    assert "(http://absolute.com/path)" in markdown_without_base
+    assert "(https://absolute.com/image.jpg)" in markdown_without_base
+
+    # Test with base URL - relative URLs should be converted to absolute
+    base_url = "https://example.com"
+    markdown_with_base = html_to_md(html, url=base_url)
+    assert markdown_with_base is not None
+    assert "(https://example.com/relative/path)" in markdown_with_base
+    assert "(https://example.com/relative/image.jpg)" in markdown_with_base
+    assert "(http://absolute.com/path)" in markdown_with_base  # Absolute URLs remain unchanged
+    assert (
+        "(https://absolute.com/image.jpg)" in markdown_with_base
+    )  # Absolute URLs remain unchanged

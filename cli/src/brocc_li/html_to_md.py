@@ -1,6 +1,7 @@
 import concurrent.futures
 import re
 from typing import Any, Callable, Dict, List, Optional, Union, cast
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import Comment
@@ -20,9 +21,7 @@ from brocc_li.parsers.instagram_saved_collection import instagram_saved_collecti
 from brocc_li.parsers.linkedin_company import linkedin_company_html_to_md
 from brocc_li.parsers.linkedin_company_about import linkedin_company_about_html_to_md
 from brocc_li.parsers.linkedin_company_people import linkedin_company_people_html_to_md
-from brocc_li.parsers.linkedin_company_posts import linkedin_company_posts_html_to_md
 from brocc_li.parsers.linkedin_connections_me import linkedin_connections_me_html_to_md
-from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
 from brocc_li.parsers.linkedin_feed_v2 import (
     linkedin_feed_html_to_md as linkedin_feed_v2_html_to_md,
 )
@@ -30,9 +29,6 @@ from brocc_li.parsers.linkedin_followers import linkedin_followers_html_to_md
 from brocc_li.parsers.linkedin_messages import linkedin_messages_html_to_md
 from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
 from brocc_li.parsers.linkedin_search_connections import linkedin_search_connections_html_to_md
-from brocc_li.parsers.substack_activity import substack_activity_html_to_md
-from brocc_li.parsers.substack_feed import substack_feed_html_to_md
-from brocc_li.parsers.substack_inbox import substack_inbox_html_to_md
 from brocc_li.parsers.threads_activity import threads_activity_html_to_md
 from brocc_li.parsers.threads_home import threads_home_html_to_md
 from brocc_li.parsers.twitter_bookmarks import twitter_bookmarks_html_to_md
@@ -88,10 +84,6 @@ PARSER_REGISTRY: Dict[str, Callable[[str, bool], Optional[str]]] = {
     r"https://www\.linkedin\.com/search/results/people/.*": linkedin_search_connections_html_to_md,  # General People Search results
     r"https://www\.linkedin\.com/feed/followers/.*": linkedin_followers_html_to_md,  # LinkedIn followers page
     r"https://www\.linkedin\.com/feed/.*": linkedin_feed_v2_html_to_md,  # Use new feed parser for all feed URLs
-    # Substack
-    r"https://substack\.com/activity(\?.+)?$": substack_activity_html_to_md,
-    r"https://substack\.com/home(\?.+)?$": substack_feed_html_to_md,
-    r"https://substack\.com/inbox(\?.+)?$": substack_inbox_html_to_md,  # Assuming base inbox URL
     # Twitter / X
     r"https://(x|twitter)\.com/home(\?.+)?$": twitter_feed_html_to_md,
     r"https://(x|twitter)\.com/messages.*": twitter_inbox_html_to_md,
@@ -211,6 +203,58 @@ def clean_html(html: str) -> BeautifulSoup:
         )
 
     return soup
+
+
+def convert_relative_urls_to_absolute(
+    soup: BeautifulSoup, base_url: str, debug: bool = False
+) -> None:
+    """
+    Convert relative URLs in the HTML to absolute URLs using the base URL.
+
+    Args:
+        soup: The BeautifulSoup object to modify
+        base_url: The base URL to use for conversion
+        debug: Whether to enable debug logging
+    """
+    if debug:
+        logger.info(f"Converting relative URLs to absolute using base URL: {base_url}")
+
+    # Find all tags with href or src attributes - explicitly find only Tag objects
+    url_count = 0
+
+    # Helper function with proper type checking
+    def has_url_attr(element: Any) -> bool:
+        return isinstance(element, Tag) and (element.has_attr("href") or element.has_attr("src"))
+
+    # Only process Tag objects
+    for tag in soup.find_all(has_url_attr):
+        # At this point we know tag is a Tag, use cast to tell type checker
+        tag_obj = cast(Tag, tag)
+
+        if tag_obj.has_attr("href"):
+            href = tag_obj["href"]
+            if isinstance(href, str) and not href.startswith(
+                ("http://", "https://", "mailto:", "tel:", "#", "javascript:")
+            ):
+                # It's a relative URL, convert to absolute
+                tag_obj["href"] = urljoin(base_url, href)
+                url_count += 1
+                if debug and url_count <= 5:  # Limit logging to first few conversions
+                    logger.debug(f"Converted relative URL '{href}' to absolute: {tag_obj['href']}")
+
+        if tag_obj.has_attr("src"):
+            src = tag_obj["src"]
+            if isinstance(src, str) and not src.startswith(
+                ("http://", "https://", "data:", "//", "javascript:")
+            ):
+                # It's a relative URL, convert to absolute
+                tag_obj["src"] = urljoin(base_url, src)
+                url_count += 1
+                if debug and url_count <= 5:  # Limit logging to first few conversions
+                    logger.debug(f"Converted relative URL '{src}' to absolute: {tag_obj['src']}")
+
+    if debug and url_count > 0:
+        logger.info(f"Converted {url_count} relative URLs to absolute")
 
 
 def is_good_content_container(container: Tag) -> bool:
@@ -494,6 +538,7 @@ def html_to_md(
     Args:
         html: The HTML content to convert
         url: Optional URL to match against specific parsers.
+              If provided, will also be used to convert relative URLs to absolute.
         debug: Optional flag to enable debug logging for this conversion.
         timeout: Timeout in seconds for specific parsers (default: PARSER_TIMEOUT)
 
@@ -504,6 +549,14 @@ def html_to_md(
     use_debug = debug or DEBUG
     if use_debug and debug != DEBUG:
         logger.info(f"Local debug flag ({debug}) overrides global DEBUG ({DEBUG}) for this run.")
+
+    # Derive base_url from url if provided
+    base_url = None
+    if url and (url.startswith("http://") or url.startswith("https://")):
+        parsed_url = urlparse(url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        if use_debug:
+            logger.info(f"Derived base URL '{base_url}' from URL '{url}'")
 
     # --- Check for Specific Parser ---
     if url:
@@ -556,11 +609,14 @@ def html_to_md(
 
     try:
         # Clean and extract meaningful content
-        soup = clean_html(
-            html
-        )  # Already uses DEBUG internally, consider passing use_debug? No, clean_html has its own logic based on global DEBUG for now.
-        content = extract_content(soup, html)  # Likewise uses global DEBUG
-        strip_list = get_strip_list(content)  # Likewise uses global DEBUG
+        soup = clean_html(html)
+
+        # Convert relative URLs to absolute if base_url is provided
+        if base_url:
+            convert_relative_urls_to_absolute(soup, base_url, use_debug)
+
+        content = extract_content(soup, str(soup))
+        strip_list = get_strip_list(content)
 
         # Convert to markdown
         if use_debug:

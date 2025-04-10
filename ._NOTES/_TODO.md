@@ -1,4 +1,3 @@
-- improve substack home + inbox parsing
 - db update logic: if mergeable, replace
 - schema design:
   - source / location: needs another layer
@@ -7,14 +6,15 @@
     - capture parent doc for threads, comments
     - is this the same as "parent url" for browser nav?
 - simple update cli flow using pypi version
-- wrap parser code in execution timeout
-- CI tests
+- youtube transcripts
+- search UI
+- AI: pydanticai + openrouter
 
 ## backlog
 
-- AI: pydanticai + openrouter
+- CI tests
+- substack parsing
 - prompt injection thoughts
-- get youtube transcripts
 - pdf extraction (docling + grobid)
 - cli oauth flow
 - speed up launch process
