@@ -9,7 +9,7 @@ from platformdirs import user_config_dir
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
-from textual.widgets import Button, Footer, Header, Label, LoadingIndicator, Static, TabbedContent
+from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
 from brocc_li.cli import auth
 from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
@@ -19,7 +19,6 @@ from brocc_li.cli.textual_ui.logs_panel import LogsPanel
 from brocc_li.cli.webview_launcher import (
     get_service_url,
     handle_webview_after_logout,
-    maybe_launch_webview_if_logged_in,
     open_or_focus_webview,
 )
 from brocc_li.cli.webview_manager import is_webview_open, open_webview
@@ -49,9 +48,7 @@ class MainContent(Static):
                     variant="primary",
                     disabled=True,
                     name="open_webapp",
-                    classes="hidden",  # Hide button by default
                 ),
-                LoadingIndicator(id="webapp-loading"),  # Show loading indicator by default
                 id="webapp-buttons",
             ),
             id="webapp-container",
@@ -81,7 +78,6 @@ class BroccApp(App):
         self._previous_webview_status = False
         self.tray_icon = None
         self.exit_file = None
-        self.is_opening_webapp = False  # Track if webapp is currently being opened
 
         # Initialize DocDB
         self.doc_db = None
@@ -155,13 +151,8 @@ class BroccApp(App):
         # Set up periodic check for DocDB status
         self.set_interval(60.0, self._update_doc_db_status)
 
-        # Launch webview if already logged in
-        if self.is_logged_in:
-            # Launch with a small delay to allow servers to start
-            logger.debug("Setting timer to auto-launch webview in 2 seconds")
-            self.set_timer(2, self._force_launch_webview)
-        else:
-            logger.debug("User not logged in, skipping auto-launch timer")
+        # Launch the webview via a worker that waits for the server
+        self.run_worker(self._launch_webview_worker, thread=True)
 
     def _setup_systray(self):
         """Start the system tray icon in a separate process"""
@@ -231,15 +222,12 @@ class BroccApp(App):
         # Close the systray
         self._close_systray()
 
-        # Exit immediately without waiting for anything
         # No logging here
+        logger.info("Initiating clean application exit.")
         self.exit()
 
     def action_check_health(self) -> None:
         self.run_worker(self._check_health_worker, thread=True)
-
-    def action_login(self) -> None:
-        self.run_worker(self._login_worker, thread=True)
 
     def action_logout(self) -> None:
         self.run_worker(self._logout_worker, thread=True)
@@ -369,150 +357,55 @@ class BroccApp(App):
                 logger.debug(f"Button pressed: {button_name}")
                 action()
 
-    def _maybe_launch_webview(self):
-        """Configure UI to show webview is ready to launch"""
-        logger.debug("Setting up UI for webview launch")
+    def _launch_webview_worker(self):
+        """Worker to wait for local API and then launch the webview."""
+        import time
 
-        def update_ui():
-            logger.debug("Updating UI to show webview is ready")
-            self._safe_update_ui_status(
-                "Window: [blue]Ready to launch[/blue]",
-                "webapp-health",
-            )
+        import requests
 
-        def update_button():
-            try:
-                logger.debug("Updating button state for webview launch")
-                open_webapp_btn = self.query_one("#open-webapp-btn", Button)
-                open_webapp_btn.disabled = False
-                open_webapp_btn.label = "✷  Open Brocc window  ✷"
-            except NoMatches:
-                logger.error("Could not find open-webapp-btn to update")
-                pass
+        local_api_health_url = f"http://{FASTAPI_HOST}:{FASTAPI_PORT}/health"
+        max_wait_seconds = 15
+        start_time = time.time()
+        server_ready = False
 
         logger.debug(
-            f"Calling maybe_launch_webview_if_logged_in with is_logged_in={self.is_logged_in}"
-        )
-        maybe_launch_webview_if_logged_in(
-            is_logged_in=self.is_logged_in, update_ui_fn=update_ui, update_button_fn=update_button
+            f"Waiting up to {max_wait_seconds}s for local API at {local_api_health_url}..."
         )
 
-    def _show_loading_indicator(self):
-        """Show loading indicator and hide button while webapp opens"""
-        try:
-            button = self.query_one("#open-webapp-btn", Button)
-            loading = self.query_one("#webapp-loading", LoadingIndicator)
-            button.add_class("hidden")
-            loading.remove_class("hidden")
-            self.is_opening_webapp = True
-        except NoMatches:
-            logger.debug("Could not show loading indicator: UI components not found")
+        while time.time() - start_time < max_wait_seconds:
+            try:
+                response = requests.get(local_api_health_url, timeout=1)  # Short timeout for check
+                if response.status_code == 200:
+                    logger.success(f"Local API is healthy after {time.time() - start_time:.1f}s.")
+                    server_ready = True
+                    break
+                else:
+                    logger.debug(f"Local API check failed with status {response.status_code}")
+            except requests.exceptions.ConnectionError:
+                logger.debug("Local API connection refused, retrying...")
+            except requests.exceptions.Timeout:
+                logger.debug("Local API health check timed out, retrying...")
+            except Exception as e:
+                logger.error(f"Unexpected error during local API health check: {e}")
 
-    def _hide_loading_indicator(self):
-        """Hide loading indicator and show button once webapp is open"""
-        try:
-            button = self.query_one("#open-webapp-btn", Button)
-            loading = self.query_one("#webapp-loading", LoadingIndicator)
-            loading.add_class("hidden")
-            button.remove_class("hidden")
-            self.is_opening_webapp = False
-        except NoMatches:
-            logger.debug("Could not hide loading indicator: UI components not found")
+            time.sleep(0.5)  # Wait before retrying
 
-    def _delayed_hide_loading_indicator(self):
-        """Schedule hiding of the loading indicator from the main thread"""
-        logger.debug("Scheduling delayed hiding of loading indicator")
-        # Post a message to hide loading indicator after a delay
-        # This is safe to call from worker threads
-        self.call_after_refresh(self._schedule_hide_safely)
-
-    def _schedule_hide_safely(self):
-        """Schedule hiding from the main UI thread"""
-        # This method runs in the main thread, so it's safe to use timers
-        logger.debug("Setting timer to hide loading indicator")
-        try:
-            self.set_timer(1.0, self._hide_loading_indicator)
-        except RuntimeError as e:
-            logger.error(f"Error setting timer: {e}, hiding immediately instead")
-            self._hide_loading_indicator()
-
-    def _force_launch_webview(self):
-        """Force the webview to launch regardless of state"""
-        logger.debug("Force-launching webview")
-        # Reset the flag first to ensure we can launch
-        self.is_opening_webapp = False
-        # Then launch
-        self._auto_launch_webview()
-
-    def _auto_launch_webview(self):
-        """Automatically launch the webview if user is logged in"""
-        if self.is_logged_in and not self.is_opening_webapp:
-            logger.debug("Auto-launching webview since user is logged in")
-            self._show_loading_indicator()
-            self.is_opening_webapp = True  # Set flag AFTER the check but before launching
-
-            # Try direct launch instead of going through the worker
+        if server_ready:
+            logger.debug("Server ready, proceeding with webview launch.")
             success = open_webview()
-            logger.debug(f"Direct webview launch result: {success}")
-
-            # Still run the worker for UI updates
-            self.run_worker(self._open_webapp_worker, thread=True)
-        elif not self.is_logged_in:
-            logger.debug("Not auto-launching webview because user is not logged in")
-        elif self.is_opening_webapp:
-            logger.debug("Webview launch already in progress, not launching again")
-            # If it's been more than 10 seconds since we started opening, reset
-            if not hasattr(self, "_opening_start_time"):
-                self._opening_start_time = time.time()
-            elif time.time() - self._opening_start_time > 10:
-                logger.debug("Launch has been pending for over 10 seconds, resetting state")
-                self.is_opening_webapp = False
-                self._opening_start_time = time.time()
-                # Try launching again
-                self._auto_launch_webview()
+            logger.debug(f"Webview launch attempt result: {success}")
+            # Trigger status check to update UI based on actual launch state
+            self.run_worker(self._check_webview_status, thread=True)
         else:
-            logger.debug("Unknown state - not auto-launching webview")
-
-    def _login_worker(self):
-        try:
-            status_label = self.query_one("#auth-status", Label)
-
-            # Check if Site API is healthy before proceeding
-            if not self.site_api_healthy:
-                status_label.update("[red]Cannot login: Site API is not available[/red]")
-                logger.error("Login aborted: Site API is not available")
-                return
-
-            # Clear previous URL display
-            if self.info_panel is not None:
-                self.info_panel.display_auth_url("")
-
-            # Define status update callback
-            def update_status(message):
-                status_label.update(message)
-
-            # Start login process with callbacks
-            auth_data = auth.initiate_login(
-                self.API_URL,
-                update_status_fn=update_status,
-                display_auth_url_fn=self.info_panel.display_auth_url
-                if self.info_panel
-                else lambda _: None,
+            logger.error(
+                f"Local API server did not become healthy within {max_wait_seconds} seconds. Cannot launch webview."
             )
-
-            if auth_data:
-                self.auth_data = auth_data
-                if self.info_panel is not None:
-                    self.info_panel.update_auth_status()
-
-                # Launch webview after successful login
-                self._maybe_launch_webview()
-                # Auto-launch the webview after successful login
-                self.set_timer(1, self._auto_launch_webview)
-            else:
-                logger.error("Login failed")
-        except NoMatches:
-            logger.error("Login failed: UI components not found")
+            # Update UI to show failure (safely)
+            self.call_from_thread(
+                self._safe_update_ui_status,
+                "Window: [red]Launch Failed (API timeout)[/red]",
+                "webapp-health",
+            )
 
     def _logout_worker(self):
         try:
@@ -540,8 +433,7 @@ class BroccApp(App):
                 def update_button_state():
                     try:
                         open_webapp_btn = self.query_one("#open-webapp-btn", Button)
-                        open_webapp_btn.disabled = True
-                        open_webapp_btn.label = "✷  Login to start Brocc  ✷"
+                        open_webapp_btn.label = "✷  Open Brocc window  ✷"
                     except NoMatches:
                         pass
 
@@ -557,7 +449,6 @@ class BroccApp(App):
     def _open_webapp_worker(self):
         """Worker to open the App in a separate window or focus existing one"""
         logger.debug("Opening webapp worker started")
-        self._show_loading_indicator()
 
         def update_ui_status(message):
             logger.debug(f"Updating UI status: {message}")
@@ -568,8 +459,6 @@ class BroccApp(App):
                 # If window is now open, update button label and hide loading indicator
                 if is_webview_open():
                     logger.debug("Webview is now open, updating UI")
-                    # Request hiding to be scheduled from the main thread
-                    self._delayed_hide_loading_indicator()
                     # Update UI elements that can be done directly
                     try:
                         open_webapp_btn = self.query_one("#open-webapp-btn", Button)
@@ -627,11 +516,6 @@ class BroccApp(App):
 
         def update_button(is_open: bool, status_changed: bool) -> None:
             try:
-                # If we were opening the webapp and it's now open, hide loading indicator with delay
-                if self.is_opening_webapp and is_open:
-                    # Request hiding from main thread
-                    self._delayed_hide_loading_indicator()
-
                 open_webapp_btn = self.query_one("#open-webapp-btn", Button)
                 if is_open:
                     open_webapp_btn.disabled = False  # Keep enabled for focus functionality
@@ -674,4 +558,14 @@ class BroccApp(App):
 
 if __name__ == "__main__":
     app = BroccApp()
-    app.run()
+    try:
+        app.run()
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR in main app loop: {e}", exc_info=True)
+        # Attempt to cleanup systray even on crash
+        try:
+            terminate_systray()
+        except Exception as term_e:
+            logger.error(f"Error terminating systray during crash handling: {term_e}")
+    finally:
+        logger.info("Application has finished running.")

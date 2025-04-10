@@ -7,25 +7,6 @@ def get_service_url(host, port):
     return f"http://{host}:{port}"
 
 
-def notify_webview_shutdown():
-    """
-    Directly terminate the webview process
-    """
-    try:
-        # Get access to the FastAPI server's webview process
-        from brocc_li.fastapi_server import _WEBVIEW_PROCESS
-
-        # If process exists and is running, terminate it
-        if _WEBVIEW_PROCESS and _WEBVIEW_PROCESS.poll() is None:
-            logger.debug("Terminating webview process directly")
-            _WEBVIEW_PROCESS.terminate()
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Error terminating webview process: {e}")
-        return False
-
-
 def launch_webview():
     """Launch webview if it's not already running
 
@@ -33,35 +14,6 @@ def launch_webview():
         bool: True if webview was launched or is already running
     """
     return open_webview()
-
-
-def maybe_launch_webview_if_logged_in(is_logged_in, update_ui_fn=None, update_button_fn=None):
-    """Launch webview if user is logged in and webview not already running
-
-    Args:
-        is_logged_in: Boolean indicating if user is logged in
-        update_ui_fn: Optional function to update UI status
-        update_button_fn: Optional function to update button state
-    """
-    if is_logged_in and not is_webview_open():
-        logger.debug("User is logged in - launching webview")
-        # Launch the webview for logged in users
-        success = open_webview()
-        logger.debug(f"Webview launch {'succeeded' if success else 'failed'}")
-        if update_ui_fn and update_button_fn:
-            update_ui_fn()
-            update_button_fn()
-        return success
-    elif is_logged_in and is_webview_open():
-        logger.debug("User is logged in but webview is already open")
-        return True
-    else:
-        logger.debug("User is not logged in - not launching webview")
-        # Just update UI to show it's ready
-        if update_ui_fn and update_button_fn:
-            update_ui_fn()
-            update_button_fn()
-        return False
 
 
 def handle_webview_after_logout(update_ui_fn=None, update_button_fn=None):

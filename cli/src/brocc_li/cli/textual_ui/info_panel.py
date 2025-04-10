@@ -3,6 +3,7 @@ from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
 from textual.widgets import Button, Label, LoadingIndicator, Static
 
+from brocc_li.cli.webview_manager import is_webview_open
 from brocc_li.utils.logger import logger
 
 # Constants for UI messages and labels
@@ -50,10 +51,8 @@ class InfoPanel(Static):
                     variant="default",
                     name="launch_duckdb_ui",
                 ),
-                Button(label="Login", id="login-btn", variant="default", name="login"),
                 id="auth-buttons",
             ),
-            Static("", id="auth-url-display"),
             id="auth-container",
         )
 
@@ -71,12 +70,10 @@ class InfoPanel(Static):
         """Update authentication status display"""
         try:
             status_label = self.query_one("#auth-status", Label)
-            login_btn = self.query_one("#login-btn", Button)
 
             # Get references to app for status info
             auth_data = self.app_instance.auth_data
             is_logged_in = self.app_instance.is_logged_in
-            site_api_healthy = self.app_instance.site_api_healthy
 
             # Find open_webapp_btn from main app, not in InfoPanel
             try:
@@ -87,7 +84,6 @@ class InfoPanel(Static):
 
             if auth_data is None:
                 status_label.update("Not logged in")
-                login_btn.disabled = False or not site_api_healthy
                 if open_webapp_btn:
                     open_webapp_btn.disabled = True
                 return
@@ -98,12 +94,10 @@ class InfoPanel(Static):
                 masked_key = f"{api_key[:8]}...{api_key[-5:]}" if api_key else "None"
 
                 status_label.update(f"Logged in as: {email} (API Key: {masked_key})")
-                login_btn.disabled = True
                 if open_webapp_btn:
                     open_webapp_btn.disabled = False
             else:
                 status_label.update("Not logged in")
-                login_btn.disabled = False or not site_api_healthy
                 if open_webapp_btn:
                     open_webapp_btn.disabled = True
         except NoMatches:
@@ -111,9 +105,6 @@ class InfoPanel(Static):
 
     def update_webapp_status(self):
         """Update the App status in the UI based on current state"""
-        # Get reference to app and its helper method
-        is_webview_open = self.app_instance.is_webview_open
-
         try:
             webapp_status = self.query_one("#webapp-health", Static)
 
@@ -246,13 +237,3 @@ class InfoPanel(Static):
                 self.query_one("#lancedb-health", Static).update("LanceDB: [red]Status error[/red]")
             except NoMatches:
                 pass
-
-    def display_auth_url(self, url: str) -> None:
-        """Display auth URL in the info panel"""
-        try:
-            auth_url_display = self.query_one("#auth-url-display", Static)
-            auth_url_display.update(
-                f"🔐 Authentication URL:\n[link={url}]{url}[/link]\n\nClick to open in browser"
-            )
-        except NoMatches:
-            logger.error("Could not display auth URL: UI component not found")

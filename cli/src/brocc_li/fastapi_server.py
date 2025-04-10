@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from brocc_li.fastapi_auth import router as auth_router
 from brocc_li.fastapi_chrome import router as chrome_router
 from brocc_li.fastapi_webview import router as webview_router
 from brocc_li.utils.logger import logger
@@ -39,6 +40,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chrome_router)
 app.include_router(webview_router)
+app.include_router(auth_router)
 
 
 # --- Routes ---

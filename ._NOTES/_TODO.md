@@ -1,10 +1,10 @@
-- redesign schema (see notes)
 - cli saving to db
 - search UI
 - simple update cli flow using pypi version
 - deep search
 - youtube transcripts
 - AI: pydanticai + openrouter
+- open logs file
 
 ## backlog
 
