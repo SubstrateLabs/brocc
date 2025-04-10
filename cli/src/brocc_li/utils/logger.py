@@ -1,12 +1,28 @@
 import os
+import sys
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, TextIO
 
 from rich.console import Console
 
+from brocc_li.cli.config_dir import get_config_dir
+
+# Define log file path in user config directory
+CONFIG_DIR = get_config_dir()
+LOG_FILE = CONFIG_DIR / "brocc_session.log"
+
+# Open the log file, overwriting if it exists
+try:
+    log_file_handle = open(LOG_FILE, "w", encoding="utf-8")
+except Exception as e:
+    # Fallback to stderr if file cannot be opened
+    print(f"Error opening log file {LOG_FILE}: {e}", file=sys.stderr)
+    log_file_handle = None
+
 
 class Logger:
-    def __init__(self, enabled: bool = True, file: TextIO | None = None):
+    def __init__(self, enabled: bool = True, file: TextIO | None = log_file_handle):
         self.enabled = enabled
         self._console = Console(file=file)
         self._null_console = Console(file=open(os.devnull, "w"))
@@ -117,6 +133,18 @@ class Logger:
         """Get the underlying Rich console."""
         return self._console if self.enabled else self._null_console
 
+    def get_log_file_path(self) -> Path | None:
+        """Return the path to the log file, if configured."""
+        if log_file_handle:
+            return LOG_FILE
+        return None
+
 
 # Create a default instance
 logger = Logger()
+
+# Add a startup log message indicating where logs are stored
+if log_file_handle:
+    logger.debug(f"Logging to file: {LOG_FILE}")
+else:
+    logger.warning("Logging to file disabled due to error during file open.")

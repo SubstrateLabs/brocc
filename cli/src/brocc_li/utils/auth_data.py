@@ -1,7 +1,11 @@
 import json
 
-from brocc_li.utils.constants import AUTH_FILE
+from brocc_li.cli.config_dir import get_config_dir
 from brocc_li.utils.logger import logger
+
+# Define AUTH_FILE using the config dir utility
+CONFIG_DIR = get_config_dir()
+AUTH_FILE = CONFIG_DIR / "auth.json"
 
 
 def is_logged_in(auth_data):
@@ -20,10 +24,8 @@ def load_auth_data(auth_file=None):
         auth_file: Optional Path object for the auth file, defaults to AUTH_FILE from constants
     """
     auth_file = auth_file or AUTH_FILE
-    config_dir = auth_file.parent
 
     try:
-        config_dir.mkdir(exist_ok=True)
         if auth_file.exists():
             with open(auth_file) as f:
                 auth_data = json.load(f)
@@ -46,10 +48,8 @@ def save_auth_data(auth_data, auth_file=None):
         auth_file: Optional Path object for the auth file, defaults to AUTH_FILE from constants
     """
     auth_file = auth_file or AUTH_FILE
-    config_dir = auth_file.parent
 
     try:
-        config_dir.mkdir(exist_ok=True)
         with open(auth_file, "w") as f:
             json.dump(auth_data, f)
         logger.debug(f"Saved auth data for user: {auth_data.get('email', 'unknown')}")

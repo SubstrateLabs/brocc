@@ -2,6 +2,8 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from brocc_li.utils.logger import logger
 
@@ -15,40 +17,55 @@ def check_api_health(api_url: str, is_local: bool = False) -> Dict[str, Any]:
         is_local: Whether this is a local API (more retries)
     """
     max_retries = 3 if is_local else 1
-    retry_delay = 0.5  # seconds
+
+    # Configure retry strategy
+    retry_strategy = Retry(
+        total=max_retries,
+        backoff_factor=0.1,  # Short delay between retries
+        status_forcelist=[500, 502, 503, 504],  # Retry on server errors
+        allowed_methods=["GET"],
+        raise_on_status=False,  # Don't raise HTTPError, handle below
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
 
     for attempt in range(max_retries):
         try:
-            response = requests.get(f"{api_url}/health", timeout=2)
+            response = session.get(f"{api_url}/health", timeout=2)
             if response.ok:
                 return {"status": "healthy", "data": response.json()}
 
-            if attempt < max_retries - 1:
-                logger.debug(
-                    f"Retry {attempt + 1} for {api_url} - got status {response.status_code}"
-                )
-                time.sleep(retry_delay)
-                continue
+            # If status is not ok, log and prepare for potential final failure message
+            logger.debug(
+                f"Attempt {attempt + 1}/{max_retries} for {api_url} - got status {response.status_code}"
+            )
+            # Don't sleep here, retry adapter handles backoff
+            if attempt == max_retries - 1:
+                return {"status": "unhealthy", "error": f"Status code: {response.status_code}"}
 
-            return {"status": "unhealthy", "error": f"Status code: {response.status_code}"}
+        except requests.exceptions.ConnectionError as e:
+            logger.debug(
+                f"Attempt {attempt + 1}/{max_retries} for {api_url} - Connection Error: {e}"
+            )
+            if attempt == max_retries - 1:
+                return {"status": "error", "error": "Connection refused"}
+            # Let the retry adapter handle sleeping/backoff for connection errors
         except requests.RequestException as e:
             error_msg = str(e)
-            # Truncate error message if it's too long
             if len(error_msg) > 100:
                 error_msg = error_msg[:100] + "..."
 
-            if attempt < max_retries - 1:
-                logger.debug(f"Retry {attempt + 1} for {api_url} - {error_msg}")
-                time.sleep(retry_delay)
-                continue
+            logger.debug(
+                f"Attempt {attempt + 1}/{max_retries} for {api_url} - Request Error: {error_msg}"
+            )
+            # Don't sleep here, retry adapter handles backoff
+            if attempt == max_retries - 1:
+                return {"status": "error", "error": error_msg}
 
-            # Check if it's a connection error and simplify the message
-            if "Connection refused" in str(e):
-                return {"status": "error", "error": "Connection refused"}
-            return {"status": "error", "error": error_msg}
-
-    # This should never happen but ensures we always return a Dict
-    return {"status": "error", "error": "Unknown error during health check"}
+    # This return is now reachable if all retries fail with exceptions not caught above
+    return {"status": "error", "error": "Unknown error after retries during health check"}
 
 
 def check_webview_status(api_url: str) -> Dict[str, Any]:

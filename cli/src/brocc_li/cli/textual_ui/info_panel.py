@@ -1,7 +1,7 @@
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
-from textual.widgets import Button, Label, LoadingIndicator, Static
+from textual.widgets import Button, Label, Static
 
 from brocc_li.cli.webview_manager import is_webview_open
 from brocc_li.utils.logger import logger
@@ -111,7 +111,6 @@ class InfoPanel(Static):
             # These are in main app, not in InfoPanel
             try:
                 open_webapp_btn = self.app_instance.query_one("#open-webapp-btn", Button)
-                loading = self.app_instance.query_one("#webapp-loading", LoadingIndicator)
             except NoMatches:
                 logger.debug("Could not find webapp UI components")
                 return
@@ -124,7 +123,6 @@ class InfoPanel(Static):
                 open_webapp_btn.disabled = False  # Keep enabled for focus functionality
                 open_webapp_btn.label = BUTTON_LABELS["SHOW_WINDOW"]
                 open_webapp_btn.remove_class("hidden")
-                loading.add_class("hidden")
                 self.app_instance.is_opening_webapp = False
             else:
                 webapp_status.update(UI_STATUS["WEBAPP_READY"])
@@ -132,7 +130,6 @@ class InfoPanel(Static):
                 if not is_opening_webapp:
                     open_webapp_btn.disabled = False
                     open_webapp_btn.remove_class("hidden")
-                    loading.add_class("hidden")
                 else:
                     open_webapp_btn.label = BUTTON_LABELS["OPEN_WINDOW"]
 

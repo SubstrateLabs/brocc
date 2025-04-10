@@ -1,17 +1,16 @@
 import os
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from platformdirs import user_config_dir
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
 from brocc_li.cli import auth
+from brocc_li.cli.config_dir import get_config_dir
 from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
 from brocc_li.cli.systray_launcher import launch_systray, terminate_systray
 from brocc_li.cli.textual_ui.info_panel import InfoPanel
@@ -62,8 +61,8 @@ class BroccApp(App):
         ("f8", "logout", "Logout"),
     ]
     API_URL = get_api_url()
-    LOCAL_API_PORT = FASTAPI_PORT  # Port for the local FastAPI server
-    CONFIG_DIR = Path(user_config_dir("brocc"))
+    LOCAL_API_PORT = FASTAPI_PORT
+    CONFIG_DIR = get_config_dir()
     AUTH_FILE = CONFIG_DIR / "auth.json"
     CSS_PATH = ["app.tcss", "textual_ui/info_panel.tcss", "textual_ui/logs_panel.tcss"]
 
@@ -187,10 +186,11 @@ class BroccApp(App):
 
     def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
-        logger.debug("Shutdown initiated, closing resources")
-
         # Mark logger as shutting down to suppress further output
         logger.mark_shutting_down()
+
+        # Log shutdown message *after* marking as shutting down (won't go to TUI)
+        logger.debug("Shutdown initiated, closing resources")
 
         # Set up a timed force exit in case shutdown hangs
         def force_exit():
