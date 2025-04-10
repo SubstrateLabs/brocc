@@ -1,7 +1,2 @@
-- maybe remove source_type?
-- do we need another field to capture chrome as source? or rethink source_type?
-- chrome::<location name: twitter>::<location: url>
+- source: "chrome"
 - should we save "previous url"? (no, timestamps sufficient)
-- field for parent doc id?
-- capture parent doc for threads, comments
-- is this the same as "parent url" for browser nav?

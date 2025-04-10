@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from brocc_li.embed.chunk_header import chunk_header
-from brocc_li.types.doc import Doc, Source, SourceType
+from brocc_li.types.doc import Doc, Source
 
 
 def test_chunk_header_complete():
@@ -13,8 +13,7 @@ def test_chunk_header_complete():
         url="https://example.com/test",
         title="Test Document",
         description="This is a test document",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="test-location",
         created_at="2023-01-01T12:00:00Z",
     )
@@ -22,8 +21,7 @@ def test_chunk_header_complete():
     expected_header = (
         "Title: Test Document\n"
         "Description: This is a test document\n"
-        "Source: twitter\n"
-        "Source Type: document\n"
+        "Source: chrome\n"
         "URL: https://example.com/test"
     )
 
@@ -36,12 +34,11 @@ def test_chunk_header_minimal():
     doc = Doc(
         id="test-id-456",
         ingested_at=Doc.format_date(datetime.now()),
-        source=Source.SUBSTACK,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="test-location",
     )
 
-    expected_header = "Source: substack\nSource Type: conversation"
+    expected_header = "Source: chrome"
 
     assert chunk_header(doc) == expected_header
 
@@ -63,8 +60,7 @@ def test_chunk_header_all_fields():
         participant_metadatas=[{"role": "admin"}, {"role": "user"}, {"role": "guest"}],
         keywords=["test", "comprehensive", "all-fields"],
         metadata={"priority": "high", "category": "test"},
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="comprehensive-test",
         source_location_name="Comprehensive Test Channel",
         created_at="2023-05-15T09:30:00Z",
@@ -73,8 +69,7 @@ def test_chunk_header_all_fields():
     expected_header = (
         "Title: Comprehensive Test\n"
         "Description: Testing all Doc fields\n"
-        "Source: twitter\n"
-        "Source Type: conversation\n"
+        "Source: chrome\n"
         "URL: https://example.com/comprehensive\n"
         "Contact: John Doe\n"
         "Contact ID: johndoe123\n"
@@ -93,13 +88,12 @@ def test_chunk_header_with_location_name():
     doc = Doc(
         id="test-id-loc",
         ingested_at=Doc.format_date(datetime.now()),
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="test-id",
         source_location_name="Test Location",
     )
 
-    expected_header = "Source: twitter\nSource Type: document\nSource Location: Test Location"
+    expected_header = "Source: chrome\nSource Location: Test Location"
 
     assert chunk_header(doc) == expected_header
 
@@ -110,16 +104,11 @@ def test_chunk_header_with_metadata():
     doc = Doc(
         id="test-id-meta",
         ingested_at=Doc.format_date(datetime.now()),
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="test-id",
         metadata={"author": "Jane Smith", "views": 1234, "likes": 42},
     )
 
-    expected_header = (
-        "Source: twitter\n"
-        "Source Type: document\n"
-        "Metadata: author: Jane Smith, views: 1234, likes: 42"
-    )
+    expected_header = "Source: chrome\nMetadata: author: Jane Smith, views: 1234, likes: 42"
 
     assert chunk_header(doc) == expected_header

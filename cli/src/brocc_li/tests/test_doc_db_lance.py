@@ -9,7 +9,7 @@ import pytest
 from brocc_li.doc_db import DocDB
 from brocc_li.embed.voyage import VoyageAIEmbeddingFunction
 from brocc_li.tests.generate_test_markdown import generate_test_markdown
-from brocc_li.types.doc import Doc, Source, SourceType
+from brocc_li.types.doc import Doc, Source
 
 
 @pytest.fixture
@@ -76,8 +76,7 @@ def sample_lance_document():
         participant_identifiers=["p1", "p2"],
         created_at=Doc.format_date(now),
         metadata={"key": "value"},
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="https://example.com/test",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(now),
@@ -106,7 +105,7 @@ def test_lance_storage_and_vector_search(lance_docdb, sample_lance_document):
         assert "score" in result, "Result should have a similarity score"
         assert result["doc_id"] == sample_lance_document.id, "Result should be from our document"
         assert result["title"] == sample_lance_document.title, "Title should match"
-        assert result["source"] == Source.TWITTER.value, "Source should match"
+        assert result["source"] == Source.CHROME.value, "Source should match"
 
 
 def test_delete_from_lance(lance_docdb, sample_lance_document):
@@ -142,8 +141,7 @@ Final paragraph with important information.
         id="multimodal_test",
         title="Multimodal Test Document",
         text_content=multimodal_content,
-        source=Source.SUBSTACK,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="multimodal_test_location",
         source_location_name="Multimodal Test Location",
         ingested_at=Doc.format_date(datetime.now()),

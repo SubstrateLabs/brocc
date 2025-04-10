@@ -22,7 +22,6 @@ EXPECTED_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
                     keywords VARCHAR[],
                     metadata JSON,
                     source VARCHAR,
-                    source_type VARCHAR,
                     source_location_identifier VARCHAR,
                     source_location_name VARCHAR,
                     created_at VARCHAR,

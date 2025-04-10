@@ -7,7 +7,7 @@ import pytest
 
 from brocc_li.doc_db import DUCKDB_CHUNKS_TABLE, DocDB
 from brocc_li.tests.generate_test_markdown import generate_test_markdown
-from brocc_li.types.doc import Doc, Source, SourceType
+from brocc_li.types.doc import Doc, Source
 from brocc_li.utils.logger import logger
 
 
@@ -167,7 +167,7 @@ def docdb(temp_db_path, temp_lance_path, monkeypatch):
                     "title": "Test Document",
                     "url": "https://example.com/test",
                     "text": "This is the content of the test document.",
-                    "source": "twitter",
+                    "source": "chrome",
                     "score": 0.95,
                 }
             )
@@ -205,8 +205,7 @@ def sample_document():
         participant_identifiers=["p1", "p2"],
         created_at=Doc.format_date(now),
         metadata={"key": "value"},
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="https://example.com/test",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(now),
@@ -223,8 +222,7 @@ def test_initialize_db(docdb, temp_db_path):
         id="test_init",
         url="https://example.com/init",
         text_content="Test content for initialization",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="https://example.com/init",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
@@ -276,8 +274,7 @@ def test_store_document_without_url(docdb):
         id="no_url_doc",
         title="No URL Document",
         text_content="Document with no URL",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="location1",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
@@ -314,7 +311,6 @@ def test_update_document(docdb, sample_document):
         created_at=sample_document.created_at,
         metadata=sample_document.metadata,
         source=sample_document.source,
-        source_type=sample_document.source_type,
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
@@ -359,8 +355,7 @@ def test_get_seen_urls(docdb):
             id="doc1",
             url="https://example.com/1",
             text_content="Content for doc1",
-            source=Source.TWITTER,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location1",
             source_location_name="Test Source Location",
             ingested_at=Doc.format_date(datetime.now()),
@@ -369,8 +364,7 @@ def test_get_seen_urls(docdb):
             id="doc2",
             url="https://example.com/2",
             text_content="Content for doc2",
-            source=Source.TWITTER,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location2",
             source_location_name="Test Source Location",
             ingested_at=Doc.format_date(datetime.now()),
@@ -379,8 +373,7 @@ def test_get_seen_urls(docdb):
             id="doc3",
             url="https://example.com/3",
             text_content="Content for doc3",
-            source=Source.SUBSTACK,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location1",
             source_location_name="Test Source Location",
             ingested_at=Doc.format_date(datetime.now()),
@@ -388,8 +381,7 @@ def test_get_seen_urls(docdb):
         Doc(
             id="doc4",
             text_content="Content for doc4 without URL",
-            source=Source.TWITTER,  # Document without URL
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,  # Document without URL
             source_location_identifier="location3",
             source_location_name="Test Source Location",
             ingested_at=Doc.format_date(datetime.now()),
@@ -407,11 +399,11 @@ def test_get_seen_urls(docdb):
     assert "https://example.com/3" in all_urls
 
     # Filter by source
-    source1_urls = docdb.get_seen_urls(source="twitter")
-    assert len(source1_urls) == 2
+    source1_urls = docdb.get_seen_urls(source="chrome")
+    assert len(source1_urls) == 3
     assert "https://example.com/1" in source1_urls
     assert "https://example.com/2" in source1_urls
-    assert "https://example.com/3" not in source1_urls
+    assert "https://example.com/3" in source1_urls
 
 
 def test_get_documents(docdb):
@@ -422,8 +414,7 @@ def test_get_documents(docdb):
             id="doc1",
             url="https://example.com/1",
             text_content="Content for doc1",
-            source=Source.TWITTER,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location1",
             source_location_name="Test Source Location",
             ingested_at="2024-01-01T00:00:01+00:00",  # Oldest
@@ -432,8 +423,7 @@ def test_get_documents(docdb):
             id="doc2",
             url="https://example.com/2",
             text_content="Content for doc2",
-            source=Source.TWITTER,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location2",
             source_location_name="Test Source Location",
             ingested_at="2024-01-01T00:00:02+00:00",  # Middle
@@ -442,8 +432,7 @@ def test_get_documents(docdb):
             id="doc3",
             url="https://example.com/3",
             text_content="Content for doc3",
-            source=Source.SUBSTACK,
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,
             source_location_identifier="location1",
             source_location_name="Test Source Location",
             ingested_at="2024-01-01T00:00:03+00:00",  # Newest
@@ -451,8 +440,7 @@ def test_get_documents(docdb):
         Doc(
             id="doc4",
             text_content="Content for doc4 without URL",
-            source=Source.TWITTER,  # Document without URL
-            source_type=SourceType.DOCUMENT,
+            source=Source.CHROME,  # Document without URL
             source_location_identifier="location3",
             source_location_name="Test Source Location",
             ingested_at="2024-01-01T00:00:04+00:00",  # Newest
@@ -467,12 +455,12 @@ def test_get_documents(docdb):
     assert len(all_docs) == 4
 
     # Filter by source
-    source1_docs = docdb.get_documents(source="twitter")
-    assert len(source1_docs) == 3
+    source1_docs = docdb.get_documents(source="chrome")
+    assert len(source1_docs) == 4
     assert any(doc["id"] == "doc1" for doc in source1_docs)
     assert any(doc["id"] == "doc2" for doc in source1_docs)
+    assert any(doc["id"] == "doc3" for doc in source1_docs)
     assert any(doc["id"] == "doc4" for doc in source1_docs)
-    assert not any(doc["id"] == "doc3" for doc in source1_docs)
 
     # Filter by source location
     location1_docs = docdb.get_documents(source_location="location1")
@@ -501,8 +489,7 @@ def test_json_conversion(docdb):
         url="https://example.com/json1",
         metadata={"key": "value", "nested": {"inner": "data"}},
         text_content="plain text",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="https://example.com/json1",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
@@ -519,8 +506,7 @@ def test_json_conversion(docdb):
         url="https://example.com/json2",
         metadata={"key": "value"},
         text_content="plain text",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="https://example.com/json2",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
@@ -538,8 +524,7 @@ def test_store_document_with_chunks(docdb):
         id="doc_with_chunks",
         title="Document with Chunks",
         text_content="This is paragraph 1.\n\nThis is paragraph 2.\n\nThis is paragraph 3.",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="location_chunks",
         source_location_name="Test Location",
         ingested_at=Doc.format_date(datetime.now()),
@@ -586,8 +571,7 @@ def test_get_duckdb_chunks(docdb):
         id="chunks_doc",
         title="Chunks Document",
         text_content=long_text,
-        source=Source.SUBSTACK,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="chunks_location",
         ingested_at=Doc.format_date(datetime.now()),
     )
@@ -656,8 +640,7 @@ def test_store_document_with_rich_markdown_content(docdb):
         id="rich_markdown_doc",
         title="Rich Markdown Document",
         text_content=rich_content,
-        source=Source.SUBSTACK,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="rich_markdown_location",
         source_location_name="Rich Markdown Test",
         ingested_at=Doc.format_date(datetime.now()),
@@ -841,7 +824,6 @@ def test_content_based_update(docdb, sample_document):
         description="Updated description, but identical content",
         text_content=sample_document.text_content,  # Same content
         source=sample_document.source,
-        source_type=sample_document.source_type,
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
@@ -866,7 +848,6 @@ def test_content_based_update(docdb, sample_document):
         description="This has different content",
         text_content="This is completely different content that should create a new document.",  # Different content
         source=sample_document.source,
-        source_type=sample_document.source_type,
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
@@ -929,8 +910,7 @@ def test_merge_update(docdb):
         url="https://example.com/merge",
         title="Merge Test Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="merge_source",
         ingested_at=Doc.format_date(datetime.now()),
     )
@@ -943,8 +923,7 @@ def test_merge_update(docdb):
         url="https://example.com/merge",  # Same URL
         title="Merge Test Updated",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="merge_source",
         ingested_at=Doc.format_date(datetime.now()),
     )
@@ -974,8 +953,7 @@ def test_no_merge_creates_new(docdb):
         url="https://example.com/no_merge",
         title="No Merge Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="no_merge_source",
         ingested_at=Doc.format_date(datetime.now()),
     )
@@ -988,8 +966,7 @@ def test_no_merge_creates_new(docdb):
         url="https://example.com/no_merge",  # Same URL
         title="No Merge New Content",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="no_merge_source",
         ingested_at=Doc.format_date(datetime.now()),
     )
@@ -1024,8 +1001,7 @@ def test_merge_modification(docdb):
         url="https://example.com/merge_mod",
         title="Merge Mod Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc1)
@@ -1036,8 +1012,7 @@ def test_merge_modification(docdb):
         url="https://example.com/merge_mod",
         title="Merge Mod Updated",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc2)
@@ -1060,8 +1035,7 @@ def test_merge_deletion(docdb):
         url="https://example.com/merge_del",
         title="Merge Del Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc1)
@@ -1072,8 +1046,7 @@ def test_merge_deletion(docdb):
         url="https://example.com/merge_del",
         title="Merge Del Updated",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc2)
@@ -1096,8 +1069,7 @@ def test_merge_mixed_operations(docdb):
         url="https://example.com/merge_mix",
         title="Merge Mix Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc1)
@@ -1111,8 +1083,7 @@ def test_merge_mixed_operations(docdb):
         url="https://example.com/merge_mix",
         title="Merge Mix Updated",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc2)
@@ -1134,8 +1105,7 @@ def test_merge_at_boundaries(docdb):
         url="https://example.com/merge_bound",
         title="Merge Bound Initial",
         text_content=initial_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc1)
@@ -1146,8 +1116,7 @@ def test_merge_at_boundaries(docdb):
         url="https://example.com/merge_bound",
         title="Merge Bound Updated",
         text_content=updated_text,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         ingested_at=Doc.format_date(datetime.now()),
     )
     docdb.store_document(doc2)

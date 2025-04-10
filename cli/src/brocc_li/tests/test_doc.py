@@ -1,91 +1,6 @@
 from datetime import datetime
 
-from brocc_li.types.doc import BaseDocFields, Chunk, Doc, Source, SourceType
-
-
-def test_doc_from_twitter_data():
-    """Test creating Document from Twitter extracted data."""
-    # Sample data that would be extracted from Twitter
-    twitter_data = {
-        "url": "https://x.com/username/status/123456789",
-        "contact_name": "Test Author",
-        "contact_identifier": "username",
-        "created_at": "2023-05-01T12:34:56Z",
-        "metadata": {
-            "replies": "10",
-            "retweets": "20",
-            "likes": "30",
-        },
-    }
-
-    source_location = "https://x.com/i/bookmarks"
-    source_location_name = "Twitter Bookmarks"
-
-    # Create document from the data
-    doc = Doc.from_extracted_data(
-        data=twitter_data,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier=source_location,
-        source_location_name=source_location_name,
-    )
-
-    # Verify core fields
-    assert isinstance(doc.id, str)
-    assert len(doc.id) == 36  # UUID length
-    assert doc.url == twitter_data["url"]
-    assert doc.contact_name == twitter_data["contact_name"]
-    assert doc.contact_identifier == twitter_data["contact_identifier"]
-    assert doc.created_at == twitter_data["created_at"]
-    assert doc.metadata == twitter_data["metadata"]
-
-    # Verify source information
-    assert doc.source == Source.TWITTER
-    assert doc.source_location_identifier == source_location
-    assert doc.source_location_name == source_location_name
-    assert doc.ingested_at != ""  # Should have a timestamp
-
-
-def test_doc_from_substack_data():
-    """Test creating Document from Substack extracted data."""
-    # Sample data that would be extracted from Substack
-    substack_data = {
-        "url": "https://example.substack.com/p/article-title",
-        "title": "Test Article Title",
-        "description": "This is a test article description",
-        "contact_name": "Substack Author",
-        "created_at": "2023-06-15T10:20:30Z",
-        "metadata": {
-            "publication": "Test Publication",
-        },
-    }
-
-    source_location = "https://substack.com/inbox"
-    source_location_name = "Substack Inbox"
-    # Create document from the data
-    doc = Doc.from_extracted_data(
-        data=substack_data,
-        source=Source.SUBSTACK,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier=source_location,
-        source_location_name=source_location_name,
-    )
-
-    # Verify core fields
-    assert isinstance(doc.id, str)
-    assert len(doc.id) == 36  # UUID length
-    assert doc.url == substack_data["url"]
-    assert doc.title == substack_data["title"]
-    assert doc.description == substack_data["description"]
-    assert doc.contact_name == substack_data["contact_name"]
-    assert doc.created_at == substack_data["created_at"]
-    assert doc.metadata == substack_data["metadata"]
-
-    # Verify source information
-    assert doc.source == Source.SUBSTACK
-    assert doc.source_location_identifier == source_location
-    assert doc.source_location_name == source_location_name
-    assert doc.ingested_at != ""  # Should have a timestamp
+from brocc_li.types.doc import BaseDocFields, Chunk, Doc, Source
 
 
 def test_doc_date_formatting():
@@ -103,39 +18,6 @@ def test_doc_date_formatting():
     assert "14" in formatted or "2" in formatted
     assert "30" in formatted
     assert "45" in formatted
-
-
-def test_doc_with_missing_fields():
-    """Test creating Document with missing optional fields."""
-    # Minimal required data
-    minimal_data = {
-        "url": "https://example.com/article",
-    }
-
-    # Create document with minimal data
-    doc = Doc.from_extracted_data(
-        data=minimal_data,
-        source=Source.TWITTER,  # Source enum value required
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="https://example.com",
-    )
-
-    # Verify required fields
-    assert isinstance(doc.id, str)
-    assert len(doc.id) == 36  # UUID length
-    assert doc.url == minimal_data["url"]
-    assert doc.source == Source.TWITTER
-    assert doc.source_location_identifier == "https://example.com"
-
-    # Verify optional fields have default values
-    assert doc.title is None
-    assert doc.description is None
-    assert doc.contact_name is None
-    assert doc.contact_identifier is None
-    assert doc.created_at is None
-    assert doc.metadata == {}
-    assert doc.source_location_name is None
-    assert doc.ingested_at is not None
 
 
 def test_chunk_creation():
@@ -170,8 +52,7 @@ def test_doc_create_chunks_for_doc():
     doc = Doc(
         id="test_doc",
         ingested_at=Doc.format_date(datetime.now()),
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
+        source=Source.CHROME,
         source_location_identifier="test_location",
     )
 

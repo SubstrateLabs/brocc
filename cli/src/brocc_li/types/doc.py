@@ -1,47 +1,16 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from lancedb.pydantic import LanceModel
 from pydantic import BaseModel, Field
 
-from brocc_li.types.extract_field import ExtractField
 from brocc_li.utils.timestamp import format_datetime
 
 
 class Source(Enum):
-    TWITTER = "twitter"
-    SUBSTACK = "substack"
-
-
-class SourceType(Enum):
-    DOCUMENT = "document"
-    CONTACT = "contact"
-
-
-class DocExtractor(BaseModel):
-    # Container selector
-    container: ClassVar[ExtractField]
-
-    # Fields that may be extracted directly from the item
-    # (Other fields may be filled from surrounding context)
-    url: ClassVar[ExtractField]
-    title: ClassVar[ExtractField]
-    description: ClassVar[ExtractField]
-    text_content: ClassVar[ExtractField]  # should be markdown
-    contact_name: ClassVar[ExtractField]
-    contact_identifier: ClassVar[ExtractField]  # e.g. handle, phone, email
-    contact_metadata: ClassVar[ExtractField]
-    participant_names: ClassVar[ExtractField]
-    participant_identifiers: ClassVar[ExtractField]
-    participant_metadatas: ClassVar[ExtractField]
-    metadata: ClassVar[ExtractField]
-    keywords: ClassVar[ExtractField]
-    created_at: ClassVar[ExtractField]
-
-    # Selector for markdown content of navigated pages
-    navigate_content_selector: ClassVar[str | None] = None
+    CHROME = "chrome"
 
 
 # Base model with common fields shared between Doc and ChunkModel
@@ -54,7 +23,6 @@ class BaseDocFields(BaseModel):
     contact_identifier: Optional[str] = None
     # Use simple strings rather than Union types for LanceDB compatibility
     source: Optional[str] = None
-    source_type: Optional[str] = None
     source_location_identifier: Optional[str] = None
     source_location_name: Optional[str] = None
     created_at: Optional[str] = None
@@ -79,8 +47,8 @@ class BaseDocFields(BaseModel):
         result = {}
         for k, v in data.items():
             if k in base_fields:
-                # For source/source_type fields, convert enum objects to strings
-                if k in ["source", "source_type"] and hasattr(v, "value"):
+                # For source fields, convert enum objects to strings
+                if k in ["source"] and hasattr(v, "value"):
                     result[k] = v.value
                 else:
                     result[k] = v
@@ -111,11 +79,8 @@ class Chunk(BaseModel):
 
 class Doc(BaseDocFields):
     id: str
-    # Original enum types for source/source_type in the Doc model
+    # Original enum types for source in the Doc model
     source: Union[Source, str, None] = None  # Override the string-only version from BaseDocFields
-    source_type: Union[SourceType, str, None] = (
-        None  # Override the string-only version from BaseDocFields
-    )
     # Additional non-scalar fields that LanceDB can't handle
     participant_names: Optional[List[str]] = None
     participant_identifiers: Optional[List[str]] = None
@@ -136,33 +101,6 @@ class Doc(BaseDocFields):
     @staticmethod
     def format_date(dt: datetime) -> str:
         return format_datetime(dt)
-
-    @classmethod
-    def from_extracted_data(
-        cls,
-        data: dict[str, Any],
-        source: Source,
-        source_type: SourceType,
-        source_location_identifier: str,
-        source_location_name: str | None = None,
-    ) -> "Doc":
-        doc_id = cls.generate_id()
-
-        # Format ingestion timestamp consistently with our format
-        ingested_at = cls.format_date(datetime.now())
-
-        # Create a copy of data to avoid modifying the original
-        processed_data = data.copy()
-
-        return cls(
-            id=doc_id,
-            source=source,
-            source_type=source_type,
-            source_location_identifier=source_location_identifier,
-            source_location_name=source_location_name,
-            ingested_at=ingested_at,
-            **processed_data,
-        )
 
     @classmethod
     def create_chunks_for_doc(

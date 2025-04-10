@@ -1,4 +1,4 @@
-- redesign schema
+- redesign schema (see notes)
 - cli saving to db
 - search UI
 - simple update cli flow using pypi version

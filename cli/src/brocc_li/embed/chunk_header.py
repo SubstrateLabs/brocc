@@ -18,7 +18,6 @@ def chunk_header(doc: Doc) -> str:
 
     # Add source information
     components.append(f"Source: {get_attr_or_default(doc.source)}")
-    components.append(f"Source Type: {get_attr_or_default(doc.source_type)}")
 
     # Add URL if available
     if doc.url:

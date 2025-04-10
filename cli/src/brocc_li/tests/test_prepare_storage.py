@@ -5,7 +5,7 @@ Tests for the chunk storage utility functions.
 import json
 
 from brocc_li.embed.voyage import ContentType
-from brocc_li.types.doc import Chunk, Source, SourceType
+from brocc_li.types.doc import Chunk, Source
 from brocc_li.utils.prepare_storage import (
     prepare_chunk_for_storage,
     prepare_document_for_storage,
@@ -77,8 +77,7 @@ def test_prepare_structured_content_for_lance():
         "url": "https://example.com",
         "title": "Test Document",
         "description": "A test document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
         "source_location_identifier": "test-location",
         "participant_names": ["User1", "User2"],
         "participant_identifiers": ["@user1", "@user2"],
@@ -98,7 +97,7 @@ def test_prepare_structured_content_for_lance():
     # Check that the first item is the header
     assert structured_content["content"][0]["type"] == ContentType.TEXT
     assert "Title: Test Document" in structured_content["content"][0]["text"]
-    assert "Source: twitter" in structured_content["content"][0]["text"]
+    assert "Source: chrome" in structured_content["content"][0]["text"]
 
     # Check that the second item is the text content
     assert structured_content["content"][1]["type"] == ContentType.TEXT
@@ -125,8 +124,7 @@ def test_prepare_structured_content_for_lance_empty_content():
         "id": "doc-id",
         "url": "https://example.com",
         "title": "Test Document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
     }
 
     # Prepare the structured content
@@ -139,7 +137,7 @@ def test_prepare_structured_content_for_lance_empty_content():
     # Check that the first item is the header
     assert structured_content["content"][0]["type"] == ContentType.TEXT
     assert "Title: Test Document" in structured_content["content"][0]["text"]
-    assert "Source: twitter" in structured_content["content"][0]["text"]
+    assert "Source: chrome" in structured_content["content"][0]["text"]
 
 
 def test_prepare_lance_chunk_row():
@@ -162,8 +160,7 @@ def test_prepare_lance_chunk_row():
         "url": "https://example.com",
         "title": "Test Document",
         "description": "A test document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
         "source_location_identifier": "test-location",
         "participant_names": ["User1", "User2"],
         "participant_identifiers": ["@user1", "@user2"],
@@ -186,8 +183,7 @@ def test_prepare_lance_chunk_row():
     assert row["url"] == "https://example.com"
     assert row["title"] == "Test Document"
     assert row["description"] == "A test document"
-    assert row["source"] == "twitter"  # Enum converted to string
-    assert row["source_type"] == "document"  # Enum converted to string
+    assert row["source"] == "chrome"  # Enum converted to string
     assert row["source_location_identifier"] == "test-location"
 
     # Check that content is JSON serialized
@@ -199,7 +195,7 @@ def test_prepare_lance_chunk_row():
     # Check that the first item is the header
     assert content_dict["content"][0]["type"] == ContentType.TEXT
     assert "Title: Test Document" in content_dict["content"][0]["text"]
-    assert "Source: twitter" in content_dict["content"][0]["text"]
+    assert "Source: chrome" in content_dict["content"][0]["text"]
 
     # Check that the second item is the text content
     assert content_dict["content"][1]["type"] == ContentType.TEXT
@@ -218,8 +214,7 @@ def test_prepare_document_for_storage():
         "url": "https://example.com",
         "title": "Test Document",
         "description": "A test document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
         "source_location_identifier": "test-location",
         "participant_names": ["User1", "User2"],
         "participant_identifiers": ["@user1", "@user2"],
@@ -239,8 +234,7 @@ def test_prepare_document_for_storage():
     assert prepared["url"] == "https://example.com"
     assert prepared["title"] == "Test Document"
     assert prepared["description"] == "A test document"
-    assert prepared["source"] == "twitter"  # Enum converted to string
-    assert prepared["source_type"] == "document"  # Enum converted to string
+    assert prepared["source"] == "chrome"  # Enum converted to string
     assert prepared["source_location_identifier"] == "test-location"
     assert prepared["participant_names"] == ["User1", "User2"]
     assert prepared["participant_identifiers"] == ["@user1", "@user2"]
@@ -274,8 +268,7 @@ def test_prepare_document_for_storage_empty_fields():
         "id": "test-id",
         "url": "https://example.com",
         "title": "Test Document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
         "source_location_identifier": "test-location",
         "participant_names": [],
         "participant_identifiers": [],
@@ -311,8 +304,7 @@ def test_prepare_document_for_storage_missing_fields():
         "id": "test-id",
         "url": "https://example.com",
         "title": "Test Document",
-        "source": Source.TWITTER,
-        "source_type": SourceType.DOCUMENT,
+        "source": Source.CHROME,
         "source_location_identifier": "test-location",
     }
 
