@@ -20,4 +20,21 @@ TabPane {
 
 .hidden {
     display: none;
+}
+
+/* Main app container styling */
+Screen {
+    /* Add layout and other base styles for the screen */
+}
+
+/* Specific component styling can go here */
+
+#webapp-container {
+    /* Styles for the webapp button container if needed */
+}
+
+#update-container {
+    border: round $accent;
+    padding: 1;
+    margin: 1 0;
 } 

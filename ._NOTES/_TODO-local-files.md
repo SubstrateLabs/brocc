@@ -1,1 +1,0 @@
-Note to self: when converting local files to markdown, we must convert any local file paths to absolute file paths for local images. `chunk_markdown` has an optional `base_path` param for this purpose.

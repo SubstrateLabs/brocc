@@ -29,6 +29,7 @@ from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
+from brocc_li.utils.version_check import check_for_updates
 
 load_dotenv()
 
@@ -39,6 +40,12 @@ class MainContent(Static):
         self.app_instance = app_instance
 
     def compose(self) -> ComposeResult:
+        # Add update container first, initially hidden
+        yield Container(
+            Label(id="update-message-label", markup=True),
+            id="update-container",
+            classes="hidden",
+        )
         yield Container(
             Horizontal(
                 Button(
@@ -52,6 +59,17 @@ class MainContent(Static):
             ),
             id="webapp-container",
         )
+
+    def show_update_message(self, message: str) -> None:
+        """Makes the update container visible and sets its message."""
+        try:
+            container = self.query_one("#update-container", Container)
+            label = self.query_one("#update-message-label", Label)
+            label.update(message)
+            container.remove_class("hidden")
+            logger.debug("Displayed update message in MainContent UI")
+        except NoMatches:
+            logger.error("Could not find update UI components in MainContent to show message.")
 
 
 class BroccApp(App):
@@ -84,6 +102,7 @@ class BroccApp(App):
 
         # Reference to info panel
         self.info_panel: Optional[InfoPanel] = None
+        self.main_content: Optional[MainContent] = None  # Add reference to MainContent
 
     # Helper method to safely update UI status
     def _safe_update_ui_status(self, message: str, element_id: str) -> None:
@@ -109,6 +128,8 @@ class BroccApp(App):
             self.info_panel = self.query_one(InfoPanel)
             # Update auth status
             self.info_panel.update_auth_status()
+            # Get reference to MainContent
+            self.main_content = self.query_one(MainContent)
         except NoMatches:
             logger.error("Could not find InfoPanel component")
 
@@ -152,6 +173,9 @@ class BroccApp(App):
 
         # Launch the webview via a worker that waits for the server
         self.run_worker(self._launch_webview_worker, thread=True)
+
+        # Check for updates in background
+        self.run_worker(self._check_for_updates_worker, thread=True)
 
     def _setup_systray(self):
         """Start the system tray icon in a separate process"""
@@ -554,6 +578,13 @@ class BroccApp(App):
         """Update the document database status in the UI"""
         if self.info_panel is not None:
             self.info_panel.update_doc_db_status()
+
+    def _check_for_updates_worker(self):
+        """Worker to check for updates and update UI if needed."""
+        update_message = check_for_updates()
+        if update_message and self.main_content:  # Check main_content reference
+            # Use call_from_thread to safely update the UI from the worker
+            self.call_from_thread(self.main_content.show_update_message, update_message)
 
 
 if __name__ == "__main__":
