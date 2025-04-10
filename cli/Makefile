@@ -173,20 +173,6 @@ test-instagram: \
 	test-instagram-explore-search \
 	test-instagram-saved-collection
 
-test-substack-inbox:
-	uv run pytest src/brocc_li/tests/parsers/test_substack_inbox.py -v -s
-
-test-substack-feed:
-	uv run pytest src/brocc_li/tests/parsers/test_substack_feed.py -v -s
-
-test-substack-activity:
-	uv run pytest src/brocc_li/tests/parsers/test_substack_activity.py -v -s
-
-test-substack: \
-	test-substack-inbox \
-	test-substack-feed \
-	test-substack-activity
-
 test-youtube-home:
 	uv run pytest src/brocc_li/tests/parsers/test_youtube_home.py -v -s
 
