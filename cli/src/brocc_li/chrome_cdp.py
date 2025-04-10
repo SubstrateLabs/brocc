@@ -5,6 +5,7 @@ from typing import List, Optional
 
 import aiohttp
 import websockets
+import websockets.protocol
 from pydantic import BaseModel, Field
 
 from brocc_li.utils.chrome import REMOTE_DEBUG_PORT
@@ -280,3 +281,140 @@ async def _get_html_using_dom(ws_url: str) -> str:
     except Exception as e:
         logger.error(f"Failed to connect to tab via WebSocket: {e}")
         return ""
+
+
+async def monitor_user_interactions(ws_url: str):
+    """
+    Monitor clicks and scrolls in a tab using CDP and yield events.
+
+    Connects to the tab's WebSocket, injects JS listeners, and listens
+    for console messages indicating user interaction.
+
+    Yields:
+        dict: Structured event data like {"type": "click", "data": {...}} or {"type": "scroll", "data": {...}}
+    """
+    msg_counter = 1
+    connection = None  # Keep track of the connection to close it reliably
+    try:
+        logger.debug(f"Monitoring interactions for: {ws_url}")
+        connection = await websockets.connect(
+            ws_url,
+            open_timeout=5.0,  # Slightly longer timeout for initial connection
+            close_timeout=5.0,
+            max_size=20 * 1024 * 1024,
+        )
+        ws = connection
+
+        # Enable required domains
+        await _send_cdp_command(ws, msg_counter, "Page.enable")
+        msg_counter += 1
+        await _send_cdp_command(ws, msg_counter, "Runtime.enable")
+        msg_counter += 1
+
+        # Enable console API events AFTER Runtime is enabled
+        await _send_cdp_command(
+            ws, msg_counter, "Log.enable"
+        )  # Alternative to Runtime.setConsoleLogEnabled
+        msg_counter += 1
+
+        # Inject JS listeners
+        js_code = """
+        (function() {
+            // Use a closure to prevent polluting the global scope too much
+            let lastScrollTimestamp = 0;
+            let lastClickTimestamp = 0;
+            const DEBOUNCE_MS = 250; // Only log if events are spaced out
+
+            document.addEventListener('click', e => {
+                const now = Date.now();
+                if (now - lastClickTimestamp > DEBOUNCE_MS) {
+                    const clickData = {
+                        x: e.clientX,
+                        y: e.clientY,
+                        target: e.target ? e.target.tagName : 'unknown',
+                        timestamp: now
+                    };
+                    console.log('BROCC_CLICK_EVENT', JSON.stringify(clickData));
+                    lastClickTimestamp = now;
+                }
+            }, { capture: true, passive: true }); // Use capture phase, non-blocking
+
+            document.addEventListener('scroll', e => {
+                 const now = Date.now();
+                 if (now - lastScrollTimestamp > DEBOUNCE_MS) {
+                    const scrollData = {
+                        scrollX: window.scrollX,
+                        scrollY: window.scrollY,
+                        timestamp: now
+                    };
+                    console.log('BROCC_SCROLL_EVENT', JSON.stringify(scrollData));
+                    lastScrollTimestamp = now;
+                 }
+            }, { capture: true, passive: true }); // Use capture phase, non-blocking
+
+            return "Broccoli interaction listeners installed.";
+        })();
+        """
+        eval_result = await _send_cdp_command(
+            ws,
+            msg_counter,
+            "Runtime.evaluate",
+            {"expression": js_code, "awaitPromise": False, "returnByValue": True},
+        )
+        msg_counter += 1
+        # Log the result of the script injection
+        injected_status = (
+            eval_result.get("result", {}).get("result", {}).get("value", "Failed to inject")
+        )
+        logger.debug(f"JS injection status for {ws_url}: {injected_status}")
+
+        # Listen for console entries
+        while True:
+            response_raw = await ws.recv()
+            response = json.loads(response_raw)
+
+            # Check for Log.entryAdded events (instead of Runtime.consoleAPICalled)
+            if response.get("method") == "Log.entryAdded":
+                entry = response.get("params", {}).get("entry", {})
+                if entry.get("source") == "console-api" and entry.get("level") == "log":
+                    args = entry.get("args", [])
+                    if len(args) >= 2 and args[0].get("value") == "BROCC_CLICK_EVENT":
+                        try:
+                            click_data = json.loads(args[1].get("value", "{}"))
+                            logger.debug(f"Detected click via CDP log: {click_data}")
+                            yield {"type": "click", "data": click_data}
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse click event data from CDP log")
+                    elif len(args) >= 2 and args[0].get("value") == "BROCC_SCROLL_EVENT":
+                        try:
+                            scroll_data = json.loads(args[1].get("value", "{}"))
+                            logger.debug(f"Detected scroll via CDP log: {scroll_data}")
+                            yield {"type": "scroll", "data": scroll_data}
+                        except json.JSONDecodeError:
+                            logger.warning("Failed to parse scroll event data from CDP log")
+
+            # Handle other methods or responses if necessary
+            elif "id" in response:
+                # Log responses to our commands if needed for debugging
+                logger.debug(f"Received response for command id={response['id']}")
+            # else:
+            # logger.debug(f"Received other CDP message/event: {response.get('method', 'N/A')}")
+
+    except (
+        websockets.ConnectionClosedOK,
+        websockets.ConnectionClosedError,
+        websockets.ConnectionClosed,
+    ) as e:
+        logger.info(f"WebSocket connection closed for {ws_url}: {e}")
+    except asyncio.TimeoutError:
+        logger.warning(f"WebSocket connection attempt timed out for {ws_url}")
+    except Exception as e:
+        logger.error(
+            f"Error monitoring interactions for {ws_url}: {type(e).__name__} - {e}", exc_info=True
+        )
+    finally:
+        # Check state before attempting to close
+        if connection and connection.state != websockets.protocol.State.CLOSED:
+            await connection.close()
+            logger.debug(f"Closed WebSocket connection for {ws_url}")
+        # This generator stops yielding when an error occurs or connection closes.

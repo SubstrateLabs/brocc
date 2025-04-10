@@ -480,7 +480,7 @@ def run_with_timeout(
             return None
 
 
-def convert_html_to_markdown(
+def html_to_md(
     html: str, url: Optional[str] = None, debug: bool = False, timeout: float = PARSER_TIMEOUT
 ) -> Optional[str]:
     """

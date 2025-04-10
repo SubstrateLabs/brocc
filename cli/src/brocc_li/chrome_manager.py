@@ -39,7 +39,7 @@ class ChromeStatus(Enum):
 class TabReference(NamedTuple):
     id: str
     url: str
-    html: str = ""
+    markdown: str = ""
 
 
 class ChromeManager:

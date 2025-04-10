@@ -5,7 +5,6 @@ import webbrowser
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from brocc_li.chrome_manager import ChromeManager
-from brocc_li.chrome_tabs import ChromeTabs
 from brocc_li.utils.chrome import launch_chrome, quit_chrome
 from brocc_li.utils.logger import logger
 
@@ -197,51 +196,3 @@ async def chrome_startup_faq():
         raise HTTPException(
             status_code=500, detail=f"Error opening Chrome startup FAQ: {str(e)}"
         ) from e
-
-
-@router.get("/tabs")
-async def get_chrome_tabs(include_html: bool = False):
-    """
-    Get all open Chrome tabs with optional HTML content.
-
-    Args:
-        include_html: Whether to include HTML content for each tab
-    """
-    # Check if Chrome is connected
-    if not chrome_manager.connected:
-        try:
-            # Try to connect using the async method
-            connected = await chrome_manager.test_connection(quiet=True)
-            if not connected:
-                raise HTTPException(
-                    status_code=503, detail="Chrome is not connected. Try /chrome/launch first."
-                )
-        except Exception as e:
-            logger.error(f"Error connecting to Chrome: {e}")
-            raise HTTPException(status_code=500, detail="Error connecting to Chrome") from e
-
-    # Using ChromeTabs to get tab information
-    tabs_manager = ChromeTabs(chrome_manager)
-
-    if include_html:
-        try:
-            # Get all tabs with HTML content using the async method
-            tabs_with_html = await tabs_manager.get_all_tabs_with_html()
-            return tabs_with_html
-        except Exception as e:
-            logger.error(f"Error getting tabs with HTML: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Error getting tabs with HTML: {str(e)}"
-            ) from e
-    else:
-        try:
-            # Get tabs without HTML content using the async method
-            tabs = await chrome_manager.get_all_tabs()
-            # Filter for HTTP/HTTPS tabs
-            filtered_tabs = [
-                tab for tab in tabs if tab.get("url", "").startswith(("http://", "https://"))
-            ]
-            return filtered_tabs
-        except Exception as e:
-            logger.error(f"Error getting tabs: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting tabs: {str(e)}") from e

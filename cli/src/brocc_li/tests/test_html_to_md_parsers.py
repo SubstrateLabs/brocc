@@ -6,7 +6,7 @@ import pytest
 
 from brocc_li.html_to_md import (  # Import the registry itself
     PARSER_REGISTRY,
-    convert_html_to_markdown,
+    html_to_md,
 )
 
 # Import all the specific parser functions referenced in the registry
@@ -224,7 +224,7 @@ def test_convert_html_to_markdown_with_specific_parsers():
                     PARSER_REGISTRY, {list(PARSER_REGISTRY.keys())[0]: mock_parser}
                 ):
                     # Call the function
-                    result = convert_html_to_markdown(html_content, url=url)
+                    result = html_to_md(html_content, url=url)
 
                     # Verify mock was called and returned expected output
                     mock_parser.assert_called_once()
@@ -248,7 +248,7 @@ def test_convert_html_to_markdown_fallback_to_generic():
         # And then mock the generic conversion to return our expected output
         with mock.patch("brocc_li.html_to_md.md", return_value=expected_output):
             # Call the function
-            result = convert_html_to_markdown(html_content, url=url)
+            result = html_to_md(html_content, url=url)
 
             # Check that we got the expected output
             assert result == expected_output
@@ -288,7 +288,7 @@ def test_convert_html_to_markdown_handles_exceptions():
                                     return_value=expected_output,
                                 ):
                                     # Call the function
-                                    result = convert_html_to_markdown(html_content, url=url)
+                                    result = html_to_md(html_content, url=url)
 
                                     # Verify the error was logged
                                     mock_logger.error.assert_called_once()

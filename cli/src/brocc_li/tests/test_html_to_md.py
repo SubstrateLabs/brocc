@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 import brocc_li.html_to_md
-from brocc_li.html_to_md import convert_html_to_markdown, run_with_timeout
+from brocc_li.html_to_md import html_to_md, run_with_timeout
 from brocc_li.playwright_fallback import BANNER_TEXT
 from brocc_li.utils.logger import logger
 
@@ -184,7 +184,7 @@ def test_fixture_conversion(fixtures_dir: Path, fixture_name: str):
         logger.info(f"  HTML size: {len(html)} bytes")
 
     # Convert and validate
-    markdown = convert_html_to_markdown(html, url=slug)
+    markdown = html_to_md(html, url=slug)
 
     # Check if conversion returned None (e.g., for PDF pages)
     if markdown is None:
@@ -230,9 +230,7 @@ def test_parser_timeout():
         brocc_li.html_to_md.PARSER_REGISTRY[r"https://test-timeout-url\.com"] = slow_parser
 
         # Call with short timeout using a matching URL
-        result = convert_html_to_markdown(
-            minimal_html, url="https://test-timeout-url.com", timeout=0.1
-        )
+        result = html_to_md(minimal_html, url="https://test-timeout-url.com", timeout=0.1)
 
         # Should fall back to generic parser and produce a result from the html
         assert result is not None
