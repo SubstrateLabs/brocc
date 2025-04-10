@@ -891,15 +891,6 @@ async def main() -> None:
         logger.success(
             f"Shutdown complete. Saved/updated markdown for {final_md_count} files to {debug_dir}"
         )
-        # Clean up Playwright if needed (no changes here)
-        try:
-            from brocc_li.playwright_fallback import playwright_fallback
-
-            await playwright_fallback.cleanup()
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"Error cleaning up Playwright resources: {e}")
         logger.debug("Tab monitor main program finished.")
     # --- End Main Execution Logic ---
 

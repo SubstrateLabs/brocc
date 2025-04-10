@@ -295,19 +295,12 @@ class ChromeManager:
 
         return tabs
 
-    async def get_tab_html(
-        self, tab_id: str, cdp_only: bool = False
-    ) -> Tuple[Optional[str], Optional[str]]:
+    async def get_tab_html(self, tab_id: str) -> Tuple[Optional[str], Optional[str]]:
         """
-        Get the HTML content and the final URL from a specific tab using its ID.
-
-        Uses a multi-strategy approach:
-        1. Quick check with Chrome DevTools Protocol (fast but flaky)
-        2. If CDP fails and cdp_only is False, fall back to Playwright (more robust)
+        Get the HTML content and the final URL from a specific tab using its ID via CDP.
 
         Args:
             tab_id: The ID of the tab to get HTML from
-            cdp_only: If True, only try CDP method without Playwright fallback
 
         Returns:
             Tuple (html_content | None, final_url | None)
@@ -341,7 +334,7 @@ class ChromeManager:
             logger.error(f"Tab with ID {tab_id} not found or has no WebSocket URL")
             return None, final_url  # Return URL found so far
 
-        # Strategy 1: Try CDP approach first
+        # Strategy: Try CDP approach
         logger.debug(f"Trying to get HTML from tab {tab_id} ({final_url}) via CDP")
 
         ws_url = tab.webSocketDebuggerUrl
@@ -354,28 +347,12 @@ class ChromeManager:
         if cdp_url:  # Update URL if CDP returned one
             final_url = cdp_url
 
-        # Strategy 2: If CDP failed and we're not in CDP-only mode, try Playwright fallback
-        if not html and not cdp_only:
-            logger.debug(f"CDP failed for {final_url}, trying Playwright fallback for tab {tab_id}")
-            try:
-                # Import here to avoid circular imports
-                from brocc_li.playwright_fallback import playwright_fallback
-
-                # Fallback now returns (html, url)
-                html, playwright_url = await playwright_fallback.get_html_from_tab(tab_id)
-                if playwright_url:  # Update URL if Playwright returned one
-                    final_url = playwright_url
-
-                if html:
-                    logger.debug(
-                        f"Successfully retrieved HTML via Playwright fallback ({len(html)} chars) from {final_url}"
-                    )
-                else:
-                    logger.warning(
-                        f"Playwright fallback also failed for tab {tab_id} ({final_url})"
-                    )
-            except Exception as e:
-                logger.error(f"Playwright fallback error for {final_url}: {e}")
+        if html:
+            logger.debug(
+                f"Successfully retrieved HTML via CDP ({len(html)} chars) from {final_url}"
+            )
+        else:
+            logger.warning(f"CDP failed to retrieve HTML for tab {tab_id} ({final_url})")
 
         return html, final_url
 
@@ -383,9 +360,7 @@ class ChromeManager:
         self, tabs: List[dict]
     ) -> List[Tuple[dict, Optional[str], Optional[str]]]:
         """
-        Efficiently get HTML content and final URLs from multiple tabs asynchronously.
-
-        First tries CDP in parallel, then handles Playwright fallbacks concurrently.
+        Efficiently get HTML content and final URLs from multiple tabs asynchronously via CDP.
 
         Args:
             tabs: List of tab dictionaries containing id and other info
@@ -395,7 +370,6 @@ class ChromeManager:
         """
         await self._ensure_initialized()
         results: List[Tuple[dict, Optional[str], Optional[str]]] = []  # Explicitly type
-        tabs_needing_fallback: List[dict] = []
         cdp_fetched_urls: Dict[str, str] = {}  # Store URLs found during CDP phase
         console = Console()
 
@@ -403,11 +377,11 @@ class ChromeManager:
             return []
 
         # Log the start of the process
-        console.print(f"[cyan]Starting HTML extraction for {len(tabs)} tabs...[/cyan]")
+        console.print(f"[cyan]Starting HTML extraction for {len(tabs)} tabs via CDP...[/cyan]")
 
-        # First phase: Process tabs with CDP in parallel using asyncio.gather, limited by semaphore
+        # Process tabs with CDP in parallel using asyncio.gather, limited by semaphore
         console.print(
-            f"[bold cyan]Phase 1: Parallel CDP extraction for {len(tabs)} tabs (max 5 concurrent)...[/bold cyan]"
+            f"[bold cyan]Parallel CDP extraction for {len(tabs)} tabs (max 5 concurrent)...[/bold cyan]"
         )
 
         semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent CDP tasks
@@ -421,157 +395,50 @@ class ChromeManager:
                 console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
                 html: Optional[str] = None
                 url: Optional[str] = tab.get("url")  # Start with the initial URL
-                needs_fallback = True  # Assume fallback needed unless CDP succeeds
 
                 try:
-                    # Explicitly set cdp_only=True to skip fallback during initial phase
-                    # This now returns (html, url)
-                    html, url = await self.get_tab_html(tab_id, cdp_only=True)
-                    needs_fallback = not bool(html)  # Fallback if HTML is None or empty
+                    # This now returns (html, url) and only uses CDP
+                    html, url = await self.get_tab_html(tab_id)
 
                 except asyncio.TimeoutError:
                     console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
-                    # html remains None, url might be updated, needs_fallback remains True
+                    # html remains None, url might be updated
                 except Exception as e:  # Catch other potential errors during CDP
                     console.print(f"[red]✗[/red] CDP error for {short_title}: {e}")
-                    # html remains None, url might be updated, needs_fallback remains True
+                    # html remains None, url might be updated
 
-                if needs_fallback:
-                    console.print(
-                        f"[yellow]CDP failed for {short_title} - queuing fallback[/yellow]"
-                    )
+                if not html:
+                    console.print(f"[yellow]CDP failed for {short_title}[/yellow]")
                 else:
-                    char_count = len(html) if html else 0
-                    line_count = html.count("\n") + 1 if html else 0
+                    char_count = len(html)
+                    line_count = html.count("\n") + 1
                     console.print(
                         f"[green]✓[/green] CDP success: {short_title} ({char_count:,} chars, {line_count:,} lines) from {url}"
                     )
-                # Store the URL found by CDP, even if it failed, for potential use in fallback phase logging
+                # Store the URL found by CDP, even if it failed
                 if tab_id and url:
                     cdp_fetched_urls[tab_id] = url
 
-                return tab, html, url, needs_fallback
+                return tab, html, url
 
         # Process all tabs in parallel
         cdp_results = await asyncio.gather(*[process_tab_with_cdp_async(tab) for tab in tabs])
 
         # Process results
-        for tab, html, url, needs_fallback in cdp_results:
-            if needs_fallback:
-                tabs_needing_fallback.append(tab)
-                # Add result with None HTML for now, URL might be from CDP attempt
-                results.append((tab, None, url))
-            else:
-                results.append((tab, html, url))
-
-        # Phase 2: Process fallbacks concurrently using Playwright
-        if tabs_needing_fallback:
-            console.print(
-                f"\n[bold cyan]Phase 2: Concurrent Playwright fallbacks for {len(tabs_needing_fallback)} tabs...[/bold cyan]"
-            )
-
-            try:
-                # Import here to avoid circular imports
-                from brocc_li.playwright_fallback import playwright_fallback
-            except ImportError as e:
-                logger.error(f"Failed to import Playwright fallback: {e}")
-                # Return results obtained so far from CDP
-                return results
-
-            # Create tasks for each fallback
-            fallback_tasks = []
-            tab_map = {}  # Map task to original tab data
-            for tab in tabs_needing_fallback:
-                tab_id = tab.get("id")
-                if tab_id:
-                    title = tab.get("title", "Untitled")
-                    short_title = (title[:30] + "...") if len(title) > 30 else title
-                    console.print(f"[dim]Playwright: Queuing {short_title}...[/dim]")
-                    # Create the async task which returns (html, url)
-                    task = asyncio.create_task(playwright_fallback.get_html_from_tab(tab_id))
-                    fallback_tasks.append(task)
-                    tab_map[task] = tab  # Store original tab info associated with this task
-
-            # Run all fallback tasks concurrently and gather results
-            fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
-
-            # Process the results
-            # We need to match results back to the `results` list entries added earlier
-            for i, fallback_result in enumerate(fallback_results):
-                task = fallback_tasks[i]
-                tab = tab_map[task]  # Get original tab info
-                tab_id = tab.get("id")
-                title = tab.get("title", "Untitled")
-                short_title = (title[:30] + "...") if len(title) > 30 else title
-
-                # Find the corresponding entry in the main results list
-                # Find the index in the *original* results list where the tab_id matches
-                # And where HTML is currently None (indicating it needed fallback)
-                target_idx = -1
-                for idx, (res_tab, res_html, _) in enumerate(results):
-                    if res_tab.get("id") == tab_id and res_html is None:
-                        target_idx = idx
-                        break
-
-                if target_idx == -1:
-                    logger.error(f"Could not find matching result entry for fallback tab {tab_id}")
-                    continue  # Skip this result if we can't place it
-
-                html: Optional[str] = None
-                url: Optional[str] = results[target_idx][2]  # Start with URL from CDP phase if any
-
-                if isinstance(fallback_result, Exception):
-                    console.print(
-                        f"[red]✗[/red] Playwright error for {short_title}: {fallback_result}"
-                    )
-                    # Keep html as None, url might be from CDP
-                elif isinstance(fallback_result, tuple) and len(fallback_result) == 2:
-                    fb_html, fb_url = fallback_result
-                    if fb_url:
-                        url = fb_url  # Update URL if Playwright found one
-
-                    if fb_html:  # Successfully got non-empty HTML
-                        html = fb_html  # Assign the fetched HTML
-                        # Safely calculate length and lines using fb_html directly
-                        char_count = len(fb_html)  # Use fb_html which is known str here
-                        line_count = fb_html.count("\n") + 1  # Use fb_html here too
-                        console.print(
-                            f"[green]✓[/green] Playwright success: {short_title} ({char_count:,} chars, {line_count:,} lines) from {url}"
-                        )
-                    else:  # Playwright returned empty or None string
-                        console.print(
-                            f"[red]✗[/red] Playwright failed for {short_title} (returned empty/None) from {url}"
-                        )
-                        # Keep html as None
-                else:  # Should not happen, but handle unexpected result types
-                    console.print(
-                        f"[red]✗[/red] Playwright returned unexpected result type for {short_title}: {type(fallback_result)}"
-                    )
-                    # Keep html as None
-
-                # Update the specific entry in the results list
-                results[target_idx] = (tab, html, url)
+        for tab, html, url in cdp_results:
+            results.append((tab, html, url))
 
         # Report final stats
         success_count = sum(1 for _, html, _ in results if html)
         failure_count = len(tabs) - success_count
 
-        # Get the current average processing time if available
-        try:
-            from brocc_li.playwright_fallback import get_current_time_estimate
-
-            avg_time = get_current_time_estimate()
-            time_info = f" (avg {avg_time:.2f}s/tab)"
-        except ImportError:
-            time_info = ""
-
         if success_count == len(tabs):
             console.print(
-                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs!{time_info}[/bold green]"
+                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs via CDP![/bold green]"
             )
         else:
             console.print(
-                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs ({failure_count} failed){time_info}[/bold yellow]"
+                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs via CDP ({failure_count} failed)[/bold yellow]"
             )
 
         return results

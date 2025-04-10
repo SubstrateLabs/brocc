@@ -15,7 +15,6 @@ import pytest
 
 import brocc_li.html_to_md
 from brocc_li.html_to_md import html_to_md, run_with_timeout
-from brocc_li.playwright_fallback import BANNER_TEXT
 from brocc_li.utils.logger import logger
 
 # Set to True to enable debug logging
@@ -143,13 +142,6 @@ def assert_valid_markdown(markdown: str, fixture_name: str):
     text_lines = [line for line in lines if not line.startswith(("#", ">", "-", "*", "```", "|"))]
     if text_lines and len(text_lines) >= 5:  # Only check if we have enough lines
         pass
-
-    # Ensure banner text is not present in the output
-    if BANNER_TEXT in markdown and DEBUG:
-        logger.error(f"❌ {fixture_name}: Banner text found in output")
-    assert BANNER_TEXT not in markdown, (
-        f"Banner text should not be present in output for {fixture_name}"
-    )
 
     if DEBUG:
         logger.info(f"✅ {fixture_name}: Passed all markdown validation checks")

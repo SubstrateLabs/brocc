@@ -3,6 +3,7 @@
 - unstructured is a nice easy way to cleanup markdown that's almost there, good default
 - beautifulsoup selectors + structural logging is more robust but can be hairy (see twitter, gmail, youtube)
 - ideal is using playwright and evaluating selectors on live page (but that's slow so we never do that rn)
+  - prev had this playwright fallback but was janky: https://github.com/SubstrateLabs/brocc/blob/d01895e5cf3907b2a69a4eb21a763b39cd6e1c73/cli/src/brocc_li/playwright_fallback.py
 
 ## backlog
 

@@ -1,3 +1,4 @@
+- remove playwright fallback?
 - cli saving to db
 - search UI
 - deep search

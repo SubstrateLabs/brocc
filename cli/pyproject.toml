@@ -34,7 +34,6 @@ dependencies = [
     "pandas>=2.2.3",
     "pillow>=11.2.0",
     "platformdirs>=4.3.7",
-    "playwright>=1.51.0",
     "polars>=1.26.0",
     "psutil>=7.0.0",
     "pyarrow>=19.0.1",
@@ -64,9 +63,6 @@ dev = [
 
 [project.scripts]
 brocc = "brocc_li.entry_points:start"
-
-[tool.hatch.envs.default]
-post-install-commands = ["playwright install chromium"]
 
 [project.urls]
 Documentation = "https://brocc.li"
