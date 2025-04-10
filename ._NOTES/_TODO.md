@@ -1,19 +1,14 @@
-- db update logic: if mergeable, replace
-- schema design:
-  - source / location: needs another layer
-    - chrome::<location name: twitter>::<location: url>
-  - field for parent doc id
-    - capture parent doc for threads, comments
-    - is this the same as "parent url" for browser nav?
-- simple update cli flow using pypi version
-- youtube transcripts
+- redesign schema
+- cli saving to db
 - search UI
+- simple update cli flow using pypi version
+- deep search
+- youtube transcripts
 - AI: pydanticai + openrouter
 
 ## backlog
 
 - CI tests
-- substack parsing
 - prompt injection thoughts
 - pdf extraction (docling + grobid)
 - cli oauth flow
@@ -26,13 +21,9 @@
 
 ## parser backlog
 
-- twitter profile (no content in md)
-- twitter bookmarks (no content in md)
-- twitter messages
-- twitter followers
-- linkedin followers
-- linkedin messages
-- linkedin company people
+- substack
+  - https://github.com/SubstrateLabs/brocc/blob/b06bba67354525dd2c1fc83906ce4479c4f2b00f/cli/src/brocc_li/scroll_prototype/substack_inbox.py
+- improve linkedin non-feed pages
 
 ## ideas
 

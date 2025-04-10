@@ -290,8 +290,8 @@ def test_process_document_fields():
     processed = process_document_fields(document, array_fields, json_fields)
 
     # Check that location tuple was reconstructed
-    assert "location" in processed
-    assert processed["location"] == (37.7749, -122.4194)
+    assert "geolocation" in processed
+    assert processed["geolocation"] == (37.7749, -122.4194)
     assert "longitude" not in processed
     assert "latitude" not in processed
 

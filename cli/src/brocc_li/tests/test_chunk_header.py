@@ -37,7 +37,7 @@ def test_chunk_header_minimal():
         id="test-id-456",
         ingested_at=Doc.format_date(datetime.now()),
         source=Source.SUBSTACK,
-        source_type=SourceType.CONVERSATION,
+        source_type=SourceType.DOCUMENT,
         source_location_identifier="test-location",
     )
 
@@ -64,11 +64,10 @@ def test_chunk_header_all_fields():
         keywords=["test", "comprehensive", "all-fields"],
         metadata={"priority": "high", "category": "test"},
         source=Source.TWITTER,
-        source_type=SourceType.CONVERSATION,
+        source_type=SourceType.DOCUMENT,
         source_location_identifier="comprehensive-test",
         source_location_name="Comprehensive Test Channel",
         created_at="2023-05-15T09:30:00Z",
-        embedded_at="2023-05-15T10:00:00Z",
     )
 
     expected_header = (

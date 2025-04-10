@@ -8,6 +8,8 @@ from typing import Any, TypeVar, Union, cast
 
 import polars as pl
 
+from brocc_li.utils.geolocation import reconstruct_geolocation_tuple
+
 # Type variable for sanitize_input return type
 T = TypeVar("T")
 
@@ -169,26 +171,26 @@ def process_document_fields(
     Returns:
         Processed document dictionary with consistent field formatting
     """
-    from brocc_li.utils.location import reconstruct_location_tuple
+    processed_doc = document.copy()
 
-    # First reconstruct the location tuple from longitude/latitude
-    doc = reconstruct_location_tuple(document)
+    # Reconstruct geolocation tuple from extracted fields
+    processed_doc = reconstruct_geolocation_tuple(processed_doc)
 
     # Convert None arrays to empty lists
     for field in array_fields:
-        if field in doc:
-            doc[field] = process_array_field(doc[field])
+        if field in processed_doc:
+            processed_doc[field] = process_array_field(processed_doc[field])
         else:
-            doc[field] = []
+            processed_doc[field] = []
 
     # Parse JSON fields
     for field, default in json_fields.items():
-        if field in doc:
-            doc[field] = process_json_field(doc[field], default)
+        if field in processed_doc:
+            processed_doc[field] = process_json_field(processed_doc[field], default)
         else:
-            doc[field] = default
+            processed_doc[field] = default
 
-    return doc
+    return processed_doc
 
 
 def process_duckdb_chunk(chunk: dict[str, Any]) -> dict[str, Any]:

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import duckdb
 import lancedb
@@ -31,10 +31,11 @@ from lancedb.pydantic import Vector
 from platformdirs import user_data_dir
 
 from brocc_li.embed.chunk_markdown import chunk_markdown
+from brocc_li.merge_md import MergeResultType, merge_md
 from brocc_li.types.doc import BaseDocFields, Chunk, Doc, LanceChunk
 from brocc_li.utils.chunk_equality import chunks_are_identical
-from brocc_li.utils.location import (
-    add_location_fields_to_query,
+from brocc_li.utils.geolocation import (
+    add_geolocation_fields_to_query,
     modify_schema_for_geometry,
 )
 from brocc_li.utils.logger import logger
@@ -46,7 +47,7 @@ from brocc_li.utils.prepare_storage import (
     prepare_document_for_storage,
     prepare_lance_chunk_row,
 )
-from brocc_li.utils.pydantic_to_sql import generate_create_table_sql
+from brocc_li.utils.pydantic_to_sql import generate_create_table_sql, generate_select_sql
 from brocc_li.utils.serde import (
     polars_to_dicts,
     process_document_fields,
@@ -390,11 +391,19 @@ class DocDB:
         if not url:
             return []
 
+        # Generate the base SELECT statement dynamically
+        base_select = generate_select_sql(
+            Doc,
+            DOCUMENTS_TABLE,
+            # Exclude text_content (not stored) and geolocation (handled specially)
+            exclude_fields=EXCLUDED_FIELDS | {"text_content", "geolocation"},
+        )
+
         with self._get_connection() as conn:
-            # Select necessary columns, extracting lon/lat from GEOMETRY
-            select_query = add_location_fields_to_query(
-                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE url = ? ORDER BY ingested_at DESC"
-            )
+            # Add WHERE and ORDER BY clauses
+            query = f"{base_select} WHERE url = ? ORDER BY ingested_at DESC"
+            # Add geolocation handling
+            select_query = add_geolocation_fields_to_query(query)
             df = pl.from_arrow(conn.execute(select_query, [url]).arrow())
 
             if df.is_empty():
@@ -496,11 +505,19 @@ class DocDB:
         if not doc_id:
             return None
 
+        # Generate the base SELECT statement dynamically
+        base_select = generate_select_sql(
+            Doc,
+            DOCUMENTS_TABLE,
+            # Exclude text_content (not stored) and geolocation (handled specially)
+            exclude_fields=EXCLUDED_FIELDS | {"text_content", "geolocation"},
+        )
+
         with self._get_connection() as conn:
-            # Select necessary columns, extracting lon/lat from GEOMETRY
-            select_query = add_location_fields_to_query(
-                f"SELECT * FROM {DOCUMENTS_TABLE} WHERE id = ?"
-            )
+            # Add WHERE clause
+            query = f"{base_select} WHERE id = ?"
+            # Add geolocation handling
+            select_query = add_geolocation_fields_to_query(query)
             df = pl.from_arrow(conn.execute(select_query, [doc_id]).arrow())
 
             if df.is_empty():
@@ -519,8 +536,17 @@ class DocDB:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        # Generate the base SELECT statement dynamically from the Doc model
+        # Exclude fields not stored directly in the table
+        base_select = generate_select_sql(
+            Doc,
+            DOCUMENTS_TABLE,
+            # Exclude text_content (not stored) and geolocation (handled specially)
+            exclude_fields=EXCLUDED_FIELDS | {"text_content", "geolocation"},
+        )
+
         with self._get_connection() as conn:
-            query = f"SELECT id, ingested_at, url, title, description, contact_name, contact_identifier, contact_metadata, participant_names, participant_identifiers, participant_metadatas, keywords, metadata, source, source_type, source_location_identifier, source_location_name, created_at, last_updated, location FROM {DOCUMENTS_TABLE}"
+            query = base_select  # Start with the generated SELECT
             params = []
 
             # Add optional filters
@@ -538,8 +564,9 @@ class DocDB:
             # Add limit and offset
             query += f" ORDER BY ingested_at DESC LIMIT {limit} OFFSET {offset}"
 
-            # Select all columns, including extracted lon/lat
-            select_query = add_location_fields_to_query(query)
+            # Add geolocation handling to the dynamically generated query
+            # This adds ST_AsText(geolocation) AS geolocation_wkt OR just selects existing columns
+            select_query = add_geolocation_fields_to_query(query)
 
             df = pl.from_arrow(conn.execute(select_query, params).arrow())
 
@@ -551,52 +578,105 @@ class DocDB:
             # Process fields
             return [process_document_fields(doc, ARRAY_FIELDS, JSON_FIELDS) for doc in raw_dicts]
 
+    def _reconstruct_text_from_chunks(self, chunks: List[Dict[str, Any]]) -> str:
+        """Reconstructs the original text content from a list of chunks."""
+        all_text_blocks = []
+        for chunk in sorted(chunks, key=lambda c: c["chunk_index"]):  # Ensure order
+            if isinstance(chunk.get("content"), list):  # Check if content is a list
+                chunk_text = "\n\n".join(
+                    item["text"] for item in chunk["content"] if item.get("type") == "text"
+                )
+                if chunk_text:
+                    all_text_blocks.append(chunk_text)
+        return "\n\n".join(all_text_blocks)
+
     def _find_id_for_update(
         self,
         document: dict[str, Any],
         db_document: dict[str, Any],
         new_chunks: list[Chunk],
-    ) -> tuple[str | None, bool]:
+        new_text_content: str,
+    ) -> tuple[str | None, bool, str | None]:
         """
-        Determine if an existing document should be updated, returning its ID if found.
+        Determine if an existing document should be updated, potentially merging content.
 
         Returns:
-            tuple: (doc_id, update_chunks)
-            - doc_id: ID of document to update, or None if no match
-            - update_chunks: Whether chunks should be updated (False if content identical)
+            tuple: (doc_id_to_update, should_update_chunks, content_to_use)
+            - doc_id_to_update: ID of document to update, or None if creating new.
+            - should_update_chunks: Whether chunks need updating (True if content changed or merged).
+            - content_to_use: The final text content (merged or new) to generate chunks from.
         """
-        # First priority: check by ID
         doc_id = document.get("id")
-        if doc_id and self.get_document_by_id(doc_id):
-            # Check if chunks are identical
-            existing_chunks = self.get_duckdb_chunks(doc_id)
-            if chunks_are_identical(existing_chunks, new_chunks):
-                return doc_id, False
-            # Content differs, do not update - will create new
-            return None, True
-
-        # Second priority: check by URL
         url = document.get("url")
+
+        # --- Check by ID first ---
+        if doc_id:
+            existing_doc = self.get_document_by_id(doc_id)
+            if existing_doc:
+                existing_chunks = self.get_duckdb_chunks(doc_id)
+                if chunks_are_identical(existing_chunks, new_chunks):
+                    logger.debug(
+                        f"Document {doc_id} found by ID, content identical. Updating metadata only."
+                    )
+                    return doc_id, False, None  # Update metadata only
+
+                # Content differs, attempt merge
+                logger.debug(f"Document {doc_id} found by ID, content differs. Attempting merge.")
+                existing_text = self._reconstruct_text_from_chunks(existing_chunks)
+                merge_result = merge_md(existing_text, new_text_content)
+
+                if merge_result.type == MergeResultType.MERGED:
+                    logger.info(
+                        f"Merge successful for doc ID {doc_id}. Updating with merged content."
+                    )
+                    return doc_id, True, merge_result.content  # Update with merged content
+                else:
+                    logger.info(f"Merge not possible for doc ID {doc_id}. Creating new document.")
+                    return None, True, new_text_content  # Create new document
+
+        # --- Check by URL if no ID match or ID not provided ---
         if url:
             matching_docs = self.get_documents_by_url(url)
             if matching_docs:
-                # If multiple matches, use the most recent one's ID
+                # Use the most recent existing document by URL
                 update_id = matching_docs[0]["id"]
-
-                # Check if chunks are identical
                 existing_chunks = self.get_duckdb_chunks(update_id)
+
                 if chunks_are_identical(existing_chunks, new_chunks):
-                    # Update the document's ID if it wasn't set originally
+                    logger.debug(
+                        f"Document {update_id} found by URL, content identical. Updating metadata only."
+                    )
+                    # Ensure the incoming document object uses the found ID
                     if not document.get("id"):
                         document["id"] = update_id
                         db_document["id"] = update_id
-                    return update_id, False
+                    return update_id, False, None  # Update metadata only
 
-                # Content differs, do not update - will create new
-                return None, True
+                # Content differs, attempt merge
+                logger.debug(
+                    f"Document {update_id} found by URL, content differs. Attempting merge."
+                )
+                existing_text = self._reconstruct_text_from_chunks(existing_chunks)
+                merge_result = merge_md(existing_text, new_text_content)
 
-        # No existing document found or content differs, insert new
-        return None, True
+                if merge_result.type == MergeResultType.MERGED:
+                    logger.info(
+                        f"Merge successful for doc URL {url} (ID {update_id}). Updating with merged content."
+                    )
+                    # Ensure the incoming document object uses the found ID
+                    if not document.get("id") or document.get("id") != update_id:
+                        document["id"] = update_id
+                        db_document["id"] = update_id
+                    return update_id, True, merge_result.content  # Update with merged content
+                else:
+                    logger.info(
+                        f"Merge not possible for doc URL {url} (ID {update_id}). Creating new document."
+                    )
+                    return None, True, new_text_content  # Create new document
+
+        # No existing document found by ID or URL, or merge failed
+        logger.debug("No existing document found or merge failed. Creating new document.")
+        return None, True, new_text_content  # Create new
 
     def _update_document(self, conn, db_document: dict[str, Any], doc_id: str) -> None:
         """Execute the UPDATE statement for a given document ID."""
@@ -609,7 +689,7 @@ class DocDB:
             if (
                 key != "id" and key not in EXCLUDED_FIELDS
             ):  # Skip id field and excluded fields like text_content
-                if key == "location" and value is not None:
+                if key == "geolocation" and value is not None:
                     # Use ST_Point function for location update
                     set_clauses.append(f"{key} = ST_GeomFromText(?)")
                     params.append(value)  # value is already the WKT string 'POINT (lon lat)'
@@ -639,7 +719,7 @@ class DocDB:
 
         for key, value in filtered_doc.items():
             columns.append(key)
-            if key == "location" and value is not None:
+            if key == "geolocation" and value is not None:
                 # Use ST_Point function for location insert
                 placeholders.append("ST_GeomFromText(?)")
                 values.append(value)  # value is already the WKT string 'POINT (lon lat)'
@@ -752,6 +832,8 @@ class DocDB:
     def store_document(self, document: Doc) -> bool:
         """
         Store a document in the database, updating if it already exists.
+        If content differs but is mergeable, updates with merged content.
+        Otherwise, creates a new document entry.
 
         Args:
             document: A Doc object that must contain text_content for chunking.
@@ -761,82 +843,107 @@ class DocDB:
 
         Raises:
             ValueError: If document doesn't contain required text_content field.
-
-        Implementation details:
-        - The text_content is removed from the document and:
-          1. Chunked according to markdown structure
-          2. Stored separately in the chunks table
-          3. The document will reference these chunks through the doc_id
-        - The text_content field is not stored directly in the documents table
         """
         # Convert to dict for processing
         doc_dict = document.model_dump()
 
         # Ensure location is properly captured
-        # The Pydantic model_dump() might not properly include the location tuple
-        # We need to get it directly from the object if available
-        # Later in storage, location_tuple_to_wkt will convert it to the proper WKT format
-        if hasattr(document, "location") and document.location is not None:
-            doc_dict["location"] = document.location
-        elif "location" not in doc_dict:
-            doc_dict["location"] = None  # Ensure it's present for _prepare_document_for_storage
+        if hasattr(document, "geolocation") and document.geolocation is not None:
+            doc_dict["geolocation"] = document.geolocation
+        elif "geolocation" not in doc_dict:
+            doc_dict["geolocation"] = None
 
         # Require text_content
         text_content = doc_dict.pop("text_content", None)
-        if not text_content:
+        if text_content is None:  # Check for None specifically, allow empty string
             raise ValueError("Document must contain text_content field for chunking")
 
         # Create a copy of the document data to avoid modifying the original
         doc_data = doc_dict.copy()
         original_id = doc_data.get("id")
 
-        # Get chunks from text content
-        chunked_content = chunk_markdown(text_content)
-
-        # Create a Doc object to pass to create_chunks_for_doc
-        doc_obj = Doc(**doc_data)
-
-        # Create chunk objects
-        chunks = Doc.create_chunks_for_doc(doc_obj, chunked_content)
+        # Generate initial chunks from the *incoming* text content to check for identity
+        # We may regenerate these later if merging happens.
+        initial_chunked_content = chunk_markdown(text_content)
+        initial_doc_obj_for_chunking = Doc(**doc_data)  # Use a temporary Doc for chunk ID gen
+        initial_chunks = Doc.create_chunks_for_doc(
+            initial_doc_obj_for_chunking, initial_chunked_content
+        )
 
         with self._get_connection() as conn:
-            # Check if an existing document needs to be updated
-            id_to_update, update_chunks = self._find_id_for_update(doc_data, doc_data, chunks)
+            # Check if an existing document needs to be updated or merged
+            id_to_update, should_update_chunks, content_to_use = self._find_id_for_update(
+                doc_data, doc_data, initial_chunks, text_content
+            )
 
-            if id_to_update and not update_chunks:
-                # Content is identical, only update document metadata
-                db_document = prepare_document_for_storage(doc_data)
+            if id_to_update:
+                # Existing document found (either by ID or URL)
+                db_document = prepare_document_for_storage(
+                    doc_data
+                )  # Prepare with potentially updated ID
                 self._update_document(conn, db_document, id_to_update)
-                return True
+                logger.debug(f"Updated metadata for document ID {id_to_update}")
+
+                if should_update_chunks:
+                    # Content was merged, need to regenerate chunks
+                    logger.debug(
+                        f"Content merged for {id_to_update}. Regenerating and replacing chunks."
+                    )
+                    if content_to_use is None:
+                        # Should not happen if should_update_chunks is True, but defensively handle
+                        logger.error(
+                            f"Error: should_update_chunks is True but content_to_use is None for doc {id_to_update}. Skipping chunk update."
+                        )
+                        return False  # Indicate potential issue
+
+                    # Regenerate chunks based on the merged content
+                    merged_chunked_content = chunk_markdown(content_to_use)
+                    # Important: Use the *updated* doc_data (which now has the correct ID) for chunk creation
+                    doc_obj_for_merged_chunks = Doc(**doc_data)
+                    merged_chunks = Doc.create_chunks_for_doc(
+                        doc_obj_for_merged_chunks, merged_chunked_content
+                    )
+
+                    # Delete old chunks and store new ones
+                    self._delete_chunks(conn, id_to_update)
+                    self._store_duckdb_chunks(conn, merged_chunks)
+                    self._store_lance_chunks(merged_chunks, doc_data)  # Pass doc_data for metadata
+                # else: Content was identical, only metadata was updated above.
+
             else:
-                # Either no matching document found or content differs
-                # In both cases, create a new document with new chunks
+                # No suitable existing document found, or merge wasn't possible/chosen.
+                # Create a completely new document entry.
+                logger.debug("Creating new document entry.")
 
-                # If original had an ID that matched an existing doc but content differs,
-                # or we're matching by URL but content differs, we need a new ID
-                if original_id and (
-                    self.get_document_by_id(original_id)
-                    or (doc_data.get("url") and self.url_exists(doc_data.get("url") or ""))
-                ):
-                    # Generate a new ID
+                # Ensure a unique ID if the original ID belonged to a doc we decided not to update
+                if original_id and self.get_document_by_id(original_id):
                     new_id = Doc.generate_id()
+                    logger.debug(f"Original ID {original_id} exists, generating new ID {new_id}")
                     doc_data["id"] = new_id
+                elif not doc_data.get("id"):
+                    # If no original ID or if ID was already None
+                    doc_data["id"] = Doc.generate_id()
+                    logger.debug(f"No initial ID, generated new ID {doc_data['id']}")
 
-                    # Update doc_id in all chunks
-                    for chunk in chunks:
-                        chunk.doc_id = new_id
+                # Generate chunks using the new/final content_to_use
+                if content_to_use is None:
+                    # If merge failed, content_to_use is the original text_content
+                    content_to_use = text_content
 
-                # Prepare document for storage (after potential ID change)
+                final_chunked_content = chunk_markdown(content_to_use)
+                # Ensure the doc object used for chunking has the final correct ID
+                doc_obj_for_new_chunks = Doc(**doc_data)
+                final_chunks = Doc.create_chunks_for_doc(
+                    doc_obj_for_new_chunks, final_chunked_content
+                )
+
+                # Prepare document for storage (with final ID)
                 db_document = prepare_document_for_storage(doc_data)
 
-                # Insert new document
+                # Insert new document and its chunks
                 self._insert_document(conn, db_document)
-
-                # Store new chunks in DuckDB
-                self._store_duckdb_chunks(conn, chunks)
-
-                # Store chunks in LanceDB with prepended header
-                self._store_lance_chunks(chunks, doc_data)
+                self._store_duckdb_chunks(conn, final_chunks)
+                self._store_lance_chunks(final_chunks, doc_data)
 
         return True
 

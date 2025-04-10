@@ -43,6 +43,12 @@ dev: build
 chrome:
 	uv run python -m brocc_li.chrome_tabs
 
+test-doc-db:
+	uv run pytest src/brocc_li/tests/test_doc_db.py -v -s
+
+test-merge-md:
+	uv run pytest src/brocc_li/tests/test_merge_md.py -v -s
+
 test-md:
 	uv run pytest src/brocc_li/tests/test_html_to_md.py -v
 

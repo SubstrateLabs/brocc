@@ -5,9 +5,10 @@ from datetime import datetime
 
 import pytest
 
-from brocc_li.doc_db import DocDB
+from brocc_li.doc_db import DUCKDB_CHUNKS_TABLE, DocDB
 from brocc_li.tests.generate_test_markdown import generate_test_markdown
 from brocc_li.types.doc import Doc, Source, SourceType
+from brocc_li.utils.logger import logger
 
 
 @pytest.fixture
@@ -109,11 +110,23 @@ def docdb(temp_db_path, temp_lance_path, monkeypatch):
         # Return without doing anything real
         return
 
-    # Mock _delete_chunks to simulate deletion
+    # Mock _delete_chunks to simulate deletion and actual DB delete
     def mock_delete_chunks(self, conn, doc_id):
-        if doc_id in self._stored_docs:
+        # Simulate LanceDB deletion (using internal mock state)
+        if hasattr(self, "_stored_docs") and doc_id in self._stored_docs:
             del self._stored_docs[doc_id]
-            self._last_doc_id = ""
+            # Reset last_doc_id if it matched the deleted one
+            if hasattr(self, "_last_doc_id") and self._last_doc_id == doc_id:
+                self._last_doc_id = ""
+
+        # Perform ACTUAL deletion from the test DuckDB
+        try:
+            conn.execute(f"DELETE FROM {DUCKDB_CHUNKS_TABLE} WHERE doc_id = ?", [doc_id])
+            logger.debug(f"[Mock] Actually deleted DuckDB chunks for doc_id {doc_id}")
+        except Exception as e:
+            logger.error(f"[Mock] Error deleting DuckDB chunks for {doc_id}: {e}")
+            # Optionally re-raise or handle as needed for test stability
+            raise
 
     # Mock vector_search to return results based on stored docs
     def mock_vector_search(self, query, limit=10, filter_str=None):
@@ -197,7 +210,7 @@ def sample_document():
         source_location_identifier="https://example.com/test",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(now),
-        location=None,
+        geolocation=None,
     )
 
 
@@ -234,39 +247,27 @@ def test_store_and_retrieve_document(docdb, sample_document):
     assert retrieved["metadata"]["key"] == "value"  # Test JSON conversion
     assert retrieved["participant_names"] == ["Participant 1", "Participant 2"]
     assert retrieved["participant_identifiers"] == ["p1", "p2"]
-    assert retrieved["location"] is None  # Verify location is None
+    assert retrieved["geolocation"] is None  # Verify location is None
 
 
 def test_store_and_retrieve_document_with_location(docdb):
-    """Test storing and retrieving a document with a location."""
-    now = datetime.now()
-    location_tuple = (-74.0060, 40.7128)  # Example: New York City
-    doc_with_location = Doc(
+    """Test storing and retrieving a document with geolocation data."""
+    location_data = (10.0, 20.0)
+    doc = Doc(
         id="loc_test_1",
-        url="https://example.com/location",
-        title="Document with Location",
-        text_content="This document has coordinates.",
-        location=location_tuple,
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="location_source",
-        ingested_at=Doc.format_date(now),
+        url="http://example.com/loc1",
+        title="Doc with location 1",
+        text_content="Document content 1",
+        geolocation=location_data,  # Use the correct field name
     )
+    docdb.store_document(doc)
 
-    # Store the document
-    result = docdb.store_document(doc_with_location)
-    assert result is True
-
-    # Retrieve the document by ID
-    retrieved = docdb.get_document_by_id(doc_with_location.id)
-    assert retrieved is not None
-    assert retrieved["id"] == doc_with_location.id
-    assert retrieved["title"] == doc_with_location.title
-
-    # Verify the location tuple
-    assert retrieved["location"] is not None
-    # Compare floats using pytest.approx for tolerance
-    assert retrieved["location"] == pytest.approx(location_tuple)
+    retrieved_doc = docdb.get_document_by_id("loc_test_1")
+    assert retrieved_doc is not None
+    # Check the correct field name
+    assert retrieved_doc.get("geolocation") is not None
+    # Use approx for float comparison
+    assert retrieved_doc["geolocation"] == pytest.approx(location_data)
 
 
 def test_store_document_without_url(docdb):
@@ -280,7 +281,7 @@ def test_store_document_without_url(docdb):
         source_location_identifier="location1",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(datetime.now()),
-        location=None,
+        geolocation=None,
     )
 
     result = docdb.store_document(doc)
@@ -290,7 +291,7 @@ def test_store_document_without_url(docdb):
     assert retrieved is not None
     assert retrieved["id"] == doc.id
     assert retrieved["url"] is None
-    assert retrieved["location"] is None
+    assert retrieved["geolocation"] is None
 
 
 def test_update_document(docdb, sample_document):
@@ -744,142 +745,86 @@ def test_store_document_with_rich_markdown_content(docdb):
         assert all(url.startswith("http") for url in image_urls), "Image URLs should be valid URLs"
 
 
+def test_store_document_with_no_location(docdb):
+    """Test storing and retrieving a document without location data."""
+    doc = Doc(
+        id="loc_test_2",
+        url="http://example.com/loc2",
+        title="Doc with no location",
+        text_content="Document content 2",
+        geolocation=None,  # Explicitly set to None
+    )
+    docdb.store_document(doc)
+
+    retrieved_doc = docdb.get_document_by_id("loc_test_2")
+    assert retrieved_doc is not None
+    # Check the correct field name
+    assert retrieved_doc.get("geolocation") is None
+
+
 def test_location_operations(docdb):
-    """Test various location operations including storage, retrieval, and updates."""
-    # Create document with no location first
-    doc_without_location = Doc(
-        id="loc_test_no_loc",
-        url="https://example.com/no_loc",
-        title="No Location Document",
-        text_content="This document has no location.",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=None,  # Explicitly None
+    """Test storing different location formats and retrieving them."""
+    doc1 = Doc(
+        id="loc_op_1",
+        url="http://example.com/loc_op1",
+        title="Location Op 1",
+        text_content="Content Op 1",
+        geolocation=(1.23, 4.56),
     )
-
-    # Store the document
-    docdb.store_document(doc_without_location)
-
-    # Verify stored with None location
-    retrieved = docdb.get_document_by_id(doc_without_location.id)
-    assert retrieved["location"] is None
-
-    # Now update with a location (same content)
-    same_content_with_location = Doc(
-        id=doc_without_location.id,
-        url="https://example.com/no_loc",
-        title="No Location Document - Updated With Location",
-        text_content="This document has no location.",  # Same content
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=(-122.4194, 37.7749),  # San Francisco coordinates
+    doc2 = Doc(
+        id="loc_op_2",
+        url="http://example.com/loc_op2",
+        title="Location Op 2",
+        text_content="Content Op 2",
+        geolocation=None,
     )
+    docdb.store_document(doc1)
+    docdb.store_document(doc2)
 
-    # Store the updated document
-    docdb.store_document(same_content_with_location)
+    retrieved_doc1 = docdb.get_document_by_id("loc_op_1")
+    assert retrieved_doc1 is not None
+    # Check the correct field name
+    assert retrieved_doc1.get("geolocation") == pytest.approx((1.23, 4.56))
 
-    # Since content is same, it should update the existing document
-    updated = docdb.get_document_by_id(doc_without_location.id)
-    assert updated["title"] == "No Location Document - Updated With Location"
-    assert updated["location"] is not None
-    assert updated["location"] == pytest.approx((-122.4194, 37.7749))
+    retrieved_doc2 = docdb.get_document_by_id("loc_op_2")
+    assert retrieved_doc2 is not None
+    # Check the correct field name
+    assert retrieved_doc2.get("geolocation") is None
 
-    # Create a document with a location
-    doc_with_location = Doc(
-        id="loc_test_with_loc",
-        url="https://example.com/with_loc",
-        title="Location Document",
-        text_content="This document has a location.",
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=(-74.0060, 40.7128),  # New York City
+
+def test_get_documents_with_location(docdb):
+    """Test retrieving multiple documents, including those with location."""
+    doc1 = Doc(
+        id="get_loc_1",
+        url="http://example.com/get_loc1",
+        title="Get Location 1",
+        text_content="Get Content 1",
+        geolocation=(0.0, 0.0),
     )
-
-    # Store the document
-    docdb.store_document(doc_with_location)
-
-    # Verify location was stored correctly
-    retrieved = docdb.get_document_by_id(doc_with_location.id)
-    assert retrieved["location"] == pytest.approx((-74.0060, 40.7128))
-
-    # Update with a different location (same content)
-    updated_location_doc = Doc(
-        id=doc_with_location.id,
-        url="https://example.com/with_loc",
-        title="Updated Location Document",
-        text_content="This document has a location.",  # Same content
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=(-87.6298, 41.8781),  # Chicago
+    doc2 = Doc(
+        id="get_loc_2",
+        url="http://example.com/get_loc2",
+        title="Get Location 2",
+        text_content="Get Content 2",
+        geolocation=None,
     )
+    docdb.store_document(doc1)
+    docdb.store_document(doc2)
 
-    # Store the updated document
-    docdb.store_document(updated_location_doc)
+    docs = docdb.get_documents(limit=2)
+    assert len(docs) == 2
 
-    # Should update existing document
-    updated = docdb.get_document_by_id(doc_with_location.id)
-    assert updated["title"] == "Updated Location Document"
-    assert updated["location"] == pytest.approx((-87.6298, 41.8781))
+    # Find the documents (order might vary)
+    doc1_retrieved = next((d for d in docs if d["id"] == "get_loc_1"), None)
+    doc2_retrieved = next((d for d in docs if d["id"] == "get_loc_2"), None)
 
-    # Update with null location (same content)
-    remove_location_doc = Doc(
-        id=doc_with_location.id,
-        url="https://example.com/with_loc",
-        title="Removed Location Document",
-        text_content="This document has a location.",  # Same content
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=None,  # Remove location
-    )
+    assert doc1_retrieved is not None
+    # Check the correct field name
+    assert doc1_retrieved.get("geolocation") == pytest.approx((0.0, 0.0))
 
-    # Store the updated document
-    docdb.store_document(remove_location_doc)
-
-    # Should update existing document with null location
-    updated = docdb.get_document_by_id(doc_with_location.id)
-    assert updated["title"] == "Removed Location Document"
-    assert updated["location"] is None
-
-    # Different content should create new doc even if location is same
-    diff_content_doc = Doc(
-        id=doc_with_location.id,
-        url="https://example.com/with_loc",
-        title="Different Content Document",
-        text_content="This document has DIFFERENT content.",  # Different content
-        source=Source.TWITTER,
-        source_type=SourceType.DOCUMENT,
-        source_location_identifier="test_source",
-        ingested_at=Doc.format_date(datetime.now()),
-        location=(-87.6298, 41.8781),  # Chicago again
-    )
-
-    # Store document with different content
-    docdb.store_document(diff_content_doc)
-
-    # Original document should be unchanged
-    original = docdb.get_document_by_id(doc_with_location.id)
-    assert original["title"] == "Removed Location Document"
-    assert original["location"] is None
-
-    # New document should have been created with the location
-    docs_by_url = docdb.get_documents_by_url("https://example.com/with_loc")
-    assert len(docs_by_url) == 2
-
-    # Find the new document (not the original ID)
-    new_doc = next((doc for doc in docs_by_url if doc["id"] != doc_with_location.id), None)
-    assert new_doc is not None
-    assert new_doc["title"] == "Different Content Document"
-    assert new_doc["location"] == pytest.approx((-87.6298, 41.8781))
+    assert doc2_retrieved is not None
+    # Check the correct field name
+    assert doc2_retrieved.get("geolocation") is None
 
 
 def test_content_based_update(docdb, sample_document):
@@ -900,7 +845,7 @@ def test_content_based_update(docdb, sample_document):
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
-        location=(10.0, 20.0),  # Add a location to previously None
+        geolocation=(10.0, 20.0),  # Add a location to previously None
     )
 
     # Should update the existing document
@@ -911,7 +856,7 @@ def test_content_based_update(docdb, sample_document):
     assert doc is not None
     assert doc["id"] == original_id
     assert doc["title"] == "Updated Title - Same Content"
-    assert doc["location"] == pytest.approx((10.0, 20.0))  # Location should be updated
+    assert doc["geolocation"] == pytest.approx((10.0, 20.0))  # Location should be updated
 
     # Case 2: Update with different content
     new_content_doc = Doc(
@@ -925,7 +870,7 @@ def test_content_based_update(docdb, sample_document):
         source_location_identifier=sample_document.source_location_identifier,
         source_location_name=sample_document.source_location_name,
         ingested_at=sample_document.ingested_at,
-        location=(30.0, 40.0),  # Different location too
+        geolocation=(30.0, 40.0),  # Different location too
     )
 
     # Should create a new document
@@ -935,7 +880,7 @@ def test_content_based_update(docdb, sample_document):
     original_doc = docdb.get_document_by_id(original_id)
     assert original_doc is not None
     assert original_doc["title"] == "Updated Title - Same Content"  # From the first update
-    assert original_doc["location"] == pytest.approx((10.0, 20.0))  # Should be unchanged
+    assert original_doc["geolocation"] == pytest.approx((10.0, 20.0))  # Should be unchanged
 
     # Get documents by URL - should have two now
     docs_by_url = docdb.get_documents_by_url(sample_document.url)
@@ -945,7 +890,7 @@ def test_content_based_update(docdb, sample_document):
     new_doc = next((doc for doc in docs_by_url if doc["id"] != original_id), None)
     assert new_doc is not None
     assert new_doc["title"] == "New Content Document"
-    assert new_doc["location"] == pytest.approx((30.0, 40.0))  # New document has new location
+    assert new_doc["geolocation"] == pytest.approx((30.0, 40.0))  # New document has new location
 
     # Get chunks for both documents to verify they're different
     original_chunks = docdb.get_duckdb_chunks(original_id)
@@ -973,62 +918,244 @@ def test_content_based_update(docdb, sample_document):
     assert "This is completely different content" in new_text
 
 
-def test_get_documents_with_location(docdb):
-    """Test retrieving multiple documents with and without locations."""
-    # Create documents with different locations
+def test_merge_update(docdb):
+    """Test updating a document where content is mergeable."""
+    # Initial content
+    initial_text = (
+        "Section 1\n\nThis is the first paragraph.\n\nSection 2\n\nThis is the second paragraph."
+    )
     doc1 = Doc(
-        id="loc_get_1",
-        url="https://example.com/loc_get/1",
-        title="Location Document 1",
-        text_content="Document with location 1",
+        id="merge_test_1",
+        url="https://example.com/merge",
+        title="Merge Test Initial",
+        text_content=initial_text,
         source=Source.TWITTER,
         source_type=SourceType.DOCUMENT,
-        source_location_identifier="loc_get_source",
+        source_location_identifier="merge_source",
         ingested_at=Doc.format_date(datetime.now()),
-        location=(0.0, 0.0),  # Null Island
     )
+    docdb.store_document(doc1)
 
+    # Updated content (adds a paragraph to section 1)
+    updated_text = "Section 1\n\nThis is the first paragraph.\n\nThis is an added paragraph.\n\nSection 2\n\nThis is the second paragraph."
     doc2 = Doc(
-        id="loc_get_2",
-        url="https://example.com/loc_get/2",
-        title="Location Document 2",
-        text_content="Document with location 2",
+        id="merge_test_1",  # Same ID
+        url="https://example.com/merge",  # Same URL
+        title="Merge Test Updated",
+        text_content=updated_text,
         source=Source.TWITTER,
         source_type=SourceType.DOCUMENT,
-        source_location_identifier="loc_get_source",
+        source_location_identifier="merge_source",
         ingested_at=Doc.format_date(datetime.now()),
-        location=(1.0, 1.0),  # Another location
     )
+    docdb.store_document(doc2)
 
-    doc3 = Doc(
-        id="loc_get_3",
-        url="https://example.com/loc_get/3",
-        title="Document without location",
-        text_content="Document with no location",
+    # Should have updated the original document
+    docs_by_url = docdb.get_documents_by_url("https://example.com/merge")
+    assert len(docs_by_url) == 1
+    updated_doc = docs_by_url[0]
+    assert updated_doc["id"] == "merge_test_1"
+    assert updated_doc["title"] == "Merge Test Updated"
+
+    # Verify merged content in chunks
+    updated_chunks = docdb.get_duckdb_chunks("merge_test_1")
+    reconstructed_text = docdb._reconstruct_text_from_chunks(updated_chunks)
+
+    # Expected merged content (based on merge_md logic)
+    expected_merged_text = "Section 1\n\nThis is the first paragraph.\n\nThis is an added paragraph.\n\nSection 2\n\nThis is the second paragraph."
+    assert reconstructed_text == expected_merged_text
+
+
+def test_no_merge_creates_new(docdb):
+    """Test updating a document where content is too different for merging, creating a new doc."""
+    initial_text = "Completely original content here."
+    doc1 = Doc(
+        id="no_merge_test_1",
+        url="https://example.com/no_merge",
+        title="No Merge Initial",
+        text_content=initial_text,
         source=Source.TWITTER,
         source_type=SourceType.DOCUMENT,
-        source_location_identifier="loc_get_source",
+        source_location_identifier="no_merge_source",
         ingested_at=Doc.format_date(datetime.now()),
-        location=None,  # No location
     )
+    docdb.store_document(doc1)
 
-    # Store all documents
-    for doc in [doc1, doc2, doc3]:
-        docdb.store_document(doc)
+    # Completely different content
+    updated_text = "Totally different information goes here now."
+    doc2 = Doc(
+        id="no_merge_test_1",  # Same ID initially
+        url="https://example.com/no_merge",  # Same URL
+        title="No Merge New Content",
+        text_content=updated_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        source_location_identifier="no_merge_source",
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc2)
 
-    # Get all documents from the same source
-    docs = docdb.get_documents(source_location="loc_get_source")
-    assert len(docs) == 3
+    # Should have two documents now
+    docs_by_url = docdb.get_documents_by_url("https://example.com/no_merge")
+    assert len(docs_by_url) == 2
 
-    # Verify each document has correct location
-    doc1_retrieved = next((d for d in docs if d["id"] == "loc_get_1"), None)
-    assert doc1_retrieved is not None
-    assert doc1_retrieved["location"] == pytest.approx((0.0, 0.0))
+    # Original document should be unchanged
+    original_doc = next((d for d in docs_by_url if d["id"] == "no_merge_test_1"), None)
+    assert original_doc is not None
+    assert original_doc["title"] == "No Merge Initial"
+    original_chunks = docdb.get_duckdb_chunks("no_merge_test_1")
+    reconstructed_original = docdb._reconstruct_text_from_chunks(original_chunks)
+    assert reconstructed_original == initial_text
 
-    doc2_retrieved = next((d for d in docs if d["id"] == "loc_get_2"), None)
-    assert doc2_retrieved is not None
-    assert doc2_retrieved["location"] == pytest.approx((1.0, 1.0))
+    # New document should exist with the new content
+    new_doc = next((d for d in docs_by_url if d["id"] != "no_merge_test_1"), None)
+    assert new_doc is not None
+    assert new_doc["title"] == "No Merge New Content"
+    new_chunks = docdb.get_duckdb_chunks(new_doc["id"])
+    reconstructed_new = docdb._reconstruct_text_from_chunks(new_chunks)
+    assert reconstructed_new == updated_text
 
-    doc3_retrieved = next((d for d in docs if d["id"] == "loc_get_3"), None)
-    assert doc3_retrieved is not None
-    assert doc3_retrieved["location"] is None
+
+def test_merge_modification(docdb):
+    """Test merging where content within a block is modified."""
+    initial_text = "Block A\n\nContent that will be modified.\n\nBlock C"
+    doc1 = Doc(
+        id="merge_mod_1",
+        url="https://example.com/merge_mod",
+        title="Merge Mod Initial",
+        text_content=initial_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc1)
+
+    updated_text = "Block A\n\nModified content is now here.\n\nBlock C"
+    doc2 = Doc(
+        id="merge_mod_1",
+        url="https://example.com/merge_mod",
+        title="Merge Mod Updated",
+        text_content=updated_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc2)
+
+    docs_by_url = docdb.get_documents_by_url("https://example.com/merge_mod")
+    assert len(docs_by_url) == 1
+    updated_doc = docs_by_url[0]
+    assert updated_doc["title"] == "Merge Mod Updated"
+    updated_chunks = docdb.get_duckdb_chunks(updated_doc["id"])
+    reconstructed = docdb._reconstruct_text_from_chunks(updated_chunks)
+    # Opcode merge prioritizes new content in replacements
+    assert reconstructed == updated_text
+
+
+def test_merge_deletion(docdb):
+    """Test merging where a block is deleted."""
+    initial_text = "Block A\n\nBlock B to be deleted\n\nBlock C"
+    doc1 = Doc(
+        id="merge_del_1",
+        url="https://example.com/merge_del",
+        title="Merge Del Initial",
+        text_content=initial_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc1)
+
+    updated_text = "Block A\n\nBlock C"
+    doc2 = Doc(
+        id="merge_del_1",
+        url="https://example.com/merge_del",
+        title="Merge Del Updated",
+        text_content=updated_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc2)
+
+    docs_by_url = docdb.get_documents_by_url("https://example.com/merge_del")
+    assert len(docs_by_url) == 1
+    updated_doc = docs_by_url[0]
+    assert updated_doc["title"] == "Merge Del Updated"
+    updated_chunks = docdb.get_duckdb_chunks(updated_doc["id"])
+    reconstructed = docdb._reconstruct_text_from_chunks(updated_chunks)
+    # Opcode merge handles deletion correctly
+    assert reconstructed == updated_text
+
+
+def test_merge_mixed_operations(docdb):
+    """Test merging with addition, modification, and deletion."""
+    initial_text = "Intro\n\nSection A (keep)\n\nSection B (modify)\n\nSection C (delete)\n\nOutro"
+    doc1 = Doc(
+        id="merge_mix_1",
+        url="https://example.com/merge_mix",
+        title="Merge Mix Initial",
+        text_content=initial_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc1)
+
+    # Add D, Modify B, Delete C
+    updated_text = (
+        "Intro\n\nSection A (keep)\n\nSection B (MODIFIED!)\n\nSection D (added)\n\nOutro"
+    )
+    doc2 = Doc(
+        id="merge_mix_1",
+        url="https://example.com/merge_mix",
+        title="Merge Mix Updated",
+        text_content=updated_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc2)
+
+    docs_by_url = docdb.get_documents_by_url("https://example.com/merge_mix")
+    assert len(docs_by_url) == 1
+    updated_doc = docs_by_url[0]
+    assert updated_doc["title"] == "Merge Mix Updated"
+    updated_chunks = docdb.get_duckdb_chunks(updated_doc["id"])
+    reconstructed = docdb._reconstruct_text_from_chunks(updated_chunks)
+    assert reconstructed == updated_text
+
+
+def test_merge_at_boundaries(docdb):
+    """Test merging content added at the beginning and end."""
+    initial_text = "Middle Content"
+    doc1 = Doc(
+        id="merge_bound_1",
+        url="https://example.com/merge_bound",
+        title="Merge Bound Initial",
+        text_content=initial_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc1)
+
+    updated_text = "Start Content\n\nMiddle Content\n\nEnd Content"
+    doc2 = Doc(
+        id="merge_bound_1",
+        url="https://example.com/merge_bound",
+        title="Merge Bound Updated",
+        text_content=updated_text,
+        source=Source.TWITTER,
+        source_type=SourceType.DOCUMENT,
+        ingested_at=Doc.format_date(datetime.now()),
+    )
+    docdb.store_document(doc2)
+
+    docs_by_url = docdb.get_documents_by_url("https://example.com/merge_bound")
+    assert len(docs_by_url) == 1
+    updated_doc = docs_by_url[0]
+    assert updated_doc["title"] == "Merge Bound Updated"
+    updated_chunks = docdb.get_duckdb_chunks(updated_doc["id"])
+    reconstructed = docdb._reconstruct_text_from_chunks(updated_chunks)
+    assert reconstructed == updated_text

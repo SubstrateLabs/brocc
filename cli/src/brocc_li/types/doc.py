@@ -18,7 +18,6 @@ class Source(Enum):
 class SourceType(Enum):
     DOCUMENT = "document"
     CONTACT = "contact"
-    CONVERSATION = "conversation"
 
 
 class DocExtractor(BaseModel):
@@ -121,7 +120,7 @@ class Doc(BaseDocFields):
     participant_names: Optional[List[str]] = None
     participant_identifiers: Optional[List[str]] = None
     participant_metadatas: Optional[List[Dict[str, Any]]] = None
-    location: Optional[tuple[float, float]] = None
+    geolocation: Optional[tuple[float, float]] = None
     keywords: List[str] = Field(default_factory=list)
     contact_metadata: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)

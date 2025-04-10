@@ -3,12 +3,13 @@ Utilities for handling geospatial location data with DuckDB.
 Provides helper functions for converting between Python tuples and DuckDB GEOMETRY types.
 """
 
+import re  # Add import for regex
 from typing import Any, Optional, Tuple
 
 from brocc_li.utils.logger import logger
 
 
-def location_tuple_to_wkt(location: Optional[Tuple[float, float]]) -> Optional[str]:
+def geolocation_tuple_to_wkt(location: Optional[Tuple[float, float]]) -> Optional[str]:
     """
     Convert a location tuple (lon, lat) to WKT format for DuckDB storage.
 
@@ -52,21 +53,30 @@ def modify_schema_for_geometry(sql: str) -> str:
 
     for line in lines:
         stripped_line = line.strip()
-        if stripped_line.startswith("location "):
-            modified_lines.append("  location GEOMETRY,")  # Replace with GEOMETRY
-            replaced_location = True
+        # Look for the renamed field 'geolocation'
+        if stripped_line.startswith("geolocation "):
+            # Ensure the type is VARCHAR before replacing (or handle other defaults if necessary)
+            if "VARCHAR" in stripped_line:
+                modified_lines.append("  geolocation GEOMETRY,")  # Replace with GEOMETRY
+                replaced_location = True
+            else:
+                # If it's not VARCHAR, log a warning and keep the original line
+                logger.warning(
+                    f"Found 'geolocation' but its type was not VARCHAR: {stripped_line}. Not modifying."
+                )
+                modified_lines.append(line)
         else:
             modified_lines.append(line)
 
     if not replaced_location:
         logger.warning(
-            "Could not find 'location' column definition in generated SQL to replace with GEOMETRY."
+            "Could not find 'geolocation VARCHAR' column definition in generated SQL to replace with GEOMETRY."
         )
 
     return "\n".join(modified_lines)
 
 
-def add_location_fields_to_query(base_query: str) -> str:
+def add_geolocation_fields_to_query(base_query: str) -> str:
     """
     Add ST_X and ST_Y extraction to a SELECT query to retrieve location coordinates.
 
@@ -76,13 +86,24 @@ def add_location_fields_to_query(base_query: str) -> str:
     Returns:
         Modified query that extracts longitude and latitude as separate columns
     """
-    # Wrap the original query and add location extraction
-    return (
-        f"SELECT *, ST_X(location) as longitude, ST_Y(location) as latitude FROM ({base_query}) sub"
-    )
+    # Find the SELECT part (group 1) and the FROM onwards part (group 2)
+    select_match = re.search(r"SELECT\s+(.*?)\s+(FROM.*)", base_query, re.IGNORECASE | re.DOTALL)
+    if not select_match:
+        logger.error(f"Could not parse SELECT statement to add geolocation fields: {base_query}")
+        return base_query  # Return unchanged if parsing fails
+
+    original_columns = select_match.group(1).strip()
+    from_onwards = select_match.group(2)  # Includes leading space before FROM
+
+    # Construct the full modified query directly
+    modified_query = f"SELECT {original_columns}, ST_X(geolocation) as longitude, ST_Y(geolocation) as latitude {from_onwards}"
+
+    # logger.debug(f"Original query: {base_query}") # Optional: for debugging
+    # logger.debug(f"Modified query with geolocation: {modified_query}") # Optional: for debugging
+    return modified_query
 
 
-def reconstruct_location_tuple(doc: dict[str, Any]) -> dict[str, Any]:
+def reconstruct_geolocation_tuple(doc: dict[str, Any]) -> dict[str, Any]:
     """
     Process a document dict to reconstruct the location tuple from longitude/latitude fields.
 
@@ -97,8 +118,8 @@ def reconstruct_location_tuple(doc: dict[str, Any]) -> dict[str, Any]:
     lat = result.pop("latitude", None)
 
     if lon is not None and lat is not None:
-        result["location"] = (lon, lat)
-    elif "location" not in result:
-        result["location"] = None
+        result["geolocation"] = (lon, lat)
+    elif "geolocation" not in result:
+        result["geolocation"] = None
 
     return result

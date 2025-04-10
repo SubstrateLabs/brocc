@@ -4,7 +4,7 @@ Utilities for converting Pydantic models to SQL schema definitions.
 
 import inspect
 from enum import Enum
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Set, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -98,3 +98,23 @@ def generate_create_table_sql(model: type[BaseModel], table_name: str) -> str:
 
     columns_sql = ",\n                    ".join(columns)
     return f"CREATE TABLE IF NOT EXISTS {table_name} (\n                    {columns_sql}\n                )"
+
+
+def generate_select_sql(
+    model: type[BaseModel],
+    table_name: str,
+    exclude_fields: Set[str] | None = None,
+) -> str:
+    """Generate a SELECT SQL statement for all fields from a Pydantic model, excluding specified ones."""
+    if exclude_fields is None:
+        exclude_fields = set()
+
+    columns_to_select = []
+    for name in model.model_fields:
+        # Skip explicitly excluded fields
+        if name in exclude_fields:
+            continue
+        columns_to_select.append(name)
+
+    columns_sql = ", ".join(columns_to_select)
+    return f"SELECT {columns_sql} FROM {table_name}"

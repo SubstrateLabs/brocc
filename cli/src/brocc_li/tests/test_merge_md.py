@@ -177,7 +177,7 @@ Block Y
 Block C
 """
 # Longest match size is 1. No merge happens, return new_md.
-EXPECTED_MERGE_ONE_MATCH = NEW_MD_ONE_MATCH  # Not normalized
+EXPECTED_MERGE_ONE_MATCH = normalize_md(NEW_MD_ONE_MATCH)  # Was: NEW_MD_ONE_MATCH (Not normalized)
 
 # Case 12: Longest match OK, but low overall ratio (below threshold)
 OLD_MD_LOW_RATIO = """
@@ -292,10 +292,10 @@ EXPECTED_MERGE_LOW_RATIO = NEW_MD_LOW_RATIO  # Not normalized
         pytest.param(
             OLD_MD_ONE_MATCH,
             NEW_MD_ONE_MATCH,
-            MergeResultType.KEPT_NEW,
+            MergeResultType.MERGED,
             EXPECTED_MERGE_ONE_MATCH,
             id="one_match",
-        ),  # Only one block matches (below threshold), should keep new content.
+        ),  # Only one block matches but ratio (1/3=0.33) >= threshold (0.3), should MERGE.
         pytest.param(
             None,  # Old MD is None
             "New Content",

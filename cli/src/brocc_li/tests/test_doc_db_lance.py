@@ -81,7 +81,7 @@ def sample_lance_document():
         source_location_identifier="https://example.com/test",
         source_location_name="Test Source Location",
         ingested_at=Doc.format_date(now),
-        location=None,
+        geolocation=None,
     )
 
 

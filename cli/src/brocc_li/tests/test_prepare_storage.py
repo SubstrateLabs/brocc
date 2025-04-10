@@ -227,7 +227,7 @@ def test_prepare_document_for_storage():
         "metadata": {"key": "value"},
         "contact_metadata": {"email": "test@example.com"},
         "participant_metadatas": [{"role": "author"}, {"role": "editor"}],
-        "location": (37.7749, -122.4194),
+        "geolocation": (37.7749, -122.4194),
         "text_content": "This is the text content",
     }
 
@@ -257,7 +257,7 @@ def test_prepare_document_for_storage():
     assert json.loads(prepared["participant_metadatas"]) == [{"role": "author"}, {"role": "editor"}]
 
     # Check that location is formatted as WKT
-    assert prepared["location"] == "POINT (37.7749 -122.4194)"
+    assert prepared["geolocation"] == "POINT (37.7749 -122.4194)"
 
     # Check that text_content is preserved
     assert prepared["text_content"] == "This is the text content"
@@ -334,4 +334,4 @@ def test_prepare_document_for_storage_missing_fields():
     assert json.loads(prepared["participant_metadatas"]) == []
 
     # Check that location is set to None
-    assert prepared["location"] is None
+    assert prepared["geolocation"] is None

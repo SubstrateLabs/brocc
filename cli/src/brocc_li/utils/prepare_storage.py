@@ -9,7 +9,7 @@ from typing import Any, Dict
 from brocc_li.embed.chunk_header import chunk_header
 from brocc_li.embed.voyage import ContentType
 from brocc_li.types.doc import Chunk, Doc
-from brocc_li.utils.location import location_tuple_to_wkt
+from brocc_li.utils.geolocation import geolocation_tuple_to_wkt
 from brocc_li.utils.logger import logger
 
 
@@ -121,7 +121,7 @@ def prepare_lance_chunk_row(chunk: Chunk, doc: Dict[str, Any]) -> Dict[str, Any]
 ARRAY_FIELDS = ["participant_names", "participant_identifiers", "keywords"]
 JSON_FIELDS = {"metadata": {}, "contact_metadata": {}, "participant_metadatas": []}
 EXCLUDED_FIELDS = {"text_content"}  # text_content gets split into chunks
-SPECIAL_HANDLING_FIELDS = {"location"}
+SPECIAL_HANDLING_FIELDS = {"geolocation"}
 
 
 def prepare_document_for_storage(document: Dict[str, Any]) -> Dict[str, Any]:
@@ -143,7 +143,7 @@ def prepare_document_for_storage(document: Dict[str, Any]) -> Dict[str, Any]:
 
     # text_content will be handled separately in store_document, no need to validate it here
     text_content = doc_data.pop("text_content", None)
-    location_tuple = doc_data.pop("location", None)  # Extract location tuple
+    location_tuple = doc_data.pop("geolocation", None)  # Extract location tuple
 
     # Validate against the Pydantic model
     try:
@@ -183,7 +183,7 @@ def prepare_document_for_storage(document: Dict[str, Any]) -> Dict[str, Any]:
         prepared_doc[field] = json.dumps(prepared_doc.get(field) or JSON_FIELDS[field])
 
     # Format location for DuckDB ST_Point using utility function
-    prepared_doc["location"] = location_tuple_to_wkt(location_tuple)
+    prepared_doc["geolocation"] = geolocation_tuple_to_wkt(location_tuple)
 
     # Remove fields from prepared_doc that are not actual table columns
     # Get table columns dynamically (excluding computed fields if any, though Doc doesn't have them)
