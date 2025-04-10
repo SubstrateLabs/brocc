@@ -23,6 +23,9 @@ from brocc_li.parsers.linkedin_company_people import linkedin_company_people_htm
 from brocc_li.parsers.linkedin_company_posts import linkedin_company_posts_html_to_md
 from brocc_li.parsers.linkedin_connections_me import linkedin_connections_me_html_to_md
 from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
+from brocc_li.parsers.linkedin_feed_v2 import (
+    linkedin_feed_html_to_md as linkedin_feed_v2_html_to_md,
+)
 from brocc_li.parsers.linkedin_followers import linkedin_followers_html_to_md
 from brocc_li.parsers.linkedin_messages import linkedin_messages_html_to_md
 from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
@@ -54,51 +57,52 @@ PARSER_TIMEOUT = 3
 # Reverted to specific Callable hint
 PARSER_REGISTRY: Dict[str, Callable[[str, bool], Optional[str]]] = {
     # Gmail
-    r"https://mail\.google\.com/mail/u/\d+/\#inbox": gmail_inbox_html_to_md,
+    r"https://mail\.google\.com/mail/u/\d+/\#inbox(\?.+)?$": gmail_inbox_html_to_md,
     # Instagram
-    r"https://www\.instagram\.com/?$": instagram_home_html_to_md,
-    r"https://www\.instagram\.com/direct/inbox/?$": instagram_inbox_html_to_md,
+    r"https://www\.instagram\.com/?(\?.+)?$": instagram_home_html_to_md,
+    r"https://www\.instagram\.com/direct/inbox/?(\?.+)?$": instagram_inbox_html_to_md,
     r"https://www\.instagram\.com/explore/search/.*": instagram_explore_search_html_to_md,  # Instagram search
     r"https://www\.instagram\.com/explore/.*": instagram_explore_html_to_md,  # Instagram explore
     r"https://www\.instagram\.com/([^/]+)/saved/.*": instagram_saved_collection_html_to_md,  # Instagram saved collection
-    r"https://www\.instagram\.com/([^/]+)/?$": instagram_profile_html_to_md,  # Profile (needs to be after inbox)
+    r"https://www\.instagram\.com/([^/]+)/?(\?.+)?$": instagram_profile_html_to_md,  # Profile (needs to be after inbox)
     # Threads
-    r"https://www\.threads\.net/activity/?$": threads_activity_html_to_md,  # Threads activity
-    r"https://www\.threads\.net/?$": threads_home_html_to_md,  # Threads home
+    r"https://www\.threads\.net/activity/?(\?.+)?$": threads_activity_html_to_md,  # Threads activity
+    r"https://www\.threads\.net/?(\?.+)?$": threads_home_html_to_md,  # Threads home
     # Bluesky
-    r"https://bsky\.app/?$": bsky_feed_html_to_md,  # Bluesky feed/home
-    r"https://bsky\.app/profile/([^/]+)/follows": bsky_followers_html_to_md,  # Bluesky following
-    r"https://bsky\.app/profile/([^/]+)/followers": bsky_followers_html_to_md,  # Bluesky followers
-    r"https://bsky\.app/profile/([^/]+)/?$": bsky_profile_html_to_md,  # Bluesky profile
+    r"https://bsky\.app/?(\?.+)?$": bsky_feed_html_to_md,  # Bluesky feed/home
+    r"https://bsky\.app/profile/([^/]+)/follows(\?.+)?$": bsky_followers_html_to_md,  # Bluesky following
+    r"https://bsky\.app/profile/([^/]+)/followers(\?.+)?$": bsky_followers_html_to_md,  # Bluesky followers
+    r"https://bsky\.app/profile/([^/]+)/?(\?.+)?$": bsky_profile_html_to_md,  # Bluesky profile
     # LinkedIn - Company
-    r"https://www\.linkedin\.com/company/([^/]+)/about/?$": linkedin_company_about_html_to_md,
-    r"https://www\.linkedin\.com/company/([^/]+)/people/?$": linkedin_company_people_html_to_md,
-    r"https://www\.linkedin\.com/company/([^/]+)/posts/?": linkedin_company_posts_html_to_md,  # Needs to be before generic company
-    r"https://www\.linkedin\.com/company/([^/]+)/?$": linkedin_company_html_to_md,
+    r"https://www\.linkedin\.com/company/([^/]+)/about/?(\?.+)?$": linkedin_company_about_html_to_md,
+    r"https://www\.linkedin\.com/company/([^/]+)/people/?(\?.+)?$": linkedin_company_people_html_to_md,
+    r"https://www\.linkedin\.com/company/([^/]+)/posts/.*": linkedin_feed_v2_html_to_md,  # Use new feed parser for company posts
+    r"https://www\.linkedin\.com/company/([^/]+)/?(\?.+)?$": linkedin_company_html_to_md,
     # LinkedIn - User specific
-    r"https://www\.linkedin\.com/feed/?$": linkedin_feed_html_to_md,
-    r"https://www\.linkedin\.com/messaging/": linkedin_messages_html_to_md,  # Catches all message views
-    r"https://www\.linkedin\.com/in/([^/]+)/": linkedin_profile_html_to_md,
-    r"https://www\.linkedin\.com/mynetwork/invite-connect/connections/?$": linkedin_connections_me_html_to_md,  # Updated My Connections URL
+    r"https://www\.linkedin\.com/messaging/.*": linkedin_messages_html_to_md,  # Catches all message views
+    r"https://www\.linkedin\.com/in/([^/]+)/recent-activity/.*": linkedin_feed_v2_html_to_md,  # User's recent activity feed
+    r"https://www\.linkedin\.com/in/([^/]+)/?(\?.+)?$": linkedin_profile_html_to_md,
+    r"https://www\.linkedin\.com/mynetwork/invite-connect/connections/?(\?.+)?$": linkedin_connections_me_html_to_md,  # Updated My Connections URL
     r"https://www\.linkedin\.com/mynetwork/network-manager/people-follow/followers/.*": linkedin_followers_html_to_md,  # LinkedIn followers page
     r"https://www\.linkedin\.com/mynetwork/network-manager/people-follow/following/.*": linkedin_followers_html_to_md,  # LinkedIn following page
     r"https://www\.linkedin\.com/search/results/people/.*": linkedin_search_connections_html_to_md,  # General People Search results
     r"https://www\.linkedin\.com/feed/followers/.*": linkedin_followers_html_to_md,  # LinkedIn followers page
+    r"https://www\.linkedin\.com/feed/.*": linkedin_feed_v2_html_to_md,  # Use new feed parser for all feed URLs
     # Substack
-    r"https://substack\.com/activity$": substack_activity_html_to_md,
-    r"https://substack\.com/feed$": substack_feed_html_to_md,
-    r"https://substack\.com/inbox": substack_inbox_html_to_md,  # Assuming base inbox URL
+    r"https://substack\.com/activity(\?.+)?$": substack_activity_html_to_md,
+    r"https://substack\.com/home(\?.+)?$": substack_feed_html_to_md,
+    r"https://substack\.com/inbox(\?.+)?$": substack_inbox_html_to_md,  # Assuming base inbox URL
     # Twitter / X
-    r"https://(x|twitter)\.com/home$": twitter_feed_html_to_md,
-    r"https://(x|twitter)\.com/messages": twitter_inbox_html_to_md,
-    r"https://(x|twitter)\.com/i/bookmarks$": twitter_bookmarks_html_to_md,
-    r"https://(x|twitter)\.com/([^/]+)/likes$": twitter_likes_html_to_md,
-    r"https://(x|twitter)\.com/([^/]+)/followers$": twitter_followers_html_to_md,
-    r"https://(x|twitter)\.com/([^/]+)/status/(\d+)$": twitter_thread_html_to_md,  # Specific tweet/thread
-    r"https://(x|twitter)\.com/([^/]+)/?$": twitter_profile_html_to_md,  # Profile needs to be after specific sub-pages like /likes, /followers
+    r"https://(x|twitter)\.com/home(\?.+)?$": twitter_feed_html_to_md,
+    r"https://(x|twitter)\.com/messages.*": twitter_inbox_html_to_md,
+    r"https://(x|twitter)\.com/i/bookmarks(\?.+)?$": twitter_bookmarks_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/likes(\?.+)?$": twitter_likes_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/followers(\?.+)?$": twitter_followers_html_to_md,
+    r"https://(x|twitter)\.com/([^/]+)/status/(\d+)(\?.+)?$": twitter_thread_html_to_md,  # Specific tweet/thread
+    r"https://(x|twitter)\.com/([^/]+)/?(\?.+)?$": twitter_profile_html_to_md,  # Profile needs to be after specific sub-pages like /likes, /followers
     # YouTube
-    r"https://www\.youtube\.com/feed/history$": youtube_history_html_to_md,
-    r"https://www\.youtube\.com/?$": youtube_home_html_to_md,
+    r"https://www\.youtube\.com/feed/history(\?.+)?$": youtube_history_html_to_md,
+    r"https://www\.youtube\.com/?(\?.+)?$": youtube_home_html_to_md,
 }
 
 # JS framework detection patterns

@@ -40,6 +40,7 @@ class TabReference(NamedTuple):
     id: str
     url: str
     markdown: str = ""
+    html: Optional[str] = None
 
 
 class ChromeManager:

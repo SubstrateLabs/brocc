@@ -1,4 +1,4 @@
-- improve linkedin parsing
+- improve substack home + inbox parsing
 - db update logic: if mergeable, replace
 - schema design:
   - source / location: needs another layer

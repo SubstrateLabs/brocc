@@ -26,6 +26,9 @@ from brocc_li.parsers.linkedin_company_people import linkedin_company_people_htm
 from brocc_li.parsers.linkedin_company_posts import linkedin_company_posts_html_to_md
 from brocc_li.parsers.linkedin_connections_me import linkedin_connections_me_html_to_md
 from brocc_li.parsers.linkedin_feed import linkedin_feed_html_to_md
+from brocc_li.parsers.linkedin_feed_v2 import (
+    linkedin_feed_html_to_md as linkedin_feed_v2_html_to_md,
+)
 from brocc_li.parsers.linkedin_followers import linkedin_followers_html_to_md
 from brocc_li.parsers.linkedin_messages import linkedin_messages_html_to_md
 from brocc_li.parsers.linkedin_profile import linkedin_profile_html_to_md
@@ -54,8 +57,7 @@ TEST_CASES: list[Tuple[str, Optional[Callable]]] = [
     ("https://mail.google.com/mail/u/0/", None),  # Should not match
     # Instagram
     ("https://www.instagram.com/", instagram_home_html_to_md),
-    # Skipping query param case until PARSER_REGISTRY is fixed
-    # ("https://www.instagram.com/?variant=following", instagram_home_html_to_md),
+    ("https://www.instagram.com/?variant=following", instagram_home_html_to_md),
     ("https://www.instagram.com/direct/inbox/", instagram_inbox_html_to_md),
     ("https://www.instagram.com/explore/", instagram_explore_html_to_md),  # Instagram explore
     (
@@ -103,14 +105,17 @@ TEST_CASES: list[Tuple[str, Optional[Callable]]] = [
     ("https://www.linkedin.com/company/microsoft/people/", linkedin_company_people_html_to_md),
     (
         "https://www.linkedin.com/company/apple/posts/?feedView=all",
-        linkedin_company_posts_html_to_md,
+        linkedin_feed_v2_html_to_md,
     ),
     ("https://www.linkedin.com/company/amazon/", linkedin_company_html_to_md),  # Generic company
     ("https://www.linkedin.com/company/facebook", linkedin_company_html_to_md),
     # LinkedIn - User
-    ("https://www.linkedin.com/feed/", linkedin_feed_html_to_md),
-    # Skipping query param case until PARSER_REGISTRY is fixed
-    # ("https://www.linkedin.com/feed/?param=1", linkedin_feed_html_to_md),
+    ("https://www.linkedin.com/feed/", linkedin_feed_v2_html_to_md),
+    ("https://www.linkedin.com/feed/?param=1", linkedin_feed_v2_html_to_md),
+    (
+        "https://www.linkedin.com/in/shind/recent-activity/all/",
+        linkedin_feed_v2_html_to_md,
+    ),  # User activity feed
     ("https://www.linkedin.com/messaging/thread/12345/", linkedin_messages_html_to_md),
     ("https://www.linkedin.com/messaging/", linkedin_messages_html_to_md),
     ("https://www.linkedin.com/in/some-user-name-12345/", linkedin_profile_html_to_md),
@@ -161,8 +166,7 @@ TEST_CASES: list[Tuple[str, Optional[Callable]]] = [
     # YouTube
     ("https://www.youtube.com/feed/history", youtube_history_html_to_md),
     ("https://www.youtube.com/", youtube_home_html_to_md),
-    # Skipping query param case until PARSER_REGISTRY is fixed
-    # ("https://www.youtube.com/?gl=GB", youtube_home_html_to_md),
+    ("https://www.youtube.com/?gl=GB", youtube_home_html_to_md),
     ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", None),  # Specific video, should not match
     # Generic / No Match
     ("https://example.com/", None),

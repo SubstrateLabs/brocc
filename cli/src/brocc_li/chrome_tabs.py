@@ -137,6 +137,7 @@ class ChromeTabs:
                 # Use the URL returned by the fetch, fallback to dict URL if needed
                 tab_url = fetched_url or tab_dict.get("url")
                 if tab_id and tab_url:
+                    original_html = html  # Store original HTML
                     if html:
                         # Pass the fetched URL to html_to_md
                         markdown = html_to_md(html, tab_url)
@@ -148,7 +149,7 @@ class ChromeTabs:
                     else:
                         markdown = ""  # No HTML, empty MD
                     self.previous_tab_refs.add(
-                        TabReference(id=tab_id, url=tab_url, markdown=markdown)
+                        TabReference(id=tab_id, url=tab_url, markdown=markdown, html=original_html)
                     )
 
             logger.info(f"Processed initial Markdown for {len(self.previous_tab_refs)} tabs.")
@@ -299,6 +300,7 @@ class ChromeTabs:
                 return
 
             new_markdown = None
+            original_html = html_content
             if not html_content:
                 logger.warning(
                     f"Failed to fetch HTML for tab {tab_id} ({current_url}) after interaction."
@@ -347,7 +349,10 @@ class ChromeTabs:
 
                 # Create the new reference using the FETCHED URL
                 new_ref = TabReference(
-                    id=tab_id, url=url_for_new_ref, markdown=merged_content or ""
+                    id=tab_id,
+                    url=url_for_new_ref,
+                    markdown=merged_content or "",
+                    html=original_html,
                 )
                 # Update the set: remove old, add new
                 # Use discard() for safety, in case the ref was already removed by polling
@@ -376,7 +381,10 @@ class ChromeTabs:
                 )
                 # Store the newly fetched content (or merged) using the FETCHED URL
                 new_ref = TabReference(
-                    id=tab_id, url=url_for_new_ref, markdown=merged_content or ""
+                    id=tab_id,
+                    url=url_for_new_ref,
+                    markdown=merged_content or "",
+                    html=original_html,
                 )
                 self.previous_tab_refs.add(new_ref)
                 # Optionally trigger callback here too?
@@ -602,9 +610,11 @@ class ChromeTabs:
                     f"Navigation detected for {tab_id}: updating internal ref URL immediately to {current_tab.url}"
                 )
                 self.previous_tab_refs.discard(previous_ref)  # Remove old ref
-                # Add placeholder with new URL, empty markdown
+                # Add placeholder with new URL, empty markdown, and no HTML initially
                 self.previous_tab_refs.add(
-                    TabReference(id=tab_id, url=current_tab.url, markdown="")
+                    TabReference(
+                        id=tab_id, url=current_tab.url, markdown="", html=None
+                    )  # No HTML yet
                 )
 
                 # 3. Start the interaction monitor for the *new* URL context.
@@ -651,6 +661,7 @@ class ChromeTabs:
             tab_id = tab_dict.get("id")
             # Use the URL returned by the fetch operation, fallback to tab_dict URL if None
             tab_url = fetched_url or tab_dict.get("url")
+            original_html = html
 
             if tab_id and tab_url:
                 # Convert HTML to Markdown using the fetched/confirmed URL
@@ -663,7 +674,9 @@ class ChromeTabs:
                 # Remove any outdated ref for this ID if it exists (e.g., from navigation placeholder)
                 updated_tab_refs = {ref for ref in updated_tab_refs if ref.id != tab_id}
                 # Add the new reference with the fetched/confirmed URL and fresh markdown
-                updated_tab_refs.add(TabReference(id=tab_id, url=tab_url, markdown=markdown))
+                updated_tab_refs.add(
+                    TabReference(id=tab_id, url=tab_url, markdown=markdown, html=original_html)
+                )
 
         # Atomically update the main set of references
         self.previous_tab_refs = updated_tab_refs
@@ -723,37 +736,60 @@ async def main() -> None:
 
     clear_and_create_dir(debug_dir, "debug")
 
-    async def save_markdown_for_tab(tab_ref: TabReference):
-        # Check for URL and markdown content
-        if not tab_ref.url or not tab_ref.markdown:
-            logger.warning(
-                f"Skipping markdown save for tab {tab_ref.id} - missing URL or Markdown content."
-            )
+    async def save_tab_content(tab_ref: TabReference):
+        # Check for URL
+        if not tab_ref.url:
+            logger.warning(f"Skipping content save for tab {tab_ref.id} - missing URL.")
             return
 
-        # Find a unique slugified filename
+        # Find a unique slugified filename base
         original_slug = slugify(tab_ref.url)
         slug = original_slug
         counter = 1
+        # Ensure we don't overwrite by checking existence of *either* file type
+        while (debug_dir / f"{slug}.md").exists() or (debug_dir / f"{slug}.html").exists():
+            if slug in saved_slugs_in_run:  # Check if we've used this base slug in this run
+                counter += 1
+                slug = f"{original_slug}_{counter}"
+            else:
+                # If the file exists but wasn't saved by *this* run, we can overwrite it
+                # Mark it as used now.
+                break  # Exit loop to use current slug
+
+        saved_slugs_in_run.add(slug)  # Mark slug as used for this run
+
+        # Save Markdown
         md_file = debug_dir / f"{slug}.md"
-
-        while slug in saved_slugs_in_run:
-            slug = f"{original_slug}_{counter}"
-            md_file = debug_dir / f"{slug}.md"
-            counter += 1
-        saved_slugs_in_run.add(slug)
-
         markdown = tab_ref.markdown
-        try:
-            md_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(md_file, "w", encoding="utf-8") as f:
-                f.write(markdown)
-            logger.info(
-                f"Saved/Updated markdown for {tab_ref.url} ({len(markdown):,} chars) to {md_file.name}"
-            )
-            processed_urls_for_md.add(tab_ref.url)
-        except Exception as e:
-            logger.error(f"Error saving markdown for {tab_ref.url}: {e}")
+        if markdown:  # Only save if markdown exists
+            try:
+                md_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(md_file, "w", encoding="utf-8") as f:
+                    f.write(markdown)
+                logger.info(
+                    f"Saved markdown for {tab_ref.url} ({len(markdown):,} chars) to {md_file.name}"
+                )
+                processed_urls_for_md.add(tab_ref.url)  # Keep track for final count maybe?
+            except Exception as e:
+                logger.error(f"Error saving markdown for {tab_ref.url}: {e}")
+        else:
+            logger.debug(f"Skipping markdown save for {tab_ref.url} - content is empty.")
+
+        # Save HTML
+        html_file = debug_dir / f"{slug}.html"
+        html = tab_ref.html
+        if html:  # Only save if HTML exists
+            try:
+                html_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(html_file, "w", encoding="utf-8") as f:
+                    f.write(html)
+                logger.info(
+                    f"Saved HTML for {tab_ref.url} ({len(html):,} chars) to {html_file.name}"
+                )
+            except Exception as e:
+                logger.error(f"Error saving HTML for {tab_ref.url}: {e}")
+        else:
+            logger.debug(f"Skipping HTML save for {tab_ref.url} - content is missing.")
 
     # --- End File Saving Setup ---
 
@@ -770,7 +806,7 @@ async def main() -> None:
                     (r for r in tabs_monitor.previous_tab_refs if r.id == tab.get("id")), None
                 )
                 if ref:
-                    await save_markdown_for_tab(ref)
+                    await save_tab_content(ref)
 
         if event.navigated_tabs:
             console.print(
@@ -784,7 +820,7 @@ async def main() -> None:
                     (r for r in tabs_monitor.previous_tab_refs if r.id == tab.get("id")), None
                 )
                 if ref:
-                    await save_markdown_for_tab(ref)
+                    await save_tab_content(ref)
 
         if event.closed_tabs:
             console.print(
@@ -801,7 +837,7 @@ async def main() -> None:
             f"[bold cyan]:point_up: Interaction Update:[/bold cyan] Tab [dim]{tab_ref.id[:8]}...[/dim] ([link={tab_ref.url}]{tab_ref.url}[/link]) changed."
         )
         console.print(f"  :page_facing_up: New Markdown Size: {len(tab_ref.markdown):,} chars")
-        await save_markdown_for_tab(tab_ref)
+        await save_tab_content(tab_ref)
         console.print()  # Add a newline for spacing
 
     # --- End Callbacks ---
@@ -832,7 +868,7 @@ async def main() -> None:
                     console.print(
                         f" {i + 1}. [link={ref.url}]{ref.url}[/link] ([dim]ID: {ref.id[:8]}...[/dim], MD Size: {len(ref.markdown):,} chars)"
                     )
-                    await save_markdown_for_tab(ref)  # Save MD for initial tabs
+                    await save_tab_content(ref)  # Save MD and HTML for initial tabs
             else:
                 console.print("  (No initial HTTP/HTTPS tabs found)")
             console.print(

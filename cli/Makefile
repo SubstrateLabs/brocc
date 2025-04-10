@@ -104,6 +104,9 @@ test-threads: \
 test-linkedin-feed:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed.py -v -s
 
+test-linkedin-feed-v2:
+	uv run pytest src/brocc_li/tests/parsers/test_linkedin_feed_v2.py -v -s
+
 test-linkedin-company:
 	uv run pytest src/brocc_li/tests/parsers/test_linkedin_company.py -v -s
 
