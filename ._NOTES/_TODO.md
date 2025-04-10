@@ -13,6 +13,7 @@
 ## backlog
 
 - AI: pydanticai + openrouter
+- prompt injection thoughts
 - get youtube transcripts
 - pdf extraction (docling + grobid)
 - cli oauth flow
@@ -21,6 +22,7 @@
 - fix emoji parsing in tweet content (currently we drop emojis)
 - wrap python process in minimal app bundle
   - see https://github.com/linkedin/shiv
+- remember TODO-local-files
 
 ## parser backlog
 
