@@ -3,7 +3,6 @@ import json
 from brocc_li.cli.config_dir import get_config_dir
 from brocc_li.utils.logger import logger
 
-# Define AUTH_FILE using the config dir utility
 CONFIG_DIR = get_config_dir()
 AUTH_FILE = CONFIG_DIR / "auth.json"
 
@@ -16,18 +15,10 @@ def is_logged_in(auth_data):
     return "apiKey" in auth_data and bool(auth_data["apiKey"])
 
 
-def load_auth_data(auth_file=None):
-    """
-    Load auth data from local file
-
-    Args:
-        auth_file: Optional Path object for the auth file, defaults to AUTH_FILE from constants
-    """
-    auth_file = auth_file or AUTH_FILE
-
+def load_auth_data():
     try:
-        if auth_file.exists():
-            with open(auth_file) as f:
+        if AUTH_FILE.exists():
+            with open(AUTH_FILE) as f:
                 auth_data = json.load(f)
             logger.debug(f"Loaded auth data for user: {auth_data.get('email', 'unknown')}")
             return auth_data
@@ -39,18 +30,9 @@ def load_auth_data(auth_file=None):
         return None
 
 
-def save_auth_data(auth_data, auth_file=None):
-    """
-    Save auth data to local file
-
-    Args:
-        auth_data: Auth data to save
-        auth_file: Optional Path object for the auth file, defaults to AUTH_FILE from constants
-    """
-    auth_file = auth_file or AUTH_FILE
-
+def save_auth_data(auth_data):
     try:
-        with open(auth_file, "w") as f:
+        with open(AUTH_FILE, "w") as f:
             json.dump(auth_data, f)
         logger.debug(f"Saved auth data for user: {auth_data.get('email', 'unknown')}")
         return True
@@ -59,18 +41,10 @@ def save_auth_data(auth_data, auth_file=None):
         return False
 
 
-def clear_auth_data(auth_file=None):
-    """
-    Clear auth data from local file
-
-    Args:
-        auth_file: Optional Path object for the auth file, defaults to AUTH_FILE from constants
-    """
-    auth_file = auth_file or AUTH_FILE
-
+def clear_auth_data():
     try:
-        if auth_file.exists():
-            auth_file.unlink()
+        if AUTH_FILE.exists():
+            AUTH_FILE.unlink()
         logger.debug("Cleared auth data")
         return True
     except Exception as e:

@@ -1,5 +1,3 @@
-- refactoring
-  - clean up dup logs
 - cli saving to db
 - search UI
 - deep search
@@ -9,6 +7,7 @@
 
 ## backlog
 
+- cleanup logs
 - cli oauth flow: notion
 - embed/voyage retries
 - CI tests
