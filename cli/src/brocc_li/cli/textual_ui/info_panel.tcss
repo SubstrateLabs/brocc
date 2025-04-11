@@ -1,9 +1,0 @@
-#auth-buttons {
-    width: auto;
-    height: auto;
-}
-
-#logout-btn {
-    align: center bottom;
-    margin: 1 2;
-}

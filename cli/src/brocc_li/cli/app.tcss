@@ -22,12 +22,9 @@ TabPane {
     display: none;
 }
 
-/* Main app container styling */
 Screen {
     /* Add layout and other base styles for the screen */
 }
-
-/* Specific component styling can go here */
 
 #webapp-container {
     /* Styles for the webapp button container if needed */
@@ -38,3 +35,24 @@ Screen {
     padding: 1;
     margin: 1 0;
 } 
+
+#app-logs {
+    height: 1fr;
+    min-height: 8;
+    overflow-y: scroll;
+    margin-bottom: 1;
+}
+
+#open-log-file-btn {
+    # width: 100%;
+}
+
+#auth-buttons {
+    width: auto;
+    height: auto;
+}
+
+#logout-btn {
+    align: center bottom;
+    margin: 1 2;
+}

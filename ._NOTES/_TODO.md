@@ -1,5 +1,4 @@
 - refactoring
-  - set_log_widget seems bad, textual should read from file
   - clean up dup logs
 - cli saving to db
 - search UI

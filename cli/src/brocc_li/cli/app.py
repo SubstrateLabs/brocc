@@ -13,8 +13,8 @@ from brocc_li.cli import auth
 from brocc_li.cli.config_dir import get_config_dir
 from brocc_li.cli.service_status import check_and_update_api_status, check_and_update_webview_status
 from brocc_li.cli.systray_launcher import launch_systray, terminate_systray
-from brocc_li.cli.textual_ui.info_panel import InfoPanel
-from brocc_li.cli.textual_ui.logs_panel import LogsPanel
+from brocc_li.cli.info_panel import InfoPanel
+from brocc_li.cli.logs_panel import LogsPanel
 from brocc_li.cli.webview_launcher import (
     get_service_url,
     handle_webview_after_logout,
@@ -82,7 +82,7 @@ class BroccApp(App):
     LOCAL_API_PORT = FASTAPI_PORT
     CONFIG_DIR = get_config_dir()
     AUTH_FILE = CONFIG_DIR / "auth.json"
-    CSS_PATH = ["app.tcss", "textual_ui/info_panel.tcss", "textual_ui/logs_panel.tcss"]
+    CSS_PATH = ["app.tcss"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -502,7 +502,7 @@ class BroccApp(App):
         logger.debug(f"Webview state before launch: open={is_webview_open()}")
 
         logger.debug("Calling open_or_focus_webview")
-        from brocc_li.cli.textual_ui.info_panel import UI_STATUS
+        from brocc_li.cli.info_panel import UI_STATUS
 
         success = open_or_focus_webview(
             ui_status_mapping=UI_STATUS,
@@ -530,7 +530,7 @@ class BroccApp(App):
         local_url = get_service_url(FASTAPI_HOST, FASTAPI_PORT)
 
         # Use the utility function to check webview status and update UI
-        from brocc_li.cli.textual_ui.info_panel import UI_STATUS
+        from brocc_li.cli.info_panel import UI_STATUS
 
         status_mapping = {
             "OPEN": UI_STATUS["WINDOW_OPEN"],
