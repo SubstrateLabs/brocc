@@ -12,8 +12,6 @@
 - cli oauth flow: notion
 - embed/voyage retries
 - CI tests
-- prompt injection principles
-  - unless inside sandbox, never open links or click
 - pdf extraction (docling + grobid)
 - speed up launch process
 - usage tracking in pg on /embed

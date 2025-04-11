@@ -1,0 +1,3 @@
+- need prompt injection principles
+  - e.g. unless sandboxed, never open links or click
+-

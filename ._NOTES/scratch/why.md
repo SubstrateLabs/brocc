@@ -1,8 +1,9 @@
-https://browsermcp.io
-https://badgeify.app
-https://www.theverge.com/2024/12/4/24312449/deta-surf-ai-browser
-browserbase stagehand
-browser-use
+Our activity on the internet leaves a long trail of "digital exhaust". Digital exhaust lives in several places:
+
+1. Various browsers (mobile, web, in-app)
+2. Web-and-native applications (Gmail, Notion, Discord, ChatGPT, etc)
+3. Native-only applications (iMessage)
+4. Files you've saved on your computer (PDFs, images, etc)
 
 ## erik apr 9
 
