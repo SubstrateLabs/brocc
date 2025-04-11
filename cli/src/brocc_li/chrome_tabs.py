@@ -9,11 +9,19 @@ from rich.console import Console
 from rich.markup import escape
 
 from brocc_li.chrome_cdp import ChromeTab, get_chrome_info, get_tabs, monitor_user_interactions
-from brocc_li.chrome_manager import ChromeManager, TabReference
+from brocc_li.chrome_manager import ChromeManager
 from brocc_li.html_to_md import html_to_md
 from brocc_li.merge_md import MergeResultType, merge_md
 from brocc_li.utils.logger import logger
 from brocc_li.utils.slugify import slugify
+
+
+class TabReference(NamedTuple):
+    id: str
+    url: str
+    markdown: str
+    html: Optional[str] = None
+    title: Optional[str] = None
 
 
 class TabChangeEvent(NamedTuple):
@@ -140,7 +148,13 @@ class ChromeTabs:
                     else:
                         markdown = ""  # No HTML, empty MD
                     self.previous_tab_refs.add(
-                        TabReference(id=tab_id, url=tab_url, markdown=markdown, html=original_html)
+                        TabReference(
+                            id=tab_id,
+                            url=tab_url,
+                            markdown=markdown,
+                            html=original_html,
+                            title=tab_dict.get("title"),
+                        )
                     )
 
             logger.info(f"Processed initial Markdown for {len(self.previous_tab_refs)} tabs.")
@@ -307,6 +321,7 @@ class ChromeTabs:
             # Find the existing reference for this tab (still needed for old_markdown)
             current_ref = next((ref for ref in self.previous_tab_refs if ref.id == tab_id), None)
             old_markdown = current_ref.markdown if current_ref else None
+            old_title = current_ref.title if current_ref else None
 
             # Use merge_md to combine old and new markdown
             merge_result = merge_md(old_markdown, new_markdown)
@@ -342,6 +357,7 @@ class ChromeTabs:
                     url=url_for_new_ref,
                     markdown=merged_content or "",
                     html=original_html,
+                    title=old_title,
                 )
                 # Update the set: remove old, add new
                 # Use discard() for safety, in case the ref was already removed by polling
@@ -374,6 +390,7 @@ class ChromeTabs:
                     url=url_for_new_ref,
                     markdown=merged_content or "",
                     html=original_html,
+                    title=None,
                 )
                 self.previous_tab_refs.add(new_ref)
                 # Optionally trigger callback here too?
@@ -601,8 +618,12 @@ class ChromeTabs:
                 # Add placeholder with new URL, empty markdown, and no HTML initially
                 self.previous_tab_refs.add(
                     TabReference(
-                        id=tab_id, url=current_tab.url, markdown="", html=None
-                    )  # No HTML yet
+                        id=tab_id,
+                        url=current_tab.url,
+                        markdown="",
+                        html=None,
+                        title=current_tab.title,
+                    )
                 )
 
                 # 3. Start the interaction monitor for the *new* URL context.
@@ -663,7 +684,13 @@ class ChromeTabs:
                 updated_tab_refs = {ref for ref in updated_tab_refs if ref.id != tab_id}
                 # Add the new reference with the fetched/confirmed URL and fresh markdown
                 updated_tab_refs.add(
-                    TabReference(id=tab_id, url=tab_url, markdown=markdown, html=original_html)
+                    TabReference(
+                        id=tab_id,
+                        url=tab_url,
+                        markdown=markdown,
+                        html=original_html,
+                        title=tab_dict.get("title"),
+                    )
                 )
 
         # Atomically update the main set of references

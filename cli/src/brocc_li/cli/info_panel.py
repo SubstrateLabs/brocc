@@ -18,6 +18,15 @@ UI_STATUS = {
     "WINDOW_LOGGED_OUT": "Window: [yellow]Running but logged out, closing automatically...[/yellow]",
     "WEBAPP_OPEN": "App: [green]Open[/green]",
     "WEBAPP_READY": "App: [blue]Ready to launch[/blue]",
+    # Add Chrome connection status messages
+    "CHROME_CONNECTED": "Chrome: [green]Connected[/green]",
+    "CHROME_DISCONNECTED": "Chrome: [red]Disconnected[/red]",
+    "CHROME_CONNECTING": "Chrome: [yellow]Connecting...[/yellow]",
+    # Add Tab monitoring status messages
+    "TABS_MONITORING_ACTIVE": "Tab Monitoring: [green]Active[/green]",
+    "TABS_MONITORING_INACTIVE": "Tab Monitoring: [blue]Ready[/blue]",
+    "TABS_MONITORING_ERROR": "Tab Monitoring: [red]Error[/red]",
+    "TABS_MONITORING_NEEDS_LOGIN": "Tab Monitoring: [yellow]Login required[/yellow]",
 }
 
 BUTTON_LABELS = {
@@ -40,6 +49,8 @@ class InfoPanel(Static):
             Static("Window: Checking...", id="webapp-health"),
             Static("DuckDB: Initializing...", id="duckdb-health"),
             Static("LanceDB: Initializing...", id="lancedb-health"),
+            Static("Chrome: Checking...", id="chrome-status"),
+            Static("Tab Monitoring: Initializing...", id="tab-monitoring-status"),
             Label("Not logged in", id="auth-status"),
             id="health-container",
         )
@@ -65,6 +76,38 @@ class InfoPanel(Static):
         except NoMatches:
             logger.debug(f"Could not update UI status: element #{element_id} not found")
             return False
+
+    def update_chrome_status(self, is_connected: bool = False, is_connecting: bool = False):
+        """Update the Chrome connection status in the UI"""
+        try:
+            chrome_status = self.query_one("#chrome-status", Static)
+
+            if is_connected:
+                chrome_status.update(UI_STATUS["CHROME_CONNECTED"])
+            elif is_connecting:
+                chrome_status.update(UI_STATUS["CHROME_CONNECTING"])
+            else:
+                chrome_status.update(UI_STATUS["CHROME_DISCONNECTED"])
+        except NoMatches:
+            logger.debug("Could not update Chrome status: UI component not found")
+
+    def update_tab_monitoring_status(
+        self, is_monitoring: bool = False, needs_login: bool = False, error: bool = False
+    ):
+        """Update the tab monitoring status in the UI"""
+        try:
+            monitoring_status = self.query_one("#tab-monitoring-status", Static)
+
+            if is_monitoring:
+                monitoring_status.update(UI_STATUS["TABS_MONITORING_ACTIVE"])
+            elif needs_login:
+                monitoring_status.update(UI_STATUS["TABS_MONITORING_NEEDS_LOGIN"])
+            elif error:
+                monitoring_status.update(UI_STATUS["TABS_MONITORING_ERROR"])
+            else:
+                monitoring_status.update(UI_STATUS["TABS_MONITORING_INACTIVE"])
+        except NoMatches:
+            logger.debug("Could not update tab monitoring status: UI component not found")
 
     def update_auth_status(self):
         """Update authentication status display"""
@@ -100,6 +143,11 @@ class InfoPanel(Static):
                 status_label.update("Not logged in")
                 if open_webapp_btn:
                     open_webapp_btn.disabled = True
+
+            # Also update tab monitoring status based on login state
+            self.update_tab_monitoring_status(
+                is_monitoring=self.app_instance.is_monitoring_tabs, needs_login=not is_logged_in
+            )
         except NoMatches:
             logger.debug("Could not update auth status: UI not ready")
 

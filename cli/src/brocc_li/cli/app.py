@@ -1,3 +1,4 @@
+import asyncio
 import os
 import threading
 import time
@@ -9,6 +10,8 @@ from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Label, Static, TabbedContent
 
+from brocc_li.chrome_manager import ChromeManager
+from brocc_li.chrome_tabs import ChromeTabs, TabChangeEvent, TabReference
 from brocc_li.cli import auth
 from brocc_li.cli.config_dir import get_config_dir
 from brocc_li.cli.info_panel import InfoPanel
@@ -25,8 +28,10 @@ from brocc_li.doc_db import DocDB
 from brocc_li.fastapi_server import FASTAPI_HOST, FASTAPI_PORT, run_server_in_thread
 from brocc_li.frontend_server import WEBAPP_HOST, WEBAPP_PORT
 from brocc_li.frontend_server import run_server_in_thread as run_webapp_in_thread
+from brocc_li.types.doc import Doc
 from brocc_li.utils.api_url import get_api_url
 from brocc_li.utils.auth_data import is_logged_in, load_auth_data
+from brocc_li.utils.html_metadata import extract_metadata
 from brocc_li.utils.logger import logger
 from brocc_li.utils.version import get_version
 from brocc_li.utils.version_check import check_for_updates
@@ -104,6 +109,11 @@ class BroccApp(App):
         self.info_panel: Optional[InfoPanel] = None
         self.main_content: Optional[MainContent] = None  # Add reference to MainContent
 
+        # Chrome Monitoring
+        self.chrome_manager: Optional[ChromeManager] = None
+        self.tabs_monitor: Optional[ChromeTabs] = None
+        self.is_monitoring_tabs: bool = False
+
     # Helper method to safely update UI status
     def _safe_update_ui_status(self, message: str, element_id: str) -> None:
         """Safe wrapper to update UI status that returns None as required by callbacks"""
@@ -162,6 +172,10 @@ class BroccApp(App):
         self.doc_db_thread = threading.Thread(target=self._initialize_doc_db, daemon=True)
         self.doc_db_thread.start()
 
+        # Initialize Chrome Manager and Tabs Monitor
+        self.chrome_manager = ChromeManager()
+        self.tabs_monitor = ChromeTabs(self.chrome_manager)
+
         # Check health status initially
         self.run_worker(self._check_health_worker, thread=True)
 
@@ -170,6 +184,9 @@ class BroccApp(App):
 
         # Set up periodic check for DocDB status
         self.set_interval(60.0, self._update_doc_db_status)
+
+        # Set up periodic check to manage tab monitoring state
+        self.set_interval(5.0, self._manage_tab_monitoring_state)
 
         # Launch the webview via a worker that waits for the server
         self.run_worker(self._launch_webview_worker, thread=True)
@@ -208,7 +225,7 @@ class BroccApp(App):
             logger.error(f"Error terminating webview process: {e}")
             return False
 
-    def action_request_quit(self) -> None:
+    async def action_request_quit(self) -> None:
         """Cleanly exit the application, closing all resources"""
         # Mark logger as shutting down to suppress further output
         logger.mark_shutting_down()
@@ -225,6 +242,9 @@ class BroccApp(App):
 
         # Start force exit timer
         threading.Thread(target=force_exit, daemon=True).start()
+
+        # Stop tab monitoring first
+        await self._stop_tab_monitoring_if_running()
 
         # First try to quickly terminate any active processes
         try:
@@ -441,6 +461,10 @@ class BroccApp(App):
                 if self.info_panel is not None:
                     self.info_panel.update_auth_status()
 
+                # Stop tab monitoring after logout
+                # Need to run the async stop function from this sync worker
+                self.call_from_thread(asyncio.run, self._stop_tab_monitoring_if_running())
+
                 # Handle webview after logout
                 def update_ui_status(status):
                     if status == "LOGGED_OUT":
@@ -585,6 +609,238 @@ class BroccApp(App):
         if update_message and self.main_content:  # Check main_content reference
             # Use call_from_thread to safely update the UI from the worker
             self.call_from_thread(self.main_content.show_update_message, update_message)
+
+    async def _manage_tab_monitoring_state(self):
+        """Periodically checks conditions and starts/stops tab monitoring.
+
+        Conditions:
+        - Logged in
+        - DocDB initialized and healthy
+        - Chrome Manager instantiated and connected
+        """
+        if self.chrome_manager is None or self.tabs_monitor is None or self.doc_db is None:
+            logger.debug("Tab monitoring dependencies not yet initialized.")
+            return  # Dependencies not ready
+
+        # Get DocDB status
+        doc_db_healthy = False
+        try:
+            db_status = self.doc_db.get_duckdb_status()
+            lance_status = self.doc_db.get_lancedb_status()
+            # Consider it healthy if DuckDB is initialized and LanceDB initialization didn't fail critically
+            doc_db_healthy = (
+                db_status.get("initialized", False) and lance_status.get("error") is None
+            )
+        except Exception as e:
+            logger.warning(f"Error checking DocDB status for monitoring: {e}")
+
+        # Check Chrome connection
+        try:
+            # Use ensure_connection to try connecting if not already connected
+            # Pass quiet=True to avoid excessive logging from ensure_connection itself
+            chrome_connected = await self.chrome_manager.ensure_connection(quiet=True)
+
+            # Update Chrome connection status in the UI
+            if self.info_panel:
+                self.info_panel.update_chrome_status(is_connected=chrome_connected)
+        except Exception as e:
+            logger.warning(f"Error checking Chrome connection for monitoring: {e}")
+            chrome_connected = False
+            # Update Chrome connection status to show error
+            if self.info_panel:
+                self.info_panel.update_chrome_status(is_connected=False)
+
+        # Determine desired state
+        should_be_monitoring = self.is_logged_in and doc_db_healthy and chrome_connected
+
+        if should_be_monitoring and not self.is_monitoring_tabs:
+            logger.info("Conditions met, starting Chrome tab monitoring...")
+            try:
+                # Update UI to show connecting state
+                if self.info_panel:
+                    self.info_panel.update_tab_monitoring_status(is_monitoring=False)
+
+                monitor_started = await self.tabs_monitor.start_monitoring(
+                    on_polling_change_callback=self._handle_tab_polling_update,
+                    on_interaction_update_callback=self._handle_tab_interaction_update,
+                )
+                if monitor_started:
+                    self.is_monitoring_tabs = True
+                    logger.success("Chrome tab monitoring started.")
+
+                    # Update UI to show active monitoring
+                    if self.info_panel:
+                        self.info_panel.update_tab_monitoring_status(is_monitoring=True)
+                else:
+                    logger.error("Failed to start tab monitoring.")
+
+                    # Update UI to show error
+                    if self.info_panel:
+                        self.info_panel.update_tab_monitoring_status(error=True)
+            except Exception as e:
+                logger.error(f"Error starting tab monitoring: {e}", exc_info=True)
+                # Update UI to show error
+                if self.info_panel:
+                    self.info_panel.update_tab_monitoring_status(error=True)
+
+        elif not should_be_monitoring and self.is_monitoring_tabs:
+            logger.info("Conditions no longer met, stopping Chrome tab monitoring...")
+            try:
+                await self.tabs_monitor.stop_monitoring()
+                self.is_monitoring_tabs = False
+                logger.success("Chrome tab monitoring stopped.")
+
+                # Update UI to show inactive monitoring
+                if self.info_panel:
+                    # If not logged in, show that as the reason
+                    self.info_panel.update_tab_monitoring_status(
+                        is_monitoring=False, needs_login=not self.is_logged_in
+                    )
+            except Exception as e:
+                logger.error(f"Error stopping tab monitoring: {e}", exc_info=True)
+                # Update UI to show error
+                if self.info_panel:
+                    self.info_panel.update_tab_monitoring_status(error=True)
+        # Ensure the UI always shows the current monitoring state, even if no change was needed
+        elif self.info_panel:
+            self.info_panel.update_tab_monitoring_status(
+                is_monitoring=self.is_monitoring_tabs,
+                needs_login=not self.is_logged_in and not self.is_monitoring_tabs,
+            )
+
+    async def _handle_tab_polling_update(self, event: TabChangeEvent):
+        """Callback for polling-based tab changes."""
+        logger.debug(
+            f"Received polling update: {len(event.new_tabs)} new, {len(event.closed_tabs)} closed, {len(event.navigated_tabs)} navigated"
+        )
+        tabs_to_save = []
+        # Collect refs for new and navigated tabs
+        for tab_info in event.new_tabs + event.navigated_tabs:
+            tab_id = tab_info.get("id")
+            if tab_id and self.tabs_monitor:
+                # Find the TabReference matching this ID in the monitor's current state
+                ref = next((r for r in self.tabs_monitor.previous_tab_refs if r.id == tab_id), None)
+                if ref:
+                    tabs_to_save.append(ref)
+                else:
+                    logger.warning(f"Polling update: Could not find TabReference for ID {tab_id}")
+
+        # Queue each ref for saving via the worker
+        for tab_ref in tabs_to_save:
+            logger.debug(f"Polling: Queueing save for tab {tab_ref.id[:8]} ({tab_ref.url}) ")
+            # Wrap worker call in lambda to pass arguments correctly
+            self.run_worker(lambda ref=tab_ref: self._save_tab_ref_worker(ref), thread=True)
+
+    async def _handle_tab_interaction_update(self, tab_ref: TabReference):
+        """Callback for interaction-based tab updates."""
+        display_url = tab_ref.url[:80] + "..." if len(tab_ref.url) > 80 else tab_ref.url
+        logger.debug(f"Received interaction update for tab {tab_ref.id[:8]}: {display_url}")
+        # Queue the ref for saving via the worker
+        # Wrap worker call in lambda to pass arguments correctly
+        self.run_worker(lambda ref=tab_ref: self._save_tab_ref_worker(ref), thread=True)
+
+    def _save_tab_ref_worker(self, tab_ref: TabReference):
+        """Synchronous worker to save a TabReference to DocDB."""
+        if self.doc_db is None:
+            logger.error("Cannot save tab reference: DocDB not initialized.")
+            return
+
+        if not tab_ref.markdown:
+            logger.debug(f"Skipping save for tab {tab_ref.id[:8]}: No markdown content.")
+            return
+
+        logger.info(f"Saving tab content to DB: {tab_ref.url}")
+
+        try:
+            if not tab_ref.html:
+                # If HTML is missing, it likely means the content fetch failed or the
+                # page wasn't HTML. We can't extract meaningful metadata or reliably
+                # store the content without it.
+                logger.warning(
+                    f"Skipping save for tab {tab_ref.id[:8]} ({tab_ref.url}): Missing HTML content in TabReference."
+                )
+                return
+
+            doc_title = tab_ref.title  # Start with title from tab reference
+            doc_description = None
+            doc_author = None
+            doc_created_at = None
+            doc_keywords = []
+            additional_metadata = {}
+
+            # If we have HTML, try to extract richer metadata
+            if tab_ref.html:
+                try:
+                    extracted_meta = extract_metadata(tab_ref.html, tab_ref.url)
+                    # Prioritize extracted title, fallback to tab title
+                    if extracted_meta.title:
+                        doc_title = extracted_meta.title
+                    doc_description = extracted_meta.description
+                    doc_author = extracted_meta.author
+
+                    # Handle published_at (save as created_at in Doc)
+                    if extracted_meta.published_at:
+                        doc_created_at = Doc.format_date(extracted_meta.published_at)
+
+                    # Handle keywords
+                    if extracted_meta.keywords:
+                        doc_keywords = extracted_meta.keywords
+
+                    if extracted_meta.og_image:
+                        additional_metadata["og_image"] = str(extracted_meta.og_image)
+                    if extracted_meta.favicon:
+                        additional_metadata["favicon"] = str(extracted_meta.favicon)
+                except Exception as meta_ex:
+                    logger.warning(f"Failed to extract HTML metadata for {tab_ref.url}: {meta_ex}")
+
+            # Construct the Doc object for storage
+            doc = Doc(
+                id=Doc.generate_id(),  # Generate ID for the pydantic model
+                url=tab_ref.url,
+                title=doc_title,  # Use potentially updated title
+                description=doc_description,  # Add extracted description
+                text_content=tab_ref.markdown,  # Use markdown as the text content
+                source="chrome",
+                contact_name=doc_author,  # Use author as contact_name
+                created_at=doc_created_at,  # Use publication date as created_at
+                keywords=doc_keywords,  # Add keywords from metadata
+                metadata=additional_metadata,  # Include extracted fields
+            )
+
+            # Store the document (handles new/update/merge logic)
+            success = self.doc_db.store_document(doc)
+
+            if success:
+                logger.success(f"Successfully saved/updated tab in DB: {tab_ref.url}")
+            else:
+                # store_document logs its own errors, but we can add context
+                logger.warning(f"Problem saving tab to DB (check previous logs): {tab_ref.url}")
+
+        except Exception as e:
+            logger.error(f"Error in _save_tab_ref_worker for {tab_ref.url}: {e}", exc_info=True)
+
+    async def _stop_tab_monitoring_if_running(self):
+        """Checks if tab monitoring is running and stops it if so."""
+        if self.is_monitoring_tabs and self.tabs_monitor:
+            logger.info("Stopping tab monitoring...")
+            try:
+                await self.tabs_monitor.stop_monitoring()
+                self.is_monitoring_tabs = False
+                logger.success("Tab monitoring stopped.")
+
+                # Update UI to reflect stopped monitoring
+                if self.info_panel:
+                    self.info_panel.update_tab_monitoring_status(
+                        is_monitoring=False, needs_login=not self.is_logged_in
+                    )
+            except Exception as e:
+                logger.error(f"Error stopping tab monitoring during shutdown/logout: {e}")
+
+                # Update UI to show error
+                if self.info_panel:
+                    self.info_panel.update_tab_monitoring_status(error=True)
+        else:
+            logger.debug("Tab monitoring was not running.")
 
 
 if __name__ == "__main__":

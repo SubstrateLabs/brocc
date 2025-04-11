@@ -1,4 +1,4 @@
-- cli saving to db
+- cleanup logs
 - search UI
 - deep search
 - fix gmail inbox parser (url mapping issue?)
@@ -7,7 +7,6 @@
 
 ## backlog
 
-- cleanup logs
 - cli oauth flow: notion
 - embed/voyage retries
 - CI tests

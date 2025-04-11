@@ -33,13 +33,6 @@ class ChromeStatus(Enum):
     CONNECTING = "connecting"
 
 
-class TabReference(NamedTuple):
-    id: str
-    url: str
-    markdown: str = ""
-    html: Optional[str] = None
-
-
 class ChromeManager:
     """Manages the connection to a Chrome instance with remote debugging."""
 
