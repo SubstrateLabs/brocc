@@ -1,17 +1,21 @@
-- remove playwright fallback?
+- refactoring
+  - set_log_widget seems bad, textual should read from file
+  - clean up dup logs
 - cli saving to db
 - search UI
 - deep search
+- fix gmail inbox parser (url mapping issue?)
 - youtube transcripts
 - AI: pydanticai + openrouter
 
 ## backlog
 
-- CI tests
+- cli oauth flow: notion
 - embed/voyage retries
-- prompt injection thoughts
+- CI tests
+- prompt injection principles
+  - unless inside sandbox, never open links or click
 - pdf extraction (docling + grobid)
-- cli oauth flow
 - speed up launch process
 - usage tracking in pg on /embed
 - fix emoji parsing in tweet content (currently we drop emojis)

@@ -1,19 +1,7 @@
 """
 Document database using DuckDB + Polars + PyArrow
-- Zero-copy Arrow format: Direct memory sharing between DuckDB and Polars without serialization/deserialization
-- Columnar storage: Data stored in columns rather than rows, enabling vectorized operations and better cache utilization
-- polars vs. pandas:
-  * Rust backend for memory safety and performance
-  * Lazy evaluation for query optimization
-  * Native Arrow integration
-  * Better memory efficiency with zero-copy operations
-  * Type-safe operations with strict typing
-
-Document update/versioning behavior:
-- Goal is to track document history while avoiding needless duplication
-- When storing a document, the we check for existing versions by ID or URL:
-  * Docs with identical content but different metadata will be updated in place
-  * Docs with different content (even with same URL or ID) will create new versions
+- Arrow format enables direct memory sharing between DuckDB and Polars without ser/de
+- Columnar storage enables vectorized operations and better cache utilization
 """
 
 from __future__ import annotations

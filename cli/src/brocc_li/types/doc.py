@@ -13,16 +13,16 @@ class Source(Enum):
     CHROME = "chrome"
 
 
-# Base model with common fields shared between Doc and ChunkModel
-# Only simple scalar fields that LanceDB can handle are included here
+# Base model with common fields shared between Doc (DuckDB) and ChunkModel (LanceDB)
+# Note: LanceDB only supports simple scalar fields
 class BaseDocFields(BaseModel):
     url: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    contact_name: Optional[str] = None
-    contact_identifier: Optional[str] = None
+    contact_name: Optional[str] = None  # aka author
+    contact_identifier: Optional[str] = None  # e.g. email, phone, etc.
     # Use simple strings rather than Union types for LanceDB compatibility
-    source: Optional[str] = None
+    source: Optional[str] = None  # e.g. chrome
     source_location_identifier: Optional[str] = None
     source_location_name: Optional[str] = None
     created_at: Optional[str] = None
@@ -56,30 +56,18 @@ class BaseDocFields(BaseModel):
         return result
 
 
+# DuckDB Chunk model
 class Chunk(BaseModel):
-    """
-    Model for document chunks that contain the actual text content.
-
-    This model represents the core chunk structure used throughout the application.
-    It's stored in both DuckDB and LanceDB, but with different formatting:
-
-    - In DuckDB: The content field is stored as a JSON string
-    - In LanceDB: The content is wrapped in a structured format with a header and stored as a JSON string
-
-    The content field is a list of dictionaries containing interleaved text and image items
-    as returned by chunk_markdown.
-    """
-
     id: str
     doc_id: str  # Reference to parent document
     chunk_index: int  # Position of this chunk
     chunk_total: int  # Total number of chunks in this document
-    content: list[dict[str, Any]]  # The interleaved text/image list as returned by chunk_markdown
+    content: list[dict[str, Any]]  # NOTE: interleaved text/image list as returned by chunk_markdown
 
 
+# DuckDB Doc model
 class Doc(BaseDocFields):
     id: str
-    # Original enum types for source in the Doc model
     source: Union[Source, str, None] = None  # Override the string-only version from BaseDocFields
     # Additional non-scalar fields that LanceDB can't handle
     participant_names: Optional[List[str]] = None

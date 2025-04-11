@@ -5,7 +5,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from rich.console import Console
 
-from brocc_li.chrome_cdp import get_chrome_info, get_tab_html_content, get_tabs, open_new_tab
+from brocc_li.chrome_cdp import get_chrome_info, get_tab_html_content, get_tabs
 from brocc_li.utils.chrome import (
     is_chrome_debug_port_active,
     is_chrome_process_running,
@@ -27,15 +27,12 @@ class ChromeState(NamedTuple):
 
 
 class ChromeStatus(Enum):
-    """Machine-readable status codes for Chrome connection state."""
-
     CONNECTED = "connected"
     NOT_RUNNING = "not_running"
     RUNNING_WITHOUT_DEBUG_PORT = "running_without_debug_port"
     CONNECTING = "connecting"
 
 
-# Tab reference for tracking
 class TabReference(NamedTuple):
     id: str
     url: str
@@ -46,44 +43,25 @@ class TabReference(NamedTuple):
 class ChromeManager:
     """Manages the connection to a Chrome instance with remote debugging."""
 
-    def __init__(self, auto_connect: bool = False):
-        """
-        Initialize the Chrome Manager.
-
-        Args:
-            auto_connect: If True, will automatically try to connect to Chrome
-                         if a debug port is detected.
-        """
+    def __init__(self):
         self._state: ChromeState = ChromeState(False, False)  # Initial state
         self._connected: bool = False
-        self._auto_connect = auto_connect
         self._initialized = False
-
-        # Don't initialize async state here - defer until an event loop is running
 
     async def _ensure_initialized(self):
         """Ensure async initialization has been performed"""
         if not self._initialized:
-            await self._init_async(self._auto_connect)
+            await self._init_async()
             self._initialized = True
 
-    async def _init_async(self, auto_connect: bool):
+    async def _init_async(self):
         """Initialize the state asynchronously"""
         self._state = await self._get_chrome_state()
-        # Try auto-connect if configured and debug port is active
-        if auto_connect and self._state.has_debug_port:
-            await self._try_auto_connect(quiet=True)
+        if self._state.has_debug_port:
+            await self._test_connection(quiet=True)
 
-    async def _try_auto_connect(self, quiet: bool = False) -> bool:
-        """
-        Attempt to automatically connect to Chrome with debug port.
-
-        Args:
-            quiet: If True, suppress most log output during connection
-
-        Returns:
-            bool: True if connection successful, False otherwise
-        """
+    async def _test_connection(self, quiet: bool = False) -> bool:
+        """Tests connection to Chrome debug port, updates status"""
         try:
             # Try to connect - directly use async function
             chrome_info = await get_chrome_info()
@@ -103,7 +81,6 @@ class ChromeManager:
 
     async def _get_chrome_state(self) -> ChromeState:
         """Get the current state of Chrome (running and debug port status)."""
-        # These functions are now async, so we can call them directly
         has_debug_port = await is_chrome_debug_port_active()
         is_running = has_debug_port or await is_chrome_process_running()
         return ChromeState(
@@ -111,24 +88,8 @@ class ChromeManager:
             has_debug_port=has_debug_port,
         )
 
-    async def _check_chrome_connection(self) -> bool:
-        """Check if we can connect to Chrome via CDP."""
-        # Directly use async function
-        chrome_info = await get_chrome_info()
-        return chrome_info["connected"]
-
-    async def _get_chrome_version(self) -> str:
-        """Get Chrome version from CDP."""
-        # Directly use async function
-        chrome_info = await get_chrome_info()
-        return chrome_info["version"]
-
     @property
     def connected(self) -> bool:
-        """Return whether we're connected to Chrome.
-
-        Note: This is a non-async property for compatibility with existing code.
-        """
         return self._connected and self._state.has_debug_port
 
     async def status_code(self) -> ChromeStatus:
@@ -149,11 +110,11 @@ class ChromeManager:
         await self._ensure_initialized()
         self._state = await self._get_chrome_state()
         # Try to auto-connect if configured and debug port is active
-        if self._auto_connect and self._state.has_debug_port and not self._connected:
-            await self._try_auto_connect()
+        if self._state.has_debug_port and not self._connected:
+            await self._test_connection()
         return self._state
 
-    async def test_connection(
+    async def ensure_connection(
         self,
         quiet: bool = False,
     ) -> bool:
@@ -248,35 +209,10 @@ class ChromeManager:
                 logger.error("Failed to launch Chrome. Cannot connect.")
             return False
 
-    async def open_new_tab(self, url: str = "") -> bool:
-        """
-        Open a new tab with the given URL.
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        await self._ensure_initialized()
-        if not self._connected or not self._state.has_debug_port:
-            logger.error("Not connected to Chrome. Cannot open new tab.")
-            return False
-
-        # Directly use async function
-        result = await open_new_tab(url)
-        if result:
-            logger.success(f"Successfully opened new tab with URL: {url}")
-        return result
-
     async def get_all_tabs(self) -> List[dict]:
         """
-        Get information about all open tabs in Chrome using CDP HTTP API.
-
-        Uses Chrome DevTools Protocol HTTP API to get detailed tab information including:
-        - Title and URL
-        - Tab IDs
-        - Debug URLs
-
-        Returns:
-            List of dictionaries with detailed tab information
+        Get information about all open tabs in Chrome using CDP HTTP API:
+        - Title, URL, ID, window_id, webSocketDebuggerUrl, devtoolsFrontendUrl
         """
         await self._ensure_initialized()
         # Directly use async function
@@ -306,61 +242,36 @@ class ChromeManager:
             Tuple (html_content | None, final_url | None)
         """
         await self._ensure_initialized()
+        if not self._state.has_debug_port:
+            logger.error("Chrome debug port is not active. Cannot get tab HTML.")
+            return None, None
+
         # Refresh our state first to ensure we have the latest connection status
         self._state = await self._get_chrome_state()
 
         final_url: Optional[str] = None  # Keep track of the best URL we find
 
-        if not self._state.has_debug_port:
-            logger.error("Chrome debug port is not active. Cannot get tab HTML.")
-            return None, None
-
-        if not self._connected:
-            # Try to establish connection first
-            logger.warning("Not connected to Chrome. Attempting to connect...")
-            if not await self.test_connection(quiet=True):
-                logger.error("Failed to connect to Chrome. Cannot get tab HTML.")
-                return None, None
-
-        # Find the tab with the specified ID - directly use async function
         tabs = await get_tabs()
         tab = next((t for t in tabs if t.id == tab_id), None)
 
-        # Get the URL from the initial tab info if available
         if tab:
             final_url = tab.url
-
         if not tab or not tab.webSocketDebuggerUrl:
             logger.error(f"Tab with ID {tab_id} not found or has no WebSocket URL")
-            return None, final_url  # Return URL found so far
-
-        # Strategy: Try CDP approach
-        logger.debug(f"Trying to get HTML from tab {tab_id} ({final_url}) via CDP")
-
-        ws_url = tab.webSocketDebuggerUrl
-        if not ws_url:
-            logger.error(f"Tab with ID {tab_id} has no WebSocket URL")
             return None, final_url
 
-        # Directly use async function which now returns (html, url)
+        ws_url = tab.webSocketDebuggerUrl
         html, cdp_url = await get_tab_html_content(ws_url)
         if cdp_url:  # Update URL if CDP returned one
             final_url = cdp_url
 
-        if html:
-            logger.debug(
-                f"Successfully retrieved HTML via CDP ({len(html)} chars) from {final_url}"
-            )
-        else:
-            logger.warning(f"CDP failed to retrieve HTML for tab {tab_id} ({final_url})")
-
         return html, final_url
 
-    async def get_parallel_tab_html(
+    async def get_html_for_tabs(
         self, tabs: List[dict]
     ) -> List[Tuple[dict, Optional[str], Optional[str]]]:
         """
-        Efficiently get HTML content and final URLs from multiple tabs asynchronously via CDP.
+        Get HTML content and final URLs from multiple tabs via CDP.
 
         Args:
             tabs: List of tab dictionaries containing id and other info
@@ -376,14 +287,7 @@ class ChromeManager:
         if not tabs:
             return []
 
-        # Log the start of the process
-        console.print(f"[cyan]Starting HTML extraction for {len(tabs)} tabs via CDP...[/cyan]")
-
-        # Process tabs with CDP in parallel using asyncio.gather, limited by semaphore
-        console.print(
-            f"[bold cyan]Parallel CDP extraction for {len(tabs)} tabs (max 5 concurrent)...[/bold cyan]"
-        )
-
+        console.print(f"[cyan]get_html_for_tabs: processing {len(tabs)} tabs...[/cyan]")
         semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent CDP tasks
 
         async def process_tab_with_cdp_async(tab):
@@ -392,7 +296,7 @@ class ChromeManager:
                 title = tab.get("title", "Untitled")
                 short_title = (title[:30] + "...") if len(title) > 30 else title
 
-                console.print(f"[dim]CDP: Getting HTML for {short_title}...[/dim]")
+                console.print(f"[dim]get_tab_html: {short_title}...[/dim]")
                 html: Optional[str] = None
                 url: Optional[str] = tab.get("url")  # Start with the initial URL
 
@@ -401,20 +305,16 @@ class ChromeManager:
                     html, url = await self.get_tab_html(tab_id)
 
                 except asyncio.TimeoutError:
-                    console.print(f"[red]⌛[/red] CDP timed out for {short_title}")
+                    console.print(f"[red]⌛[/red] get_tab_html: {short_title} timed out")
                     # html remains None, url might be updated
                 except Exception as e:  # Catch other potential errors during CDP
-                    console.print(f"[red]✗[/red] CDP error for {short_title}: {e}")
+                    console.print(f"[red]✗[/red] get_tab_html: {short_title}: {e}")
                     # html remains None, url might be updated
 
                 if not html:
-                    console.print(f"[yellow]CDP failed for {short_title}[/yellow]")
+                    console.print(f"[yellow]get_tab_html: {short_title} failed[/yellow]")
                 else:
-                    char_count = len(html)
-                    line_count = html.count("\n") + 1
-                    console.print(
-                        f"[green]✓[/green] CDP success: {short_title} ({char_count:,} chars, {line_count:,} lines) from {url}"
-                    )
+                    console.print(f"[green]✓[/green] get_tab_html: {short_title} from {url}")
                 # Store the URL found by CDP, even if it failed
                 if tab_id and url:
                     cdp_fetched_urls[tab_id] = url
@@ -430,15 +330,13 @@ class ChromeManager:
 
         # Report final stats
         success_count = sum(1 for _, html, _ in results if html)
-        failure_count = len(tabs) - success_count
-
         if success_count == len(tabs):
             console.print(
-                f"[bold green]Successfully extracted HTML from all {len(tabs)} tabs via CDP![/bold green]"
+                f"[bold green]get_html_for_tabs: all {len(tabs)} tabs succeeded[/bold green]"
             )
         else:
             console.print(
-                f"[bold yellow]Extracted HTML from {success_count}/{len(tabs)} tabs via CDP ({failure_count} failed)[/bold yellow]"
+                f"[bold yellow]get_html_for_tabs: {success_count}/{len(tabs)} tabs succeeded[/bold yellow]"
             )
 
         return results

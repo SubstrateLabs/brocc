@@ -94,35 +94,6 @@ async def get_tabs() -> List[ChromeTab]:
     return []
 
 
-async def open_new_tab(url: str = "") -> bool:
-    """
-    Open a new tab in Chrome via CDP HTTP API.
-
-    Args:
-        url: URL to open in the new tab (empty for blank tab)
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        # Use CDP HTTP API to create a new tab
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"http://localhost:{REMOTE_DEBUG_PORT}/json/new",
-                params={"url": url},
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as response:
-                if response.status == 200:
-                    logger.debug(f"Successfully opened new tab with URL: {url}")
-                    return True
-                else:
-                    logger.error(f"Failed to open URL {url}: HTTP {response.status}")
-                    return False
-    except Exception as e:
-        logger.error(f"Failed to open URL {url}: {str(e)}")
-        return False
-
-
 async def get_chrome_info():
     """
     Get Chrome version info and check connection via CDP HTTP API.
@@ -391,8 +362,6 @@ async def monitor_user_interactions(ws_url: str):
             response_raw = await ws.recv()
             response = json.loads(response_raw)
 
-            # Check for Log.entryAdded events (instead of Runtime.consoleAPICalled)
-            # === Reverted Logic: Check for Runtime.consoleAPICalled ===
             if response.get("method") == "Runtime.consoleAPICalled":
                 call_type = response.get("params", {}).get("type")
                 args = response.get("params", {}).get("args", [])
@@ -416,7 +385,6 @@ async def monitor_user_interactions(ws_url: str):
                             yield {"type": "click", "data": click_data}
                         except json.JSONDecodeError:
                             logger.warning("Failed to parse click event data from CDP console")
-                    # --- Handle BROCC_SCROLL_EVENT ---
                     elif first_arg_value == "BROCC_SCROLL_EVENT" and len(args) >= 2:
                         try:
                             scroll_data = json.loads(args[1].get("value", "{}"))
@@ -424,34 +392,6 @@ async def monitor_user_interactions(ws_url: str):
                             yield {"type": "scroll", "data": scroll_data}
                         except json.JSONDecodeError:
                             logger.warning("Failed to parse scroll event data from CDP console")
-            # === End of Reverted Logic ===
-
-            # Original Log.entryAdded logic (commented out for testing)
-            # if response.get("method") == "Log.entryAdded":
-            #     entry = response.get("params", {}).get("entry", {})
-            #     if entry.get("source") == "console-api" and entry.get("level") == "log":
-            #         args = entry.get("args", [])
-            #         if len(args) >= 2 and args[0].get("value") == "BROCC_CLICK_EVENT":
-            #             try:
-            #                 click_data = json.loads(args[1].get("value", "{}"))
-            #                 logger.debug(f"Detected click via CDP log: {click_data}")
-            #                 yield {"type": "click", "data": click_data}
-            #             except json.JSONDecodeError:
-            #                 logger.warning("Failed to parse click event data from CDP log")
-            #         elif len(args) >= 2 and args[0].get("value") == "BROCC_SCROLL_EVENT":
-            #             try:
-            #                 scroll_data = json.loads(args[1].get("value", "{}"))
-            #                 logger.debug(f"Detected scroll via CDP log: {scroll_data}")
-            #                 yield {"type": "scroll", "data": scroll_data}
-            #             except json.JSONDecodeError:
-            #                 logger.warning("Failed to parse scroll event data from CDP log")
-
-            # Handle other methods or responses if necessary
-            elif "id" in response:
-                # Log responses to our commands if needed for debugging
-                logger.debug(f"Received response for command id={response['id']}")
-            # else:
-            # logger.debug(f"Received other CDP message/event: {response.get('method', 'N/A')}")
 
     except (
         websockets.ConnectionClosedOK,

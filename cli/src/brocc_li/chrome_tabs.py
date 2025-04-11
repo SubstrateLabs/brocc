@@ -17,27 +17,22 @@ from brocc_li.utils.slugify import slugify
 
 
 class TabChangeEvent(NamedTuple):
-    """Container for tab change events."""
-
     new_tabs: List[dict]
     closed_tabs: List[dict]
     navigated_tabs: List[dict]
     current_tabs: List[dict]
 
 
-# Define a type alias for callbacks that can be either sync or async
 TabChangeCallback = Union[
     Callable[[TabChangeEvent], None],  # Sync callback
     Callable[[TabChangeEvent], Awaitable[None]],  # Async callback
 ]
 
-# Define a type alias for polling callbacks
 PollingTabChangeCallback = Union[
     Callable[[TabChangeEvent], None],
     Callable[[TabChangeEvent], Awaitable[None]],
 ]
 
-# Define a type alias for single tab update callbacks (due to interaction)
 InteractionTabUpdateCallback = Union[
     Callable[[TabReference], None],
     Callable[[TabReference], Awaitable[None]],
@@ -51,8 +46,6 @@ class ChromeTabs:
 
     def __init__(self, chrome_manager: ChromeManager, check_interval: float = 2.0):
         """
-        Initialize the tab monitor.
-
         Args:
             chrome_manager: ChromeManager instance to use for Chrome interactions
             check_interval: How often to check for tab changes, in seconds
@@ -73,15 +66,15 @@ class ChromeTabs:
 
     async def start_monitoring(
         self,
-        on_polling_change_callback: Optional[PollingTabChangeCallback] = None,
-        on_interaction_update_callback: Optional[InteractionTabUpdateCallback] = None,
+        on_polling_change_callback: PollingTabChangeCallback,
+        on_interaction_update_callback: InteractionTabUpdateCallback,
     ) -> bool:
         """
         Start monitoring tabs for changes asynchronously, including interaction events.
 
         Args:
-            on_polling_change_callback: Optional callback for new/closed/navigated tabs detected by polling.
-            on_interaction_update_callback: Optional callback for single tab content updates triggered by interaction.
+            on_polling_change_callback: Callback for new/closed/navigated tabs detected by polling.
+            on_interaction_update_callback: Callback for single tab content updates triggered by interaction.
 
         Returns:
             bool: True if monitoring started successfully
@@ -98,7 +91,7 @@ class ChromeTabs:
         if not self.chrome_manager.connected:
             logger.info("Connecting to Chrome...")
             # Use test_connection which handles launching/relaunching
-            connected = await self.chrome_manager.test_connection()
+            connected = await self.chrome_manager.ensure_connection()
             if not connected:
                 logger.error("Failed to connect to Chrome. Cannot monitor tabs.")
                 return False
@@ -123,9 +116,7 @@ class ChromeTabs:
             # (Assuming get_parallel_tab_html expects dicts for now)
             initial_tabs_dict = [tab.model_dump() for tab in filtered_initial_tabs_with_ws]
 
-            initial_tabs_with_html = await self.chrome_manager.get_parallel_tab_html(
-                initial_tabs_dict
-            )
+            initial_tabs_with_html = await self.chrome_manager.get_html_for_tabs(initial_tabs_dict)
 
             # Convert HTML to MD and create references
             logger.debug(
@@ -256,7 +247,6 @@ class ChromeTabs:
         # Cancel existing timer for this tab, if any
         if tab_id in self._debounce_timers:
             self._debounce_timers[tab_id].cancel()
-            # logger.debug(f"Cancelled previous debounce timer for tab {tab_id}")
 
         # Schedule the debounced fetch function to run after the delay
         loop = asyncio.get_running_loop()
@@ -265,7 +255,6 @@ class ChromeTabs:
             # Use lambda to create a coroutine task when the timer fires
             lambda: asyncio.create_task(self._trigger_debounced_fetch(tab_id)),
         )
-        # logger.debug(f"Scheduled debounced fetch for tab {tab_id} in {DEBOUNCE_DELAY_SECONDS}s")
 
     async def _trigger_debounced_fetch(self, tab_id: str):
         """Callback function executed after the debounce delay. Starts the HTML fetch task."""
@@ -404,7 +393,6 @@ class ChromeTabs:
                             exc_info=True,
                         )
             else:  # current_ref exists but content_changed is False
-                # Handle interaction race condition during navigation)
                 # In that case, the url_for_new_ref might differ from current_ref.url.
                 # Always use url_for_new_ref for logging and saving.
                 logger.debug(
@@ -484,7 +472,7 @@ class ChromeTabs:
                 logger.warning("Chrome connection lost. Attempting to reconnect...")
                 # Stop existing monitors before attempting reconnect
                 await self._stop_all_interaction_monitors()
-                connected = await self.chrome_manager.test_connection()
+                connected = await self.chrome_manager.ensure_connection()
                 if connected:
                     logger.success("Reconnected to Chrome. Will rescan tabs on next interval.")
                     # Reset tab tracking - will be repopulated by process_tab_changes
@@ -646,7 +634,7 @@ class ChromeTabs:
                 f"Polling needs to fetch HTML for {len(tabs_needing_html_fetch_by_poll)} new/navigated tabs..."
             )
             # Fetch HTML in parallel ONLY for tabs identified by the polling logic
-            newly_fetched_tabs_with_html = await self.chrome_manager.get_parallel_tab_html(
+            newly_fetched_tabs_with_html = await self.chrome_manager.get_html_for_tabs(
                 tabs_needing_html_fetch_by_poll  # Pass the list of dicts
             )
             logger.debug(f"Polling fetched HTML for {len(newly_fetched_tabs_with_html)} tabs.")
@@ -706,13 +694,10 @@ class ChromeTabs:
 
 async def main() -> None:
     """Run the Chrome tab monitor as a standalone program."""
-    # Use Rich Console for cleaner output
     console = Console()
 
-    # Adjust check interval for demo purposes
-    POLLING_INTERVAL = 5.0  # Check every 5 seconds via polling
+    POLLING_INTERVAL = 5.0
 
-    # Set up signal handlers for cleaner exit
     stop_event = asyncio.Event()
 
     def signal_handler(sig, frame):
@@ -793,7 +778,7 @@ async def main() -> None:
 
     # --- End File Saving Setup ---
 
-    # --- Callbacks using Rich ---
+    # --- Callbacks ---
     async def on_polling_update(event: TabChangeEvent):
         console.print("[bold yellow]:mag: Polling Update Detected:[/bold yellow]")
         if event.new_tabs:
@@ -843,8 +828,7 @@ async def main() -> None:
     # --- End Callbacks ---
 
     # --- Main Execution Logic ---
-    # Create Chrome manager and tabs monitor
-    manager = ChromeManager(auto_connect=True)
+    manager = ChromeManager()
     tabs_monitor = ChromeTabs(manager, check_interval=POLLING_INTERVAL)
 
     try:
@@ -859,15 +843,9 @@ async def main() -> None:
             logger.success(
                 f"Successfully connected to Chrome {chrome_info['version']} and started monitoring."
             )
-
-            # Log initial state
-            console.print("[bold green]=== Initial Monitored Tabs ===[/bold green]")
             initial_refs = sorted(tabs_monitor.previous_tab_refs, key=lambda r: r.url)
             if initial_refs:
-                for i, ref in enumerate(initial_refs):
-                    console.print(
-                        f" {i + 1}. [link={ref.url}]{ref.url}[/link] ([dim]ID: {ref.id[:8]}...[/dim], MD Size: {len(ref.markdown):,} chars)"
-                    )
+                for _i, ref in enumerate(initial_refs):
                     await save_tab_content(ref)  # Save MD and HTML for initial tabs
             else:
                 console.print("  (No initial HTTP/HTTPS tabs found)")
@@ -896,10 +874,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Configure logging level if needed
-    # logger.setLevel("DEBUG") # Uncomment for verbose CDP/WebSocket/Timing logs
     logger.info("Starting Chrome Tab Monitor Demo...")
-    # Run the async main function
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

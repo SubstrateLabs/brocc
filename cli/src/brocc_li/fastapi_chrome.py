@@ -10,8 +10,8 @@ from brocc_li.utils.logger import logger
 
 router = APIRouter(prefix="/chrome", tags=["chrome"])
 
-# ChromeManager singleton - enable auto-connect
-chrome_manager = ChromeManager(auto_connect=True)
+# ChromeManager singleton
+chrome_manager = ChromeManager()
 
 
 # Helper function to check if Chrome is connected
@@ -29,7 +29,7 @@ async def try_initial_connect(quiet=True):
 
         if state.has_debug_port:
             # Connect with quiet parameter
-            is_connected = await chrome_manager.test_connection(quiet=quiet)
+            is_connected = await chrome_manager.ensure_connection(quiet=quiet)
             if is_connected:
                 if not quiet:
                     logger.debug("Successfully auto-connected to Chrome on server start")
@@ -56,17 +56,15 @@ def try_initial_connect_sync(quiet=True):
 @router.get("/status")
 async def chrome_status():
     """Get the current status of Chrome connection"""
-    # Refresh the state which might auto-connect if configured
     try:
         await chrome_manager.refresh_state()
     except Exception as e:
         logger.error(f"Error refreshing Chrome state: {e}")
 
-    # Get status code - this now needs to be awaited
     status_code = await chrome_manager.status_code()
 
     return {
-        "status_code": status_code.value,  # Return the string value of the enum
+        "status_code": status_code.value,
         "timestamp": time.time(),
     }
 
@@ -168,11 +166,9 @@ async def _launch_chrome_in_thread(force_relaunch: bool = False):
         # Now connect to Chrome using the async method
         logger.debug("Attempting to connect to Chrome")
         try:
-            connected = await chrome_manager.test_connection(quiet=True)
+            connected = await chrome_manager.ensure_connection(quiet=True)
             if connected:
-                # Use chrome_manager's method to get version
-                chrome_version = await chrome_manager._get_chrome_version()
-                logger.debug(f"Successfully connected to Chrome {chrome_version}")
+                logger.debug("Successfully connected to Chrome")
             else:
                 logger.error("Failed to connect to Chrome")
         except Exception as e:
