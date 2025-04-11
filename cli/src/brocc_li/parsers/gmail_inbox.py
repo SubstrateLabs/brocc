@@ -222,7 +222,6 @@ def gmail_inbox_html_to_md(html: str, debug: bool = False) -> Optional[str]:
     Parses the HTML content of Gmail inbox into Markdown using BeautifulSoup ONLY.
     Focuses on finding email rows/items based on common Gmail structures.
     """
-    logger.info("Starting Gmail Inbox HTML processing with BeautifulSoup...")
     try:
         soup = BeautifulSoup(html, "html.parser")
 
@@ -358,7 +357,7 @@ def gmail_inbox_html_to_md(html: str, debug: bool = False) -> Optional[str]:
 
         result_md = "\n\n".join(markdown_parts)
 
-        logger.info(f"Successfully processed Gmail Inbox HTML. Found {len(all_emails)} emails.")
+        logger.info(f"Found {len(all_emails)} Gmail emails.")
         if debug:
             logger.debug(f"Final markdown contains {len(result_md.splitlines())} lines")
 

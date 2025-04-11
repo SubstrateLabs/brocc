@@ -1,4 +1,4 @@
-.PHONY: format lint type-check test install clean build dev chrome test-md test-twitter
+.PHONY: format lint type-check test install clean build dev chrome test-md test-twitter clear-db
 
 # Format code with ruff
 format:
@@ -39,6 +39,10 @@ clean:
 # build and run 
 dev: build
 	uv run brocc
+
+# Clear all database files and reinitialize
+clear-db:
+	uv run python -m scripts.clear_db
 
 chrome:
 	uv run python -m brocc_li.chrome_tabs

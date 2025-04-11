@@ -148,7 +148,7 @@ async def _send_cdp_command(ws, msg_id: int, method: str, params: Optional[dict]
     if params:
         command["params"] = params
 
-    logger.debug(f"Sending CDP command (id={msg_id}): {method}")
+    # logger.debug(f"Sending CDP command (id={msg_id}): {method}")
     await ws.send(json.dumps(command))
 
     # Loop until we get the response matching our msg_id
@@ -158,12 +158,12 @@ async def _send_cdp_command(ws, msg_id: int, method: str, params: Optional[dict]
 
         # Check if it's the response we are waiting for
         if response.get("id") == msg_id:
-            logger.debug(f"Received response for id={msg_id}")
+            # logger.debug(f"Received response for id={msg_id}")
             return response
-        elif "method" in response:  # It's an event, log and ignore
-            logger.debug(f"Ignoring CDP event: {response.get('method')}")
+        elif "method" in response:  # It's an event, ignore
+            pass
         else:  # Unexpected message format
-            logger.warning(f"Ignoring unexpected CDP message format: {response_raw}")
+            pass
 
 
 async def _get_html_using_dom(ws_url: str) -> Tuple[Optional[str], Optional[str]]:
@@ -192,9 +192,6 @@ async def _get_html_using_dom(ws_url: str) -> Tuple[Optional[str], Optional[str]
                 # Check if this is an about:blank or empty page
                 frame = resource_result.get("result", {}).get("frameTree", {}).get("frame", {})
                 current_url = frame.get("url", None)  # Store the URL from frame
-                logger.debug(
-                    f"Resource Tree frame check: url='{current_url}', frame_details={frame}"
-                )
                 if current_url in ["about:blank", ""]:
                     logger.debug("Detected blank/empty page - returning empty HTML")
                     return None, current_url  # Return None HTML, but the URL
@@ -209,7 +206,7 @@ async def _get_html_using_dom(ws_url: str) -> Tuple[Optional[str], Optional[str]
             # Get document root node
             doc_result = await _send_cdp_command(ws, msg_counter, "DOM.getDocument")
             msg_counter += 1
-            logger.debug(f"DOM.getDocument result: {doc_result}")
+            # logger.debug(f"DOM.getDocument result: {doc_result}")
 
             # Extract document URL if available (more reliable than frame URL sometimes)
             root_data = doc_result.get("result", {}).get("root", {})
@@ -236,7 +233,8 @@ async def _get_html_using_dom(ws_url: str) -> Tuple[Optional[str], Optional[str]
                 error_message = html_result["error"].get("message", "Unknown error")
                 logger.warning(f"DOM.getOuterHTML failed: {error_message}")
             elif html_content:
-                logger.debug(f"DOM.getOuterHTML success: HTML length = {len(html_content)}")
+                # logger.debug(f"DOM.getOuterHTML success: HTML length = {len(html_content)}")
+                pass
             else:
                 logger.warning("DOM.getOuterHTML succeeded but returned empty HTML")
 
@@ -341,7 +339,7 @@ async def monitor_user_interactions(ws_url: str):
             }, { capture: true, passive: true }); // Use capture phase, non-blocking
 
             console.log('BROCC_DEBUG: Listeners successfully installed.'); // Debug log
-            return "Broccoli interaction listeners installed.";
+            return "Interaction listeners installed.";
         })();
         """
         eval_result = await _send_cdp_command(
@@ -355,7 +353,7 @@ async def monitor_user_interactions(ws_url: str):
         injected_status = (
             eval_result.get("result", {}).get("result", {}).get("value", "Failed to inject")
         )
-        logger.debug(f"JS injection status for {ws_url}: {injected_status}")
+        logger.debug(f"{ws_url}: {injected_status}")
 
         # Listen for console entries
         while True:

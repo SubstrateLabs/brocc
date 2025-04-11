@@ -503,7 +503,6 @@ class ChromeTabs:
             # Periodically check for tab changes via polling
             if current_time - self.last_tabs_check >= self.check_interval:
                 try:
-                    logger.debug("Polling for tab changes...")
                     # Use get_tabs to get full ChromeTab objects including ws urls
                     current_cdp_tabs: List[ChromeTab] = await get_tabs()
                     # Pass the full objects to process_tab_changes
@@ -538,14 +537,12 @@ class ChromeTabs:
         Returns:
             TabChangeEvent if polling detected new/closed/navigated tabs, None otherwise.
         """
-        logger.debug(f"Processing {len(current_cdp_tabs)} tabs from polling...")
         # Filter for only HTTP/HTTPS URLs and tabs with WebSocket URLs needed for monitoring
         filtered_tabs = [
             tab
             for tab in current_cdp_tabs
             if tab.url.startswith(("http://", "https://")) and tab.webSocketDebuggerUrl
         ]
-        logger.debug(f"Filtered to {len(filtered_tabs)} HTTP/HTTPS tabs with WebSocket URLs.")
 
         # --- Identify Changes & Manage Interaction Monitors ---
 
@@ -695,7 +692,6 @@ class ChromeTabs:
 
         # Atomically update the main set of references
         self.previous_tab_refs = updated_tab_refs
-        logger.debug(f"Updated previous_tab_refs. Current count: {len(self.previous_tab_refs)}")
 
         # --- Return Event for Polling Callback ---
         # Only return an event if polling detected direct changes (new, close, navigate)
@@ -715,7 +711,7 @@ class ChromeTabs:
                 current_tabs=current_tabs_for_event,  # Provide the full current state
             )
         else:
-            logger.debug("Polling detected no new/closed/navigated tabs.")
+            # logger.debug("Polling detected no new/closed/navigated tabs.")
             return None  # No changes detected by this polling run
 
 

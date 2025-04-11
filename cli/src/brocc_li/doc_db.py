@@ -167,7 +167,6 @@ class DocDB:
 
                         # Update status with additional info
                         self.lancedb_status.update({"chunk_count": chunk_count, "healthy": True})
-                        logger.debug(f"Got count from Polars: {chunk_count} chunks")
                     except Exception as e:
                         # If Arrow/Polars conversion fails, just update status
                         self.lancedb_status.update(
@@ -956,3 +955,53 @@ class DocDB:
                     time.sleep(1)
             except KeyboardInterrupt:
                 conn.execute("CALL stop_ui_server();")
+
+    def clear_databases(self) -> bool:
+        """
+        Delete both DuckDB and LanceDB database files and reinitialize empty databases.
+        This will completely erase all stored documents and their chunks.
+
+        Returns:
+            bool: True if the operation was successful, False otherwise.
+        """
+        try:
+            import os
+            import shutil
+            from pathlib import Path
+
+            logger.info("Clearing all database files...")
+
+            # Close any existing LanceDB connection
+            if hasattr(self, "lance_db") and self.lance_db is not None:
+                self.lance_db = None
+
+            # Delete DuckDB file if it exists
+            if os.path.exists(self.db_path):
+                logger.debug(f"Deleting DuckDB database at {self.db_path}")
+                os.remove(self.db_path)
+                self.duckdb_status = {"initialized": False, "error": None, "path": self.db_path}
+
+            # Delete LanceDB directory if it exists
+            if os.path.exists(self.lance_path):
+                logger.debug(f"Deleting LanceDB database at {self.lance_path}")
+                shutil.rmtree(self.lance_path)
+                self.lancedb_status = {
+                    "initialized": False,
+                    "embeddings_available": False,
+                    "error": None,
+                    "path": self.lance_path,
+                }
+
+            # Ensure parent directories exist
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(self.lance_path).mkdir(parents=True, exist_ok=True)
+
+            # Reinitialize empty databases
+            self._initialize_duckdb()
+            self._initialize_lancedb()
+
+            logger.success("Databases cleared and reinitialized successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear databases: {e}")
+            return False
